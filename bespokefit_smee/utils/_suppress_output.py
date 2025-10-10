@@ -38,6 +38,14 @@ def suppress_unwanted_output() -> None:
         category=DeprecationWarning,
     )
 
+    # Suppress torch.tensor() warning from descent
+    warnings.filterwarnings(
+        "ignore",
+        message="To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach()",
+        category=UserWarning,
+        module="descent.targets.energy",
+    )
+
     # Suppress INFO logs from openff.interchange.smirnoff._nonbonded
     logging.getLogger("openff.interchange.smirnoff._nonbonded").setLevel(
         logging.WARNING
