@@ -1,6 +1,10 @@
 """Unit tests for the parameterizer module."""
 
+import openff.toolkit
 import pytest
+import smee
+import smee.converters
+import torch
 from openff.toolkit import ForceField
 from pint import Quantity
 
@@ -11,14 +15,18 @@ from ...parameterise import (
 from ...settings import ParameterisationSettings
 
 
+@pytest.mark.parametrize("linear_harmonics", [True, False])
 @pytest.mark.parametrize(
-    "linear_harmonics",
+    "smiles",
     [
-        True,
-        False,
+        "CC",
+        "ClC=O",
+        "OCCO",
+        "CC(=O)Nc1ccc(cc1)O",
+        "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]",
     ],
 )
-def test_round_trip(linear_harmonics: bool, jnk1_lig_smiles):
+def test_params_equivalent(linear_harmonics: bool, smiles: str):
     """
     Check that we can convert a general force field to and from a
     molecule-specific TensorForceField while still assigning the same\
@@ -28,7 +36,7 @@ def test_round_trip(linear_harmonics: bool, jnk1_lig_smiles):
     base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
     settings = ParameterisationSettings(
         linear_harmonics=linear_harmonics,
-        smiles=jnk1_lig_smiles,
+        smiles=smiles,
         msm_settings=None,
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
         expand_torsions=False,
@@ -91,3 +99,59 @@ def test_round_trip(linear_harmonics: bool, jnk1_lig_smiles):
                         f"Base: {base_param_dict[attr]} "
                         f"Recreated: {recreated_param_dict[attr]}"
                     )
+
+
+@pytest.mark.parametrize("linear_harmonics", [True, False])
+@pytest.mark.parametrize(
+    "smiles, excluded_smirks",
+    [
+        ("CC", []),
+        ("ClC=O", []),
+        ("OCCO", []),
+        ("CC(=O)Nc1ccc(cc1)O", []),
+        (
+            "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]",
+            [],
+        ),
+        (
+            "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]",
+            [
+                "[*:1]-[*:2]#[*:3]-[*:4]",
+                "[*:1]~[*:2]-[*:3]#[*:4]",
+                "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",
+            ],
+        ),
+    ],
+)
+# Adapted from https://github.com/SimonBoothroyd/befit/blob/1c4e5d1a5d6af6fe2386d9202606c6960a914689/befit/tests/test_ff.py#L17
+def test_energies_equivalent(
+    linear_harmonics: bool, smiles: str, excluded_smirks: list[str]
+):
+    """Check that we get the same energy after converting back and forth
+    between ForceField and TensorForceField objects."""
+
+    base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+    settings = ParameterisationSettings(
+        linear_harmonics=linear_harmonics,
+        smiles=smiles,
+        msm_settings=None,
+        initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
+        expand_torsions=True,
+        excluded_smirks=excluded_smirks,
+    )
+    mol, _, tensor_top, tensor_ff, _ = parameterise(settings=settings, device="cpu")
+    mol.generate_conformers(n_conformers=1)
+
+    coords = torch.tensor(mol.conformers[0].m_as("angstrom"))
+    coords += torch.randn(len(coords) * 3).reshape(-1, 3) * 0.5
+
+    energy_1 = smee.compute_energy(tensor_top, tensor_ff, coords)
+
+    converted_back = convert_to_smirnoff(tensor_ff, base_ff)
+
+    ff_2, [top_2] = smee.converters.convert_interchange(
+        openff.interchange.Interchange.from_smirnoff(converted_back, mol.to_topology())
+    )
+    energy_2 = smee.compute_energy(top_2, ff_2, coords)
+
+    assert torch.isclose(energy_1, energy_2)

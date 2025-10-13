@@ -83,6 +83,14 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(potential.parameter_cols)
                     }
                 )
+                if current_param := handler.get_parameter(
+                    {"smirks": parameter_dict["smirks"]}
+                ):
+                    logger.warning(
+                        f"Parameter with smirks {parameter_dict['smirks']} already exists in the force field."
+                        f"Current parameter: {current_param}. New parameter: {parameter_dict}. Skipping addition of new parameter."
+                    )
+                    continue
                 handler.add_parameter(parameter_dict)
         elif potential.type == "LinearBonds":
             assert potential.attribute_cols is None
@@ -297,8 +305,11 @@ def _prepare_potential(
     symmetries: list[int],
     potential: smee.TensorPotential,
     parameter_map: smee.ValenceParameterMap,
-) -> None:
+    excluded_smirks: list[str] | None = None,
+) -> list[openff.interchange.models.PotentialKey]:
     """Prepare a potential to use bespoke parameters for each 'slot'."""
+
+    excluded_smirks = excluded_smirks or []
 
     is_indexed = any(key.mult is not None for key in potential.parameter_keys)
 
@@ -306,6 +317,8 @@ def _prepare_potential(
     ids_to_particle_idxs = collections.defaultdict(set)
 
     ids_to_smarts = {}
+
+    excluded_smirks_to_ids = {}
 
     for particle_idxs, assignment_row in zip(
         parameter_map.particle_idxs,
@@ -325,6 +338,14 @@ def _prepare_potential(
         ]
         assert len(parameter_idxs) == 1
 
+        initial_smarts = potential.parameter_keys[parameter_idxs[0]].id
+
+        if initial_smarts in excluded_smirks:
+            if initial_smarts not in excluded_smirks_to_ids:
+                excluded_smirks_to_ids[initial_smarts] = particle_ids
+            else:
+                particle_ids = excluded_smirks_to_ids[initial_smarts]
+
         ids_to_parameter_idxs[particle_ids].add(parameter_idxs[0])
         ids_to_particle_idxs[particle_ids].add(particle_idxs)
 
@@ -336,7 +357,10 @@ def _prepare_potential(
                 particle_idxs[3],
             )
 
-        ids_to_smarts[particle_ids] = _create_smarts(mol, particle_idxs)
+        if initial_smarts in excluded_smirks:
+            ids_to_smarts[particle_ids] = initial_smarts
+        else:
+            ids_to_smarts[particle_ids] = _create_smarts(mol, particle_idxs)
 
     sorted_ids_to_parameter_idxs = {
         particle_ids: sorted(parameter_idxs)
@@ -367,6 +391,10 @@ def _prepare_potential(
         for particle_ids, parameter_idx in parameter_ids
     ]
 
+    excluded_parameter_keys = [
+        key for key in potential.parameter_keys if key.id in excluded_smirks
+    ]
+
     assignment_matrix = smee.utils.zeros_like(
         (len(parameter_map.particle_idxs), len(potential.parameters)),
         parameter_map.assignment_matrix,
@@ -386,6 +414,8 @@ def _prepare_potential(
         particle_idxs_updated, parameter_map.particle_idxs
     )
     parameter_map.assignment_matrix = assignment_matrix.to_sparse()
+
+    return excluded_parameter_keys
 
 
 # TODO: Break this up into smaller functions
@@ -436,7 +466,7 @@ def parameterise(
         del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
 
     if settings.expand_torsions:
-        off_ff = _expand_torsions(off_ff)
+        off_ff = _expand_torsions(off_ff, settings.excluded_smirks)
 
     force_field, [topology] = smee.converters.convert_interchange(
         openff.interchange.Interchange.from_smirnoff(off_ff, mol.to_topology())
@@ -449,13 +479,15 @@ def parameterise(
     symmetries = list(Chem.CanonicalRankAtoms(mol.to_rdkit(), breakTies=False))
     if topology.n_v_sites != 0:
         raise NotImplementedError("virtual sites are not supported yet.")
+
+    excluded_keys = collections.defaultdict(list)
     for potential in force_field.potentials:
         parameter_map = topology.parameters[potential.type]
         if isinstance(parameter_map, smee.NonbondedParameterMap):
             continue
         # TODO: Check Tom's comment below
-        _prepare_potential(
-            mol, symmetries, potential, parameter_map
+        excluded_keys[potential.type] = _prepare_potential(
+            mol, symmetries, potential, parameter_map, settings.excluded_smirks
         )  ### ??? is it re-ordering the atoms and bonds?
 
     if settings.msm_settings is not None:
@@ -482,12 +514,14 @@ def parameterise(
             "LinearBonds": ParameterConfig(
                 cols=["k1", "k2"],
                 scales={"k1": 0.0024, "k2": 0.0024},
-                limits={"k1": (None, None), "k2": (None, None)},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                exclude=excluded_keys["Bonds"] if excluded_keys["Bonds"] else None,
             ),
             "LinearAngles": ParameterConfig(
                 cols=["k1", "k2"],
                 scales={"k1": 0.0207, "k2": 0.0207},
-                limits={"k1": (None, None), "k2": (None, None)},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                exclude=excluded_keys["Angles"] if excluded_keys["Angles"] else None,
             ),
         }
     else:
@@ -496,11 +530,13 @@ def parameterise(
                 cols=["k", "length"],
                 scales={"k": 1.0, "length": 1.0},
                 limits={"k": (0.0, None), "length": (0.0, None)},
+                exclude=excluded_keys["Bonds"] if excluded_keys["Bonds"] else None,
             ),
             "Angles": ParameterConfig(
                 cols=["k", "angle"],
                 scales={"k": 1.0, "angle": 1.0},
                 limits={"k": (0.0, None), "angle": (0.0, math.pi)},
+                exclude=excluded_keys["Angles"] if excluded_keys["Angles"] else None,
             ),
         }
     for potential in force_field.potentials:
@@ -516,6 +552,11 @@ def parameterise(
                             cols=["k1", "k2"],
                             scales={"k1": 100.0, "k2": 100.0},
                             limits={"k1": (0, None), "k2": (0, None)},
+                            exclude=(
+                                excluded_keys["ProperTorsions"]
+                                if excluded_keys["ProperTorsions"]
+                                else None
+                            ),
                         )
                     }
                 )
@@ -528,6 +569,11 @@ def parameterise(
                                 "k": 0.3252,
                             },
                             limits={"k": (None, None)},
+                            exclude=(
+                                excluded_keys["ProperTorsions"]
+                                if excluded_keys["ProperTorsions"]
+                                else None
+                            ),
                         ),
                     }
                 )
@@ -543,6 +589,11 @@ def parameterise(
                             cols=["k1", "k2"],
                             scales={"k1": 100.0, "k2": 100.0},
                             limits={"k1": (0, None), "k2": (0, None)},
+                            exclude=(
+                                excluded_keys["ImproperTorsions"]
+                                if excluded_keys["ImproperTorsions"]
+                                else None
+                            ),
                         ),
                     }
                 )
@@ -555,6 +606,11 @@ def parameterise(
                                 "k": 0.1647,
                             },
                             limits={"k": (None, None)},
+                            exclude=(
+                                excluded_keys["ImproperTorsions"]
+                                if excluded_keys["ImproperTorsions"]
+                                else None
+                            ),
                         ),
                     }
                 )
@@ -568,11 +624,17 @@ def parameterise(
     )
 
 
-def _expand_torsions(ff: openff.toolkit.ForceField) -> openff.toolkit.ForceField:
+def _expand_torsions(
+    ff: openff.toolkit.ForceField, excluded_smirks: list[str] | None = None
+) -> openff.toolkit.ForceField:
     """Expand the torsion potential to include K0-4 for proper torsions"""
+    excluded_smirks = excluded_smirks or []
     ff_copy = copy.deepcopy(ff)
     torsion_handler = ff_copy.get_parameter_handler("ProperTorsions")
     for parameter in torsion_handler:
+        # Avoid expanding any excluded smarts
+        if parameter.smirks in excluded_smirks:
+            continue
         # set the defaults
         parameter.idivf = [1.0] * 4
         default_k = [0 * _KCAL_PER_MOL] * 4
@@ -609,8 +671,8 @@ def linearize_harmonics(
                 k = param[0].item()
                 b = param[1].item()
                 dt = param.dtype
-                b1 = b * 0.9
-                b2 = b * 1.1
+                b1 = b * 0.5
+                b2 = b * 1.5
                 d = b2 - b1
                 k1 = k * (b2 - b) / d
                 k2 = k * (b - b1) / d
@@ -635,8 +697,10 @@ def linearize_harmonics(
                 k = param[0].item()
                 a = param[1].item()
                 dt = param.dtype
-                a1 = a * 0.9
-                a2 = a * 1.1
+                # a1 = a * 0.9
+                # a2 = a * 1.1
+                a1 = 0.0
+                a2 = math.pi
                 d = a2 - a1
                 k1 = k * (a2 - a) / d
                 k2 = k * (a - a1) / d

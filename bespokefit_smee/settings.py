@@ -327,6 +327,16 @@ class ParameterisationSettings(_DefaultSettings):
         " OpenFF force field, or your own .offxml file.",
     )
 
+    excluded_smirks: list[str] = Field(
+        [
+            "[*:1]-[*:2]#[*:3]-[*:4]",  # Linear torsions should be kept linear
+            "[*:1]~[*:2]-[*:3]#[*:4]",  # Linear torsions should be kept linear
+            "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",  # Linear torsions should be kept linear
+        ],
+        description="List of SMARTS patterns to exclude from training,"
+        "i.e. to keep the parameters from the initial force field.",
+    )
+
     linear_harmonics: bool = Field(
         True,
         description="Linearise the harmonic potentials in the Force Field (Default)",
