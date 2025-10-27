@@ -605,7 +605,7 @@ def parameterise(
                             scales={
                                 "k": 0.1647,
                             },
-                            limits={"k": (None, None)},
+                            limits={"k": (0, None)},
                             exclude=(
                                 excluded_keys["ImproperTorsions"]
                                 if excluded_keys["ImproperTorsions"]
