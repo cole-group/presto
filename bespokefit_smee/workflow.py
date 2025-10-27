@@ -73,6 +73,11 @@ def get_bespoke_force_field(
         settings.parameterisation_settings, device=settings.device_type
     )
     trainable_parameters = trainable.to_values().to((settings.device))
+    for param in tensor_top.parameters.values():
+        param.assignment_matrix = param.assignment_matrix.to_dense()
+
+    # Get a copy of the initial trainable parameters for regularisation
+    initial_parameters = trainable_parameters.clone().detach()
 
     # Generate the test data
     stage = OutputStage(StageKind.TESTING)
@@ -157,6 +162,7 @@ def get_bespoke_force_field(
 
         trainable_parameters, trainable = train_fn(
             trainable_parameters=trainable_parameters,
+            initial_parameters=initial_parameters,
             trainable=trainable,
             topology=tensor_top,
             dataset=dataset_train,

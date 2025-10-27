@@ -281,6 +281,9 @@ class TrainingSettings(_DefaultSettings):
     loss_force_weight: float = Field(
         0.1, description="Scaling Factor for the Force loss term"
     )
+    regularisation_strength: float = Field(
+        100.0, description="Strength of L2 regularisation on parameter updates"
+    )
     energy_upper_cutoff: float = Field(
         10.0, description="Upper bound for the energy cutoff function"
     )

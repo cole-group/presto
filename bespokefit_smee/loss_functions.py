@@ -9,13 +9,18 @@ import descent
 import descent.optim
 import descent.train
 import descent.utils.loss
+import loguru
 import smee
 import torch
+
+logger = loguru.logger
 
 
 def prediction_loss(
     dataset: datasets.Dataset,
-    force_field: smee.TensorForceField,
+    trainable: descent.train.Trainable,
+    trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
     topology: smee.TensorTopology,
     loss_force_weight: float,
     device_type: str,
@@ -34,7 +39,7 @@ def prediction_loss(
     """
     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
         dataset,
-        force_field,
+        trainable.to_force_field(trainable_parameters),
         {dataset[0]["smiles"]: topology},
         device_type=device_type,
         normalize=False,
@@ -57,7 +62,17 @@ def prediction_loss(
 
     loss_energy: torch.Tensor = ((energy_ref_all - energy_pred_all) ** 2).mean()
     loss_forces: torch.Tensor = ((forces_ref_all - forces_pred_all) ** 2).mean()
-    return loss_energy + loss_forces * loss_force_weight
+
+    # Regularisation penatly
+    regularisation_pentalty = compute_regularisation_penalty(
+        trainable, trainable_parameters, initial_parameters
+    )
+
+    logger.info(
+        f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_pentalty.item():.4f}"
+    )
+
+    return loss_energy + loss_forces * loss_force_weight + regularisation_pentalty
 
     # energy_loss, forces_loss = [], []
     # for entry in dataset:
@@ -86,10 +101,25 @@ def prediction_loss(
     # return lossE + lossF * loss_force_weight**0.5
 
 
+def compute_regularisation_penalty(
+    trainable: descent.train.Trainable,
+    trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
+) -> torch.Tensor:
+    """Compute regularisation penalty"""
+    penalty = torch.tensor(0.0, device=trainable_parameters.device)
+
+    # L2 regularisation on all parameters
+    penalty += ((trainable_parameters - initial_parameters) ** 2).mean() * 0
+
+    return penalty
+
+
 def get_loss_closure_fn(
     trainable: descent.train.Trainable,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
+    regularisation_strength: float,
 ) -> descent.optim.ClosureFn:
     """
     Return a default closure function
@@ -105,6 +135,7 @@ def get_loss_closure_fn(
 
     def closure_fn(
         x: torch.Tensor,
+        initial_x: torch.Tensor,
         compute_gradient: bool,
         compute_hessian: bool,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
@@ -125,6 +156,12 @@ def get_loss_closure_fn(
                 normalize=False,
             )[:2]
             loss: torch.Tensor = ((y_pred - y_ref) ** 2).mean()
+
+            regularisation_penalty = compute_regularisation_penalty(
+                trainable, _x, initial_x
+            )
+            loss += regularisation_penalty * regularisation_strength
+
             return loss
 
         loss += loss_fn(x)

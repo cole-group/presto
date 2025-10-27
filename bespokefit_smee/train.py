@@ -123,6 +123,7 @@ def train_levenberg_marquardt(
         trainable,
         topology,
         dataset,
+        settings.regularisation_strength,
     )
 
     correct_fn = trainable.clamp
@@ -147,6 +148,7 @@ def train_levenberg_marquardt(
 @_register_training_fn("adam")
 def train_adam(
     trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
@@ -162,6 +164,8 @@ def train_adam(
     ----------
         trainable_parameters: torch.Tensor
             The parameters to be optimized.
+        initial_parameters: torch.Tensor
+            The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
         topology: smee.TensorTopology
@@ -212,17 +216,23 @@ def train_adam(
             ):
                 loss_trn = prediction_loss(
                     dataset,
-                    trainable.to_force_field(trainable_parameters),
+                    trainable,
+                    trainable_parameters,
+                    initial_parameters,
                     topology,
                     settings.loss_force_weight,
+                    settings.regularisation_strength,
                     str(device),
                 )
                 if i % 10 == 0:
                     loss_tst = prediction_loss(
                         dataset_test,
-                        trainable.to_force_field(trainable_parameters),
+                        trainable,
+                        trainable_parameters,
+                        initial_parameters,
                         topology,
                         settings.loss_force_weight,
+                        settings.regularisation_strength,
                         str(device),
                     )
                     write_metrics(i, loss_trn, loss_tst, writer, metrics_file)
@@ -236,9 +246,12 @@ def train_adam(
         # some book-keeping and outputting
         loss_tst = prediction_loss(
             dataset_test,
-            trainable.to_force_field(trainable_parameters),
+            trainable,
+            trainable_parameters,
+            initial_parameters,
             topology,
             settings.loss_force_weight,
+            settings.regularisation_strength,
             str(device),
         )
         write_metrics(settings.n_epochs, loss_trn, loss_tst, writer, metrics_file)
