@@ -359,6 +359,7 @@ def sample_mlmd(
         settings.equilibration_n_steps_per_conformer,
         settings.production_n_snapshots_per_conformer,
         settings.production_n_steps_per_snapshot_per_conformer,
+        str(output_paths.get(OutputType.PDB_TRAJECTORY, None)),
     )
 
     return ml_dataset
