@@ -26,6 +26,8 @@ dependencies:
     - pydantic-settings
     - pydantic-units
     - loguru
+    - h5py
+    - seaborn
 
     # Testing/ Development
     - pre-commit

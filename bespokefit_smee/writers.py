@@ -11,8 +11,8 @@ from typing import TextIO
 
 import datasets
 import descent.train
+import h5py
 import loguru
-import numpy
 import pandas
 import smee
 import tensorboardX
@@ -83,6 +83,45 @@ def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
 #     )
 
 
+# def write_scatter(
+#     dataset: datasets.Dataset,
+#     force_field: smee.TensorForceField,
+#     topology_in: smee.TensorTopology,
+#     device_type: str,
+#     filename: PathLike,
+# ) -> tuple[float, float, float, float]:
+#     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
+#         dataset,
+#         force_field,
+#         {dataset[0]["smiles"]: topology_in},
+#         device_type=device_type,
+#         normalize=False,
+#     )
+#     with torch.no_grad():
+#         # Write out the pre-conformer differences
+#         energy_diffs = energy_pred_all - energy_ref_all
+#         # Flatten forces to 1D for easier handling
+#         force_diffs = (forces_pred_all - forces_ref_all).reshape(-1)
+#         # Pad the energy differences to match the forces, with nan
+#         energy_diffs_padded = torch.full(
+#             force_diffs.shape, float("nan"), device=energy_diffs.device
+#         )
+#         energy_diffs_padded[: energy_diffs.numel()] = energy_diffs.reshape(-1)
+
+#         print_array = numpy.c_[energy_diffs_padded.cpu()[:], force_diffs.cpu()[:]]
+
+#         with open(filename, "w") as out_file:
+#             numpy.savetxt(out_file, print_array, delimiter=" ", newline="\n")
+#         energy_summary = torch.std_mean(energy_diffs)
+#         forces_summary = torch.std_mean(force_diffs)
+#         return (
+#             energy_summary[1].item(),
+#             energy_summary[0].item(),
+#             forces_summary[1].item(),
+#             forces_summary[0].item(),
+#         )
+
+
 def write_scatter(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
@@ -90,6 +129,7 @@ def write_scatter(
     device_type: str,
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
+    """Predict and save energies/forces to HDF5."""
     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
         dataset,
         force_field,
@@ -97,29 +137,31 @@ def write_scatter(
         device_type=device_type,
         normalize=False,
     )
+
     with torch.no_grad():
-        # Write out the pre-conformer differences
         energy_diffs = energy_pred_all - energy_ref_all
-        # Flatten forces to 1D for easier handling
-        force_diffs = (forces_pred_all - forces_ref_all).reshape(-1)
-        # Pad the energy differences to match the forces, with nan
-        energy_diffs_padded = torch.full(
-            force_diffs.shape, float("nan"), device=energy_diffs.device
-        )
-        energy_diffs_padded[: energy_diffs.numel()] = energy_diffs.reshape(-1)
+        force_diffs = forces_pred_all - forces_ref_all
 
-        print_array = numpy.c_[energy_diffs_padded.cpu()[:], force_diffs.cpu()[:]]
+        # Save to HDF5
+        with h5py.File(filename, "w") as f:
+            f.create_dataset("energy_reference", data=energy_ref_all.cpu().numpy())
+            f.create_dataset("energy_predicted", data=energy_pred_all.cpu().numpy())
+            f.create_dataset("energy_differences", data=energy_diffs.cpu().numpy())
 
-        with open(filename, "w") as out_file:
-            numpy.savetxt(out_file, print_array, delimiter=" ", newline="\n")
-        energy_summary = torch.std_mean(energy_diffs)
-        forces_summary = torch.std_mean(force_diffs)
-        return (
-            energy_summary[1].item(),
-            energy_summary[0].item(),
-            forces_summary[1].item(),
-            forces_summary[0].item(),
-        )
+            f.create_dataset("forces_reference", data=forces_ref_all.cpu().numpy())
+            f.create_dataset("forces_predicted", data=forces_pred_all.cpu().numpy())
+            f.create_dataset("forces_differences", data=force_diffs.cpu().numpy())
+
+            f.attrs["n_conformers"] = len(energy_ref_all)
+            f.attrs["n_atoms"] = forces_ref_all.shape[0] // len(energy_ref_all)
+
+        # Summary statistics
+        energy_mean = torch.mean(energy_diffs).item()
+        energy_std = torch.std(energy_diffs).item()
+        forces_mean = torch.mean(force_diffs).item()
+        forces_std = torch.std(force_diffs).item()
+
+        return energy_mean, energy_std, forces_mean, forces_std
 
 
 def report(

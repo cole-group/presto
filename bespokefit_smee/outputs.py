@@ -18,11 +18,15 @@ class OutputType(Enum):
     TENSORBOARD = "tensorboard"
     TRAINING_METRICS = "metrics.txt"
     OFFXML = "bespoke_ff.offxml"
-    SCATTER = "scatter.scat"
+    SCATTER = "energies_and_forces.hdf5"
     PDB_TRAJECTORY = "trajectory.pdb"
     METADYNAMICS_BIAS = "metadynamics_bias"
     LOSS_PLOT = "loss.png"
     ERROR_PLOT = "error_distributions.png"
+    CORRELATION_PLOT = "correlation.png"
+    FORCE_ERROR_BY_ATOM_INDEX_PLOT = "force_error_by_atom_index.png"
+    PARAMETER_VALUES_PLOT = "parameter_values.png"
+    PARAMETER_DIFFERENCES_PLOT = "parameter_differences.png"
 
 
 class StageKind(str, Enum):
@@ -90,7 +94,14 @@ class WorkflowPathManager:
                 }
                 for i in range(1, self.n_iterations + 1)
             },
-            OutputStage(StageKind.PLOTS): {OutputType.LOSS_PLOT, OutputType.ERROR_PLOT},
+            OutputStage(StageKind.PLOTS): {
+                OutputType.LOSS_PLOT,
+                OutputType.ERROR_PLOT,
+                OutputType.CORRELATION_PLOT,
+                OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
+                OutputType.PARAMETER_VALUES_PLOT,
+                OutputType.PARAMETER_DIFFERENCES_PLOT,
+            },
         }
         return outputs_by_stage
 
