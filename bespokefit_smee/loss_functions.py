@@ -23,15 +23,19 @@ def prediction_loss(
     initial_parameters: torch.Tensor,
     topology: smee.TensorTopology,
     loss_force_weight: float,
+    regularisation_strength: float,
     device_type: str,
 ) -> torch.Tensor:
     """Predict the loss function for a guess forcefield against a dataset.
 
     Args:
         dataset: The dataset to predict the energies and forces of.
-        force_field: The force field to use to predict the energies and forces.
+        trainable: The trainable object containing the force field.
+        trainable_parameters: The parameters to be optimized.
+        initial_parameters: The initial parameters before training.
         topologies: The topologies of the molecules in the dataset.
         loss_force_weight: Weight for the force loss term.
+        regularisation_strength: The strength of the regularisation penalty.
         device_type: The device type (e.g., 'cpu' or 'cuda').
 
     Returns:
@@ -63,7 +67,7 @@ def prediction_loss(
     loss_energy: torch.Tensor = ((energy_ref_all - energy_pred_all) ** 2).mean()
     loss_forces: torch.Tensor = ((forces_ref_all - forces_pred_all) ** 2).mean()
 
-    # Regularisation penatly
+    # Regularisation penalty
     regularisation_pentalty = compute_regularisation_penalty(
         trainable, trainable_parameters, initial_parameters
     )
@@ -72,7 +76,11 @@ def prediction_loss(
         f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_pentalty.item():.4f}"
     )
 
-    return loss_energy + loss_forces * loss_force_weight + regularisation_pentalty
+    return (
+        loss_energy
+        + loss_forces * loss_force_weight
+        + regularisation_pentalty * regularisation_strength
+    )
 
     # energy_loss, forces_loss = [], []
     # for entry in dataset:
@@ -110,13 +118,14 @@ def compute_regularisation_penalty(
     penalty = torch.tensor(0.0, device=trainable_parameters.device)
 
     # L2 regularisation on all parameters
-    penalty += ((trainable_parameters - initial_parameters) ** 2).mean() * 0
+    penalty += ((trainable_parameters - initial_parameters) ** 2).mean()
 
     return penalty
 
 
 def get_loss_closure_fn(
     trainable: descent.train.Trainable,
+    initial_x: torch.Tensor,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
     regularisation_strength: float,
@@ -126,6 +135,7 @@ def get_loss_closure_fn(
 
     Args:
         trainable: The trainable object.
+        initial_x: The initial parameters before training.
         topology: The topology of the system.
         dataset: The dataset to use for the loss function.
 
@@ -135,7 +145,6 @@ def get_loss_closure_fn(
 
     def closure_fn(
         x: torch.Tensor,
-        initial_x: torch.Tensor,
         compute_gradient: bool,
         compute_hessian: bool,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:

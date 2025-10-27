@@ -42,6 +42,7 @@ class TrainingFnArgs(TypedDict):
     """Arguments for training functions."""
 
     trainable_parameters: torch.Tensor
+    initial_parameters: torch.Tensor
     trainable: descent.train.Trainable
     topology: smee.TensorTopology
     dataset: datasets.Dataset
@@ -68,6 +69,7 @@ _register_training_fn = get_registry_decorator(_TRAINING_FNS_REGISTRY)
 @_register_training_fn("lm")
 def train_levenberg_marquardt(
     trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
@@ -83,6 +85,8 @@ def train_levenberg_marquardt(
     ----------
         trainable_parameters: torch.Tensor
             The parameters to be optimized.
+        initial_parameters: torch.Tensor
+            The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
         topology: smee.TensorTopology
@@ -121,6 +125,7 @@ def train_levenberg_marquardt(
 
     closure_fn = get_loss_closure_fn(
         trainable,
+        initial_parameters,
         topology,
         dataset,
         settings.regularisation_strength,

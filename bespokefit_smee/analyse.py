@@ -41,7 +41,7 @@ def read_errors(
         Each value is a dict mapping iteration number to numpy array.
     """
 
-    results = {
+    results: dict[str, dict[int, npt.NDArray[np.float64]]] = {
         "energy_reference": {},
         "energy_predicted": {},
         "energy_differences": {},
@@ -332,7 +332,10 @@ def plot_rmse_of_errors(
 def plot_error_statistics(
     fig: Figure,
     axs: npt.NDArray[Any],
-    errors: dict[Literal["energy", "force"], dict[int, npt.NDArray[np.float64]]],
+    errors: dict[
+        Literal["energy_differences", "forces_differences"],
+        dict[int, npt.NDArray[np.float64]],
+    ],
 ) -> None:
     """Plot the error statistics for the energy and force errors."""
 
@@ -437,8 +440,8 @@ def plot_ff_values(
     # Get the desired ids
     first_ff = force_fields[list(force_fields.keys())[0]]
     labeled = first_ff.label_molecules(molecule.to_topology())[0]
-    potentials = set(labeled[potential_type].values())
-    param_ids = sorted([p.id for p in potentials])
+    potentials_set = set(labeled[potential_type].values())
+    param_ids = sorted([p.id for p in potentials_set])
 
     for i, ff in force_fields.items():
         # Get the initial and final potentials
@@ -509,7 +512,6 @@ def plot_all_ffs(
     molecule: Molecule,
     plot_type: Literal["values", "differences"],
 ) -> tuple[Figure, Axes]:
-
     plt_fn = plot_ff_values if plot_type == "values" else plot_ff_differences
 
     # 1 column per potential type
@@ -568,7 +570,8 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         scatter_paths = dict(enumerate(output_paths_by_output_type[OutputType.SCATTER]))
         errors = read_errors(scatter_paths)
         fig, axs = plt.subplots(3, 2, figsize=(13, 18))
-        plot_error_statistics(fig, axs, errors)
+        # TODO: typing below which is ignored
+        plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
         fig.savefig(
             str(path_manager.get_output_path(stage, OutputType.ERROR_PLOT)),
             dpi=300,

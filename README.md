@@ -33,14 +33,20 @@ Bespokefit_smee is a Force-Field parametrization tool. For a given molecule, it 
 
 ## Installation
 
-Ensuring that you have mamba installed, run:
+Ensuring that you have pixi installed, run:
 ```bash
 git clone https://github.com/fjclark/bespokefit_smee.git
 cd bespokefit_smee
-make install
+pixi install
 ```
 
 ## Usage
+
+First, start a shell in the current environment (this must be run from the `bespokefit_smee` base directory)
+```bash
+pixi shell
+```
+For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
 
 Run with command line arguments:
 ```bash
