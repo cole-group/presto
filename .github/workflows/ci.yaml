@@ -36,15 +36,15 @@ jobs:
 
       - name: Lint
         run: |
-          pixi run lint
+          pixi run -e cpu lint
 
       - name: Type check
         run: |
-          pixi run type-check
+          pixi run -e cpu type-check
 
       - name: Run tests
         run: |
-          pixi run test
+          pixi run -e cpu test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4
