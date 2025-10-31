@@ -208,7 +208,7 @@ format = { cmd = "ruff format bespokefit_smee && ruff check --fix --select I bes
 
 # Testing requires dev + common + GPU/CPU
 test = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests" }
-"test-unit" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/unit --pdb" }
+"test-unit" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/unit" }
 "test-integration" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/integration" }
 
 type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict bespokefit_smee" }
