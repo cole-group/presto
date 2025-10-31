@@ -415,7 +415,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     n_iterations: int = Field(
-        5,
+        2,
         description="Number of iterations of sampling, then training the FF to run",
     )
 
@@ -430,15 +430,13 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     training_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDSamplingSettings(),
+        default_factory=lambda: MMMDMetadynamicsSamplingSettings(),
         description="Settings for sampling for generating the training data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )
 
     testing_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MLMDSamplingSettings(
-            production_sampling_time_per_conformer=1 * unit.picoseconds
-        ),
+        default_factory=lambda: MMMDSamplingSettings(),
         description="Settings for sampling for generating the testing data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )
