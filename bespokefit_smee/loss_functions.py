@@ -11,7 +11,11 @@ import descent.train
 import descent.utils.loss
 import loguru
 import smee
+import smee.utils
 import torch
+
+from .settings import RegularisationSettings
+from .utils.typing import ValenceType
 
 logger = loguru.logger
 
@@ -23,7 +27,7 @@ def prediction_loss(
     initial_parameters: torch.Tensor,
     topology: smee.TensorTopology,
     loss_force_weight: float,
-    regularisation_strength: float,
+    regularisation_settings: RegularisationSettings,
     device_type: str,
 ) -> torch.Tensor:
     """Predict the loss function for a guess forcefield against a dataset.
@@ -35,7 +39,7 @@ def prediction_loss(
         initial_parameters: The initial parameters before training.
         topologies: The topologies of the molecules in the dataset.
         loss_force_weight: Weight for the force loss term.
-        regularisation_strength: The strength of the regularisation penalty.
+        regularisation_settings: Settings for regularisation.
         device_type: The device type (e.g., 'cpu' or 'cuda').
 
     Returns:
@@ -69,18 +73,14 @@ def prediction_loss(
 
     # Regularisation penalty
     regularisation_pentalty = compute_regularisation_penalty(
-        trainable, trainable_parameters, initial_parameters
+        trainable, trainable_parameters, initial_parameters, regularisation_settings
     )
 
-    logger.info(
-        f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_pentalty.item():.4f}"
-    )
+    # logger.info(
+    #     f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_pentalty.item():.4f}"
+    # )
 
-    return (
-        loss_energy
-        + loss_forces * loss_force_weight
-        + regularisation_pentalty * regularisation_strength
-    )
+    return loss_energy + loss_forces * loss_force_weight + regularisation_pentalty
 
     # energy_loss, forces_loss = [], []
     # for entry in dataset:
@@ -109,16 +109,102 @@ def prediction_loss(
     # return lossE + lossF * loss_force_weight**0.5
 
 
+# TODO: Move this inside Descent Trainable class
+def get_regularised_parameter_idxs(
+    trainable: descent.train.Trainable,
+    cols: dict[ValenceType, list[str]],
+) -> torch.Tensor:
+    """Get the indexes of the parameters to regularise (these idxs apply to the trainable_parameters,
+    rather than the full set of parameters in the force field).
+
+    Args:
+        trainable: The trainable object.
+        cols: Dictionary mapping valence types to parameter columns to regularise.
+
+    Returns:
+        Tensor of indexes of parameters to regularise.
+    """
+    idxs: list[int] = []
+    col_offset = 0
+
+    potentials = [
+        trainable._force_field.potentials_by_type[potential_type]
+        for potential_type in trainable._param_types
+    ]
+
+    for potential_type, potential in zip(
+        trainable._param_types, potentials, strict=True
+    ):
+        potential_cols = potential.parameter_cols
+
+        potential_values = potential.parameters.detach().clone()
+        potential_values_flat = potential_values.flatten()
+
+        n_rows = len(potential_values)
+        unfrozen_rows = set(range(n_rows))
+
+        if potential_type in cols:
+            assert len({*cols[potential_type]} - {*potential_cols}) == 0, (
+                f"unknown columns: {potential_cols}"
+            )
+
+            idxs.extend(
+                col_offset + col_idx + row_idx * potential_values.shape[-1]
+                for row_idx in range(n_rows)
+                if row_idx in unfrozen_rows
+                for col_idx, col in enumerate(potential_cols)
+                if col in cols[potential_type]
+            )
+
+        col_offset += len(potential_values_flat)
+
+    # Get the indices of the regularised values in the unfrozen idxs of the trainable
+    trained_and_regularised_idxs = set()
+    for idx_in_unfrozen, unfrozen_idx in enumerate(trainable._unfrozen_idxs):
+        if unfrozen_idx in idxs:
+            trained_and_regularised_idxs.add(idx_in_unfrozen)
+
+    return smee.utils.tensor_like(
+        torch.tensor(
+            list(trained_and_regularised_idxs),
+            dtype=torch.long,
+        ),
+        trainable._unfrozen_idxs,
+    )
+
+
 def compute_regularisation_penalty(
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
+    regularisation_settings: RegularisationSettings,
 ) -> torch.Tensor:
     """Compute regularisation penalty"""
     penalty = torch.tensor(0.0, device=trainable_parameters.device)
 
+    # Get the idxs of the parameters to regularise
+    if hasattr(trainable, "regularised_parameter_idxs"):
+        regularised_parameter_idxs = trainable.regularised_parameter_idxs
+    else:
+        regularised_parameter_idxs = get_regularised_parameter_idxs(
+            trainable, regularisation_settings.parameters
+        )
+        trainable.regularised_parameter_idxs = regularised_parameter_idxs
+
+    if regularisation_settings.regularisation_value == "initial":
+        target = initial_parameters[regularised_parameter_idxs]
+    elif regularisation_settings.regularisation_value == "zero":
+        target = torch.zeros_like(trainable_parameters[regularised_parameter_idxs])
+    else:
+        raise NotImplementedError(
+            f"regularisation value "
+            f"{regularisation_settings.regularisation_value} not implemented"
+        )
+
     # L2 regularisation on all parameters
-    penalty += ((trainable_parameters - initial_parameters) ** 2).mean()
+    penalty += (
+        (trainable_parameters[regularised_parameter_idxs] - target) ** 2
+    ).mean() * regularisation_settings.regularisation_strength
 
     return penalty
 
@@ -128,7 +214,7 @@ def get_loss_closure_fn(
     initial_x: torch.Tensor,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
-    regularisation_strength: float,
+    regularisation_settings: RegularisationSettings,
 ) -> descent.optim.ClosureFn:
     """
     Return a default closure function
@@ -138,6 +224,7 @@ def get_loss_closure_fn(
         initial_x: The initial parameters before training.
         topology: The topology of the system.
         dataset: The dataset to use for the loss function.
+        regularisation_settings: Settings for regularisation.
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient (if requested), and hessian (if requested).
@@ -167,9 +254,9 @@ def get_loss_closure_fn(
             loss: torch.Tensor = ((y_pred - y_ref) ** 2).mean()
 
             regularisation_penalty = compute_regularisation_penalty(
-                trainable, _x, initial_x
+                trainable, _x, initial_x, regularisation_settings
             )
-            loss += regularisation_penalty * regularisation_strength
+            loss += regularisation_penalty
 
             return loss
 

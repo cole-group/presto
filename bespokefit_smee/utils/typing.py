@@ -10,3 +10,12 @@ OptimiserName = Literal["adam", "lm"]
 """Allowed optimiser names. 'adam' is Adam, 'lm' is Levenberg-Marquardt."""
 
 FnTypeVar = TypeVar("FnTypeVar", bound=Callable[..., Any])
+
+ValenceType = Literal[
+    "Bonds",
+    "LinearBonds",
+    "Angles",
+    "LinearAngles",
+    "ProperTorsions",
+    "ImproperTorsions",
+]

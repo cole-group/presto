@@ -128,7 +128,7 @@ def train_levenberg_marquardt(
         initial_parameters,
         topology,
         dataset,
-        settings.regularisation_strength,
+        settings.regularisation_settings,
     )
 
     correct_fn = trainable.clamp
@@ -226,7 +226,7 @@ def train_adam(
                     initial_parameters,
                     topology,
                     settings.loss_force_weight,
-                    settings.regularisation_strength,
+                    settings.regularisation_settings,
                     str(device),
                 )
                 if i % 10 == 0:
@@ -237,7 +237,7 @@ def train_adam(
                         initial_parameters,
                         topology,
                         settings.loss_force_weight,
-                        settings.regularisation_strength,
+                        settings.regularisation_settings,
                         str(device),
                     )
                     write_metrics(i, loss_trn, loss_tst, writer, metrics_file)
@@ -256,7 +256,7 @@ def train_adam(
             initial_parameters,
             topology,
             settings.loss_force_weight,
-            settings.regularisation_strength,
+            settings.regularisation_settings,
             str(device),
         )
         write_metrics(settings.n_epochs, loss_trn, loss_tst, writer, metrics_file)

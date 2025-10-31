@@ -23,7 +23,7 @@ from typing_extensions import Self
 from . import mlp
 from ._exceptions import InvalidSettingsError
 from .outputs import OutputType, WorkflowPathManager
-from .utils.typing import OptimiserName, PathLike, TorchDevice
+from .utils.typing import OptimiserName, PathLike, TorchDevice, ValenceType
 
 _DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
 
@@ -257,6 +257,37 @@ SamplingSettings = Union[
 ]
 
 
+def _get_default_regularised_parameters() -> dict[ValenceType, list[str]]:
+    return {
+        "ProperTorsions": ["k"],
+        "ImproperTorsions": ["k"],
+    }
+
+
+class RegularisationSettings(_DefaultSettings):
+    """Settings for regularisation of the force field parameters. Note that
+    regularisation is applied after scaling the parameters to ensure similar
+    magnitudes."""
+
+    regularisation_strength: float = Field(
+        100.0, description="Strength of the L2 regularisation term."
+    )
+
+    regularisation_value: Literal["initial", "zero"] = Field(
+        "initial",
+        description="Value to regularise parameters towards. 'initial' is the initial parameter value, "
+        "'zero' is zero.",
+    )
+
+    # TODO: Better validation for this. Should probably be in the same
+    # place as the option to linearise, and where the ParameterConfigs are
+    # created. Should probably create PR to descent.
+    parameters: dict[ValenceType, list[str]] = Field(
+        default_factory=_get_default_regularised_parameters,
+        description="Dictionary of parameters to be regularised by valence type.",
+    )
+
+
 class TrainingSettings(_DefaultSettings):
     """Settings for the training process."""
 
@@ -281,11 +312,9 @@ class TrainingSettings(_DefaultSettings):
     loss_force_weight: float = Field(
         0.1, description="Scaling Factor for the Force loss term"
     )
-    regularisation_strength: float = Field(
-        100.0, description="Strength of L2 regularisation on parameter updates"
-    )
-    energy_upper_cutoff: float = Field(
-        10.0, description="Upper bound for the energy cutoff function"
+    regularisation_settings: RegularisationSettings = Field(
+        default_factory=lambda: RegularisationSettings(),
+        description="Settings for regularisation of the force field parameters",
     )
 
     @property
