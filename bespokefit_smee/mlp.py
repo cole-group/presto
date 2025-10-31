@@ -1,9 +1,6 @@
 """Functionality for creating Open"""
 
-import atexit
-import os
-import tempfile
-import urllib.request
+from importlib import resources
 from typing import Literal, get_args
 
 import loguru
@@ -19,26 +16,19 @@ AvailableModels = Literal[
     "mace-off23-medium",
     "mace-off23-large",
     "egret-1",
-    "aimnet2_b973c_d3",
-    "aimnet2_wb97m_d3",
+    "aimnet2_b973c_d3_ens",
+    "aimnet2_wb97m_d3_ens",
 ]
+"""Available MLPotential models."""
+
+_cache: dict[AvailableModels, MLPotential] = {}
 
 
-def get_egret_1() -> MLPotential:
-    """Get the Egret-1 MLPotential from GitHub."""
-    # Model accessed 24/05/25
-    url = "https://github.com/rowansci/egret-public/raw/227d6641e6851eb1037d48712462e4ce61c1518f/compiled_models/EGRET_1.model"
-    tmp_file = tempfile.NamedTemporaryFile(suffix=".model", delete=False)
-    tmp_file.close()  # Close so urllib can write to it
-    logger.info(f"Downloading Egret-1 model from {url}")
-    urllib.request.urlretrieve(url, filename=tmp_file.name)
-
-    # Register file for deletion at program exit
-    atexit.register(
-        lambda: os.remove(tmp_file.name) if os.path.exists(tmp_file.name) else None
-    )
-
-    return MLPotential("mace", modelPath=tmp_file.name)
+def load_egret_1() -> MLPotential:
+    """Load the Egret-1 MLPotential from local package resources."""
+    filename = "EGRET_1.model"
+    with resources.path("bespokefit_smee.models", filename) as model_path:
+        return MLPotential("mace", modelPath=str(model_path))
 
 
 def get_mlp(model: AvailableModels) -> MLPotential:
@@ -49,11 +39,13 @@ def get_mlp(model: AvailableModels) -> MLPotential:
             f"Invalid model name: {model}. Available models are: {get_args(AvailableModels)}"
         )
 
-    if model in aimnet2._AVAILABLE_MODELS:
-        # Ensure AIMNet2 models registered
-        aimnet2._register_aimnet2_potentials()
+    if model not in _cache:
+        if model in aimnet2._AVAILABLE_MODELS:
+            # Ensure AIMNet2 models registered
+            aimnet2._register_aimnet2_potentials()
+        if model == "egret-1":
+            _cache[model] = load_egret_1()
+        else:
+            _cache[model] = MLPotential(model)
 
-    if model == "egret-1":
-        return get_egret_1()
-    else:
-        return MLPotential(model)
+    return _cache[model]

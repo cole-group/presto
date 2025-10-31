@@ -73,6 +73,8 @@ Copyright (c) 2025, Thomas James Pope, Newcastle University, UK
 
 Copyright (c) 2025, Finlay Clark, Newcastle University, UK
 
+This package includes models from other projects under the MIT license. See `bespokefit_smee/models/LICENSES.md` for details.
+
 ## Acknowledgements
 
 All early development was completed by Thomas James Pope. Many ideas taken from Simon Boothroyd's super helpful [python-template](https://github.com/SimonBoothroyd/python-template).

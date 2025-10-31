@@ -10,8 +10,7 @@ See https://github.com/isayevlab/aimnetcentral/blob/47969eb3e29e34824d82a648dd75
 for available models. May compile the ensemble models in future.
 """
 
-import tempfile
-import urllib.request
+from importlib import resources
 from typing import Iterable, Literal, Optional, get_args
 
 import openmm
@@ -23,20 +22,18 @@ from openmmml.mlpotential import MLPotential, MLPotentialImpl, MLPotentialImplFa
 from .typing import TorchDevice
 
 _MODEL_URL = "https://storage.googleapis.com/aimnetcentral/AIMNet2/"
-AvailableModels = Literal["aimnet2_b973c_d3", "aimnet2_wb97m_d3"]
+AvailableModels = Literal["aimnet2_b973c_d3_ens", "aimnet2_wb97m_d3_ens"]
 _AVAILABLE_MODELS = get_args(AvailableModels)
 
 
-def _download_model(
-    method: str, version: int = 0, device: TorchDevice | None = None
+def _load_local_model(
+    method: str, device: TorchDevice | None = None
 ) -> torch.jit.ScriptModule:
-    """Download an AIMNet2 model directly from storage."""
-    url = f"{_MODEL_URL}{method}_{version}.jpt"
-
-    with tempfile.NamedTemporaryFile(suffix=".jpt") as tmp_file:
-        urllib.request.urlretrieve(url, filename=tmp_file.name)
+    """Load an AIMNet2 model from local package resources."""
+    filename = f"{method}.jpt"
+    with resources.path("bespokefit_smee.models", filename) as model_path:
         model: torch.jit.ScriptModule = torch.jit.load(  # type: ignore[no-untyped-call]
-            tmp_file.name, map_location=device
+            str(model_path), map_location=device
         )
         return model
 
@@ -66,7 +63,7 @@ class AIMNet2PotentialImpl(MLPotentialImpl):  # type: ignore[misc]
         # Load the AIMNet2 model.
 
         if self.name in _AVAILABLE_MODELS:
-            model = _download_model(self.name)
+            model = _load_local_model(self.name)
         else:
             raise ValueError(
                 f"Unsupported AIMNet2 model: {self.name}. Please use one of: {_AVAILABLE_MODELS}."

@@ -12,7 +12,7 @@ authors = [
 license = { text = "MIT" }
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = ["Programming Language :: Python :: 3"]
 
 [project.scripts]
@@ -21,10 +21,14 @@ bespokefit_smee = "bespokefit_smee._cli:run_cli"
 [tool.hatch.version]
 source = "vcs"
 
+[tool.hatch.build.targets.wheel]
+include = ["bespokefit_smee/models/*.pt"]
+
 [tool.ruff.lint]
 ignore = ["C901", "E501"]
 select = ["B","C","E","F","W","B9"]
 ignore-init-module-imports = true
+exclude = ["bespokefit_smee/models/compile_aimnet2_ens_models.py"]
 
 [tool.coverage.run]
 omit = ["**/tests/*", "**/_version.py"]
@@ -35,6 +39,7 @@ exclude = [
   "bespokefit_smee/_version.py",
   "bespokefit_smee/tests/",
   "bespokefit_smee/metadynamics.py", # As mostly lifted from OpenMM
+  "bespokefit_smee/models/compile_aimnet2_ens_models.py"
 ]
 
 [tool.coverage.report]
