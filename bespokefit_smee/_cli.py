@@ -40,10 +40,6 @@ class TrainFromYAML(BaseModel):
     def cli_cmd(self) -> None:
         logger.info(f"Running bespokefit_smee with settings from {self.settings_yaml}")
         settings = WorkflowSettings.from_yaml(Path(self.settings_yaml))
-        if settings.parameterisation_settings.smiles == _DEFAULT_SMILES_PLACEHOLDER:
-            raise ValueError(
-                f"Please change the SMILES string in {self.settings_yaml} to a valid value."
-            )
         # No need to write a settings file if we're reading from one already
         get_bespoke_force_field(settings, write_settings=False)
 

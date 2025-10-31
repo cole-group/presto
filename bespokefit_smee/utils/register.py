@@ -39,7 +39,7 @@ def get_registry_decorator(
 
         def decorator(func: FnTypeVar) -> FnTypeVar:
             if key in registry:
-                raise ValueError(f"A function is already registered for {key}.")
+                raise ValueError(f"Key {key} is already registered.")
             registry[key] = func
             return func
 

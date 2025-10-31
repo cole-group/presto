@@ -4,10 +4,10 @@ requires = ["hatchling", "hatch-vcs"]
 
 [project]
 name = "bespokefit_smee"
-description = "Generate a Force-Field Parameterization from Single-Molecule MD."
+description = "Fast parameterisation of bespoke MM force fields using MLPs."
 authors = [
-  {name = "Thomas Pope"},
-  {name = "Finlay Clark"}
+  {name = "Finlay Clark"},
+  {name = "Thomas Pope"}
 ]
 license = { text = "MIT" }
 dynamic = ["version"]
@@ -22,6 +22,7 @@ bespokefit_smee = "bespokefit_smee._cli:run_cli"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
+packages = ["bespokefit_smee"]
 include = ["bespokefit_smee/models/*.pt"]
 
 [tool.ruff.lint]
@@ -70,10 +71,6 @@ python = ">=3.11"
 [tool.pixi.package.host-dependencies]
 hatchling = "*"
 
-[tool.pixi.package.run-dependencies]
-loguru = "*"
-descent = { git = "https://github.com/SimonBoothroyd/descent.git" }
-
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"
 version = "*"
@@ -92,7 +89,6 @@ python = ">=3.11"
 # -----------------------------
 [tool.pixi.feature.common.dependencies]
 pyyaml = "*"
-# descent = "*"
 datasets = "*"
 jupyter = "*"
 nglview = "*"
@@ -158,6 +154,7 @@ pytest-mock = "*"
 pytest-cov = "*"
 codecov = "*"
 mypy = "*"
+hypothesis = "*"
 
 # -----------------------------
 # Documentation
@@ -211,7 +208,7 @@ format = { cmd = "ruff format bespokefit_smee && ruff check --fix --select I bes
 
 # Testing requires dev + common + GPU/CPU
 test = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests" }
-"test-unit" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/unit" }
+"test-unit" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/unit --pdb" }
 "test-integration" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/integration" }
 
 type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict bespokefit_smee" }
