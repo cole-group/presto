@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 
 [project]
 name = "bespokefit_smee"
@@ -10,8 +10,7 @@ authors = [
   {name = "Finlay Clark"}
 ]
 license = { text = "MIT" }
-# dynamic = ["version"]
-version = "0.0.1"
+dynamic = ["version"]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = ["Programming Language :: Python :: 3"]
@@ -19,13 +18,8 @@ classifiers = ["Programming Language :: Python :: 3"]
 [project.scripts]
 bespokefit_smee = "bespokefit_smee._cli:run_cli"
 
-[tool.versioneer]
-VCS = "git"
-style = "pep440"
-versionfile_source = "bespokefit_smee/_version.py"
-versionfile_build = "bespokefit_smee/_version.py"
-tag_prefix = ""
-parentdir_prefix = "bespokefit_smee-"
+[tool.hatch.version]
+source = "vcs"
 
 [tool.ruff.lint]
 ignore = ["C901", "E501"]

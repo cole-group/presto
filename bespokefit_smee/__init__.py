@@ -1,6 +1,5 @@
-"""Generate a Force-Field Parameterization from Higher-Level MD"""
+"""Fast parameterisation of MM force fields using MLPs."""
 
-from . import _version
+from importlib.metadata import version
 
-__version__ = _version.get_versions()["version"]
-__all__ = ["__version__"]
+__version__ = version("bespokefit_smee")
