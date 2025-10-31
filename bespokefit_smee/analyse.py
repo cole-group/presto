@@ -565,6 +565,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
 
         # Plot the errors
         scatter_paths = dict(enumerate(output_paths_by_output_type[OutputType.SCATTER]))
@@ -577,6 +578,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
 
         # Plot the correlation plots
         fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
@@ -591,6 +593,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
 
         # Plot the force error by atom index
         fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
@@ -604,6 +607,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
 
         # Plot the force field changes
         ff_paths = load_force_fields(
@@ -616,6 +620,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
 
         fig, axs = plot_all_ffs(ff_paths, mol, "differences")
         fig.savefig(
@@ -627,3 +632,4 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             dpi=300,
             bbox_inches="tight",
         )
+        plt.close(fig)
