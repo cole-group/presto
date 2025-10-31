@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import yaml
 from openmm import unit
+from packaging.version import Version
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -20,7 +21,7 @@ from pydantic_units import OpenMMQuantity
 from rdkit import Chem
 from typing_extensions import Self
 
-from . import mlp
+from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
 from .outputs import OutputType, WorkflowPathManager
 from .utils.typing import OptimiserName, PathLike, TorchDevice, ValenceType
@@ -399,6 +400,11 @@ class ParameterisationSettings(_DefaultSettings):
 class WorkflowSettings(_DefaultSettings):
     """Overall settings for the full fitting workflow."""
 
+    version: str = Field(
+        __version__,
+        description="Version of bespokefit_smee used to create these settings",
+    )
+
     output_dir: Path = Field(
         Path("."),
         description="Directory where the output files will be saved",
@@ -441,6 +447,29 @@ class WorkflowSettings(_DefaultSettings):
         default_factory=lambda: TrainingSettings(),
         description="Settings for the training process",
     )
+
+    # Raise an error if the major and minor versions do not match
+    # (don't care about patch version)
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        """Validate version format and check compatibility."""
+        try:
+            parsed = Version(value)
+        except Exception as e:
+            raise ValueError(f"Invalid version format: {value}") from e
+
+        actual_version = Version(__version__)
+
+        # Raise an error if the major and minor versions do not match
+        if parsed.major != actual_version.major or parsed.minor != actual_version.minor:
+            raise ValueError(
+                f"Incompatible settings version: {value}. The current bespokefit_smee version is {__version__}. "
+                f"Expected {actual_version.major}.{actual_version.minor}.x, got {parsed.major}.{parsed.minor}.x"
+                "Please install the correct version of bespokefit_smee or regenerate the settings file.",
+            )
+
+        return value
 
     @field_validator("device_type")
     @classmethod
