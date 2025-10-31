@@ -250,10 +250,32 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
+class MMMDMetadynamicsSeededSamplingSettings(MMMDMetadynamicsSamplingSettings):
+    """Settings for molecular dynamics sampling using a molecular mechanics
+    force field with metadynamics, followed by regular MM MD. This is initally the force field supplined in the parameterisation
+    settings, but is updated as the bespoke force field is trained."""
+
+    sampling_protocol: Literal["mm_md_metadynamics_seeded"] = Field(  # type: ignore[assignment]
+        "mm_md_metadynamics_seeded", description="Sampling protocol to use."
+    )
+
+
+class MMMDIndMetadynamicsSamplingSettings(MMMDMetadynamicsSamplingSettings):
+    """Settings for molecular dynamics sampling using a molecular mechanics
+    force field with metadynamics, followed by regular MM MD. This is initally the force field supplined in the parameterisation
+    settings, but is updated as the bespoke force field is trained."""
+
+    sampling_protocol: Literal["mm_md_ind_metadynamics"] = Field(  # type: ignore[assignment]
+        "mm_md_ind_metadynamics", description="Sampling protocol to use."
+    )
+
+
 SamplingSettings = Union[
     MMMDSamplingSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
+    MMMDMetadynamicsSeededSamplingSettings,
+    MMMDIndMetadynamicsSamplingSettings,
 ]
 
 
