@@ -2069,8 +2069,8 @@ packages:
   timestamp: 1759146127397
 - pypi: ./
   name: bespokefit-smee
-  version: 0.1.dev125+gb86060447.d20251031
-  sha256: 094bcf129c6da75f666f3e42f6e60445f15b56c00324076f3043cdc3032f283e
+  version: 0.1.dev128+g55f0501e1.d20251031
+  sha256: 68e65e8eb6d89f3b31d3cc715e57e726e3a13ea78a53e5e6e11c3af16b68c66d
   requires_python: '>=3.10'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/black-25.1.0-pyh866005b_0.conda

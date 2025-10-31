@@ -122,7 +122,7 @@ bespokefit_smee ={ path = ".", editable = true }
 cuda = "12"
 
 [tool.pixi.feature.gpu.dependencies]
-cuda-version = "12.9.*"
+cuda-version = ">=12"
 pytorch-gpu = "*"
 
 [tool.pixi.feature.cpu.dependencies]
