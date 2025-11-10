@@ -1,0 +1,1 @@
+- `jnk1_bespoke_ff.offxml" was generated for the molecule C(C(C([H])([H])[H])(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(OC([H])([H])[H])c(c(S(=O)(=O)C([H])([H])[H])c(c1[H])OC([H])([H])[H])[H])([H])[H])[H])[H])([H])([H])[H]

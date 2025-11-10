@@ -17,6 +17,7 @@ from .sample import _SAMPLING_FNS_REGISTRY, SampleFn
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
 from .utils._suppress_output import suppress_unwanted_output
+from .utils.rdkit_bespoke_wrapper import use_bespoke_rdkit_toolkit_decorator
 from .writers import write_scatter
 
 logger = loguru.logger
@@ -24,6 +25,7 @@ logger = loguru.logger
 suppress_unwanted_output()
 
 
+@use_bespoke_rdkit_toolkit_decorator
 def get_bespoke_force_field(
     settings: WorkflowSettings, write_settings: bool = True
 ) -> ForceField:
