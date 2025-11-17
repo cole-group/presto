@@ -25,7 +25,7 @@ Generate a Bespoke Force-Field Parametrization Quickly and Reliably. Developed i
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
 the documentation and testing is incomplete, and the API may change without notice.*
 
-Please note that the MACE models currently used are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. We will incorporate MIT-licensed models soon.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default Egret-1 model and AIMNet-2 models do.
 
 ## What is Bespokefit_smee?
 
