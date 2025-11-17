@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def use_bespoke_rdkit_toolkit() -> Generator[ToolkitRegistry]:
+def use_bespoke_rdkit_toolkit() -> Generator[ToolkitRegistry, None, None]:
     """
     Context manager that temporarily registers the RDKitBespokeToolkitWrapper (
     which ensures fast SMARTS matching for highly symmetric molecules) with the
@@ -153,7 +153,7 @@ class RDKitBespokeToolkitWrapper(RDKitToolkitWrapper):  # type: ignore[misc]
 
     @staticmethod
     def _find_smarts_matches(
-        rdmol: Chem.Mol,
+        rdmol: "Chem.Mol",
         smarts: str,
         aromaticity_model: str = "OEAroModel_MDL",
         unique: bool = False,
