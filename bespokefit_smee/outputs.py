@@ -99,8 +99,8 @@ class WorkflowPathManager:
                 OutputType.ERROR_PLOT,
                 OutputType.CORRELATION_PLOT,
                 OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
-                # OutputType.PARAMETER_VALUES_PLOT,
-                # OutputType.PARAMETER_DIFFERENCES_PLOT,
+                OutputType.PARAMETER_VALUES_PLOT,
+                OutputType.PARAMETER_DIFFERENCES_PLOT,
             },
         }
         return outputs_by_stage
