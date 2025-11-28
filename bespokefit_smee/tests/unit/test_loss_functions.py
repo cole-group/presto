@@ -6,61 +6,14 @@ import torch
 from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 
-from bespokefit_smee.loss_functions import (
-    compute_regularisation_penalty,
-    get_regularised_parameter_idxs,
+from bespokefit_smee.loss import (
+    compute_regularisation_loss,
 )
 from bespokefit_smee.settings import RegularisationSettings
 
 
-class TestGetRegularisedParameterIdxs:
-    """Tests for get_regularised_parameter_idxs function."""
-
-    @pytest.fixture
-    def simple_trainable(self):
-        """Create a simple trainable for testing."""
-        mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
-
-        import openff.interchange
-
-        interchange = openff.interchange.Interchange.from_smirnoff(
-            ff, mol.to_topology()
-        )
-
-        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
-
-        # Create a minimal trainable
-        parameter_configs = {
-            "Bonds": ParameterConfig(
-                cols=["k", "length"],
-                scales={"k": 1.0, "length": 1.0},
-            ),
-        }
-
-        trainable = Trainable(tensor_ff, parameter_configs, {})
-        return trainable
-
-    def test_returns_tensor(self, simple_trainable):
-        """Test that function returns a tensor."""
-        cols = {"Bonds": ["k"]}
-        result = get_regularised_parameter_idxs(simple_trainable, cols)
-        assert isinstance(result, torch.Tensor)
-
-    def test_empty_cols_returns_empty_tensor(self, simple_trainable):
-        """Test that empty cols returns empty tensor."""
-        result = get_regularised_parameter_idxs(simple_trainable, {})
-        assert len(result) == 0
-
-    def test_unknown_potential_type_ignored(self, simple_trainable):
-        """Test that unknown potential types are ignored."""
-        cols = {"UnknownType": ["k"]}
-        get_regularised_parameter_idxs(simple_trainable, cols)
-        # Should not raise error, just return empty or ignore
-
-
 class TestComputeRegularisationPenalty:
-    """Tests for compute_regularisation_penalty function."""
+    """Tests for compute_regularisation_loss function."""
 
     @pytest.fixture
     def simple_trainable_and_params(self):
@@ -95,7 +48,7 @@ class TestComputeRegularisationPenalty:
         initial_params = params.clone()
         settings = RegularisationSettings()
 
-        result = compute_regularisation_penalty(
+        result = compute_regularisation_loss(
             trainable, params, initial_params, settings
         )
         assert isinstance(result, torch.Tensor)
@@ -105,12 +58,12 @@ class TestComputeRegularisationPenalty:
         trainable, params = simple_trainable_and_params
         initial_params = params.clone()
         settings = RegularisationSettings(
-            regularisation_value="initial",
+            regularisation_target="initial",
             regularisation_strength=100.0,
             parameters={"Bonds": ["k", "length"]},
         )
 
-        result = compute_regularisation_penalty(
+        result = compute_regularisation_loss(
             trainable, params, initial_params, settings
         )
         # Should be very small (zero or near-zero)
@@ -121,7 +74,7 @@ class TestComputeRegularisationPenalty:
         trainable, params = simple_trainable_and_params
         initial_params = params.clone()
         settings = RegularisationSettings(
-            regularisation_value="initial",
+            regularisation_target="initial",
             regularisation_strength=100.0,
             parameters={"Bonds": ["k", "length"]},
         )
@@ -130,10 +83,10 @@ class TestComputeRegularisationPenalty:
         modified_params = params.clone()
         modified_params = modified_params + 0.1
 
-        penalty_original = compute_regularisation_penalty(
+        penalty_original = compute_regularisation_loss(
             trainable, params, initial_params, settings
         )
-        penalty_modified = compute_regularisation_penalty(
+        penalty_modified = compute_regularisation_loss(
             trainable, modified_params, initial_params, settings
         )
 
@@ -146,20 +99,20 @@ class TestComputeRegularisationPenalty:
         modified_params = params + 0.1
 
         settings_weak = RegularisationSettings(
-            regularisation_value="initial",
+            regularisation_target="initial",
             regularisation_strength=10.0,
             parameters={"Bonds": ["k", "length"]},
         )
         settings_strong = RegularisationSettings(
-            regularisation_value="initial",
+            regularisation_target="initial",
             regularisation_strength=1000.0,
             parameters={"Bonds": ["k", "length"]},
         )
 
-        penalty_weak = compute_regularisation_penalty(
+        penalty_weak = compute_regularisation_loss(
             trainable, modified_params, initial_params, settings_weak
         )
-        penalty_strong = compute_regularisation_penalty(
+        penalty_strong = compute_regularisation_loss(
             trainable, modified_params, initial_params, settings_strong
         )
 
@@ -170,17 +123,17 @@ class TestComputeRegularisationPenalty:
         trainable, params = simple_trainable_and_params
         initial_params = params.clone()
         settings = RegularisationSettings(
-            regularisation_value="zero",
+            regularisation_target="zero",
             regularisation_strength=100.0,
             parameters={"Bonds": ["k", "length"]},
         )
 
-        result = compute_regularisation_penalty(
+        result = compute_regularisation_loss(
             trainable, params, initial_params, settings
         )
         assert isinstance(result, torch.Tensor)
 
-    def test_invalid_regularisation_value_raises_error(
+    def test_invalid_regularisation_target_raises_error(
         self, simple_trainable_and_params
     ):
         """Test that invalid regularisation value raises error."""
@@ -189,10 +142,10 @@ class TestComputeRegularisationPenalty:
 
         # Create settings with invalid value by bypassing validation
         settings = RegularisationSettings()
-        object.__setattr__(settings, "regularisation_value", "invalid")
+        object.__setattr__(settings, "regularisation_target", "invalid")
 
         with pytest.raises(NotImplementedError):
-            compute_regularisation_penalty(trainable, params, initial_params, settings)
+            compute_regularisation_loss(trainable, params, initial_params, settings)
 
     def test_regularised_parameter_idxs_cached(self, simple_trainable_and_params):
         """Test that regularised parameter indices are cached."""
@@ -201,10 +154,10 @@ class TestComputeRegularisationPenalty:
         settings = RegularisationSettings()
 
         # First call should compute and cache
-        compute_regularisation_penalty(trainable, params, initial_params, settings)
+        compute_regularisation_loss(trainable, params, initial_params, settings)
         assert hasattr(trainable, "regularised_parameter_idxs")
 
         # Second call should use cached value
         cached_idxs = trainable.regularised_parameter_idxs
-        compute_regularisation_penalty(trainable, params, initial_params, settings)
+        compute_regularisation_loss(trainable, params, initial_params, settings)
         assert trainable.regularised_parameter_idxs is cached_idxs

@@ -15,7 +15,7 @@ from ...parameterise import (
 from ...settings import ParameterisationSettings
 
 
-@pytest.mark.parametrize("linear_harmonics", [True, False])
+@pytest.mark.parametrize("linearise_harmonics", [True, False])
 @pytest.mark.parametrize(
     "smiles",
     [
@@ -26,7 +26,7 @@ from ...settings import ParameterisationSettings
         "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]",
     ],
 )
-def test_params_equivalent(linear_harmonics: bool, smiles: str):
+def test_params_equivalent(linearise_harmonics: bool, smiles: str):
     """
     Check that we can convert a general force field to and from a
     molecule-specific TensorForceField while still assigning the same\
@@ -35,7 +35,7 @@ def test_params_equivalent(linear_harmonics: bool, smiles: str):
     # base_ff = ForceField("openff_unconstrained-2.2.1.offxml")
     base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
     settings = ParameterisationSettings(
-        linear_harmonics=linear_harmonics,
+        linearise_harmonics=linearise_harmonics,
         smiles=smiles,
         msm_settings=None,
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
@@ -101,7 +101,7 @@ def test_params_equivalent(linear_harmonics: bool, smiles: str):
                     )
 
 
-@pytest.mark.parametrize("linear_harmonics", [True, False])
+@pytest.mark.parametrize("linearise_harmonics", [True, False])
 @pytest.mark.parametrize(
     "smiles, excluded_smirks",
     [
@@ -125,14 +125,14 @@ def test_params_equivalent(linear_harmonics: bool, smiles: str):
 )
 # Adapted from https://github.com/SimonBoothroyd/befit/blob/1c4e5d1a5d6af6fe2386d9202606c6960a914689/befit/tests/test_ff.py#L17
 def test_energies_equivalent(
-    linear_harmonics: bool, smiles: str, excluded_smirks: list[str]
+    linearise_harmonics: bool, smiles: str, excluded_smirks: list[str]
 ):
     """Check that we get the same energy after converting back and forth
     between ForceField and TensorForceField objects."""
 
     base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
     settings = ParameterisationSettings(
-        linear_harmonics=linear_harmonics,
+        linearise_harmonics=linearise_harmonics,
         smiles=smiles,
         msm_settings=None,
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",

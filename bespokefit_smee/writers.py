@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss_functions import predict
+from .loss import predict, LossRecord
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -196,17 +196,20 @@ def report(
 
 def write_metrics(
     i: int,
-    loss_trn: torch.Tensor,
-    loss_tst: torch.Tensor,
+    loss_train: LossRecord,
+    loss_test: LossRecord,
     writer: tensorboardX.SummaryWriter,
     outfile: TextIO,
 ) -> None:
-    outfile.write(
-        f"{i} {loss_trn.detach().item():.10f} {loss_tst.detach().item():.10f}\n"
-    )
-    writer.add_scalar("loss_trn", loss_trn.detach().item(), i)
-    writer.add_scalar("loss_tst", loss_tst.detach().item(), i)
-    writer.flush()
+    for loss_record in (loss_train, loss_test):
+        for field in loss_record._fields:
+            outfile.write(f"{getattr(loss_record, field).detach().item():.10f} ")
+            writer.add_scalar(
+                f"{'loss_train' if loss_record is loss_train else 'loss_test'}_{field}",
+                getattr(loss_record, field).detach().item(),
+                i,
+            )
+    outfile.write("\n")
 
 
 def _format_parameter_id(id_: typing.Any) -> str:
@@ -234,12 +237,12 @@ def get_potential_summary(potential: smee.TensorPotential) -> str:
     output.append(f"fn={potential.fn}")
 
     if potential.attributes is not None:
-        assert potential.attribute_units is not None, (
-            "Attribute units are None even though attributes are not None"
-        )
-        assert potential.attribute_cols is not None, (
-            "Attribute columns are None even though attributes are not None"
-        )
+        assert (
+            potential.attribute_units is not None
+        ), "Attribute units are None even though attributes are not None"
+        assert (
+            potential.attribute_cols is not None
+        ), "Attribute columns are None even though attributes are not None"
         attribute_rows = [
             {
                 f"{col}{potential.attribute_units[idx]}": (
@@ -284,12 +287,12 @@ def get_potential_comparison(
     output.append(f"fn={pot1.fn}")
 
     if pot1.attributes is not None:
-        assert pot1.attribute_units is not None, (
-            "Attribute units are None even though attributes are not None"
-        )
-        assert pot1.attribute_cols is not None, (
-            "Attribute columns are None even though attributes are not None"
-        )
+        assert (
+            pot1.attribute_units is not None
+        ), "Attribute units are None even though attributes are not None"
+        assert (
+            pot1.attribute_cols is not None
+        ), "Attribute columns are None even though attributes are not None"
         attribute_rows = [
             {
                 f"{col}{pot1.attribute_units[idx]}": (

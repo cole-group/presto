@@ -14,10 +14,15 @@ import smee
 import smee.utils
 import torch
 
-from .settings import RegularisationSettings
-from .utils.typing import ValenceType
-
 logger = loguru.logger
+
+
+class LossRecord(typing.NamedTuple):
+    """Container for different loss components"""
+
+    energy: torch.Tensor
+    forces: torch.Tensor
+    regularisation: torch.Tensor
 
 
 def prediction_loss(
@@ -26,11 +31,13 @@ def prediction_loss(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     topology: smee.TensorTopology,
+    loss_energy_weight: float,
     loss_force_weight: float,
-    regularisation_settings: RegularisationSettings,
+    regularisation_target: typing.Literal["initial", "zero"],
     device_type: str,
-) -> torch.Tensor:
-    """Predict the loss function for a guess forcefield against a dataset.
+) -> LossRecord:
+    """Predict the loss function for a guess forcefield against a dataset according
+    to eqn. B2 in https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0155322.
 
     Args:
         dataset: The dataset to predict the energies and forces of.
@@ -38,12 +45,13 @@ def prediction_loss(
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
         topologies: The topologies of the molecules in the dataset.
+        loss_energy_weight: Weight for the energy loss term.
         loss_force_weight: Weight for the force loss term.
-        regularisation_settings: Settings for regularisation.
+        regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device_type: The device type (e.g., 'cpu' or 'cuda').
 
     Returns:
-        Loss value.
+        The computed loss as a LossRecord.
     """
     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
         dataset,
@@ -52,161 +60,74 @@ def prediction_loss(
         device_type=device_type,
         normalize=False,
     )
-    # Loss as the JS-divergence between the two distributions
-    # beta = 1.987204259e-3 * 500  # kcal/mol/K
 
-    # def _kl_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-    #     return (p * (p / q).clamp(min=1e-10).log()).sum()
+    n_confs = energy_ref_all.shape[0]
+    n_atoms = topology.n_atoms
 
-    # distribution_ref = torch.exp(-energy_ref_all / beta)
-    # distribution_ref = distribution_ref / distribution_ref.sum()
-    # distribution_pred = torch.exp(-energy_pred_all / beta)
-    # distribution_pred = distribution_pred / distribution_pred.sum()
-    # m = 0.5 * (distribution_ref + distribution_pred)
-    # loss_distribution = 0.5 * (
-    #     _kl_div(distribution_ref, m) + _kl_div(distribution_pred, m)
-    # )
-    # return loss_distribution
+    loss_energy: torch.Tensor = (
+        ((energy_ref_all - energy_pred_all) / n_atoms) ** 2
+    ).sum() / n_confs
 
-    loss_energy: torch.Tensor = ((energy_ref_all - energy_pred_all) ** 2).mean()
-    loss_forces: torch.Tensor = ((forces_ref_all - forces_pred_all) ** 2).mean()
+    loss_forces: torch.Tensor = ((forces_ref_all - forces_pred_all) ** 2).sum() / (
+        3 * n_atoms * n_confs
+    )
 
     # Regularisation penalty
-    regularisation_pentalty = compute_regularisation_penalty(
-        trainable, trainable_parameters, initial_parameters, regularisation_settings
+    regularisation_loss = compute_regularisation_loss(
+        trainable,
+        trainable_parameters,
+        initial_parameters,
+        regularisation_target,
+        n_atoms=n_atoms,
     )
 
-    # logger.info(
-    #     f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_pentalty.item():.4f}"
-    # )
+    logger.info(
+        f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_loss.item():.4f}"
+    )
 
-    return loss_energy + loss_forces * loss_force_weight + regularisation_pentalty
-
-    # energy_loss, forces_loss = [], []
-    # for entry in dataset:
-    #     energy_ref = entry["energy"].to(device_type)
-    #     forces_ref = entry["forces"].reshape(len(energy_ref), -1, 3).to(device_type)
-    #     coords_ref = (
-    #         entry["coords"]
-    #         .reshape(len(energy_ref), -1, 3)
-    #         .to(device_type)
-    #         .detach()
-    #         .requires_grad_(True)
-    #     )
-    #     energy_prd = smee.compute_energy(topology, force_field, coords_ref)
-    #     forces_prd = -torch.autograd.grad(
-    #         energy_prd.sum(),
-    #         coords_ref,
-    #         create_graph=True,
-    #         retain_graph=True,
-    #         allow_unused=True,
-    #     )[0]
-    #     energy_prd_0 = energy_prd.detach()[0]
-    #     energy_loss.append((energy_prd - energy_ref - energy_prd_0))
-    #     forces_loss.append((forces_prd - forces_ref).reshape(-1, 3))
-    # lossE: torch.Tensor = (torch.cat(energy_loss) ** 2).mean()
-    # lossF: torch.Tensor = (torch.cat(forces_loss) ** 2).mean()
-    # return lossE + lossF * loss_force_weight**0.5
-
-
-# TODO: Move this inside Descent Trainable class
-def get_regularised_parameter_idxs(
-    trainable: descent.train.Trainable,
-    cols: dict[ValenceType, list[str]],
-) -> torch.Tensor:
-    """Get the indexes of the parameters to regularise (these idxs apply to the trainable_parameters,
-    rather than the full set of parameters in the force field).
-
-    Args:
-        trainable: The trainable object.
-        cols: Dictionary mapping valence types to parameter columns to regularise.
-
-    Returns:
-        Tensor of indexes of parameters to regularise.
-    """
-    idxs: list[int] = []
-    col_offset = 0
-
-    potentials = [
-        trainable._force_field.potentials_by_type[potential_type]
-        for potential_type in trainable._param_types
-    ]
-
-    for potential_type, potential in zip(
-        trainable._param_types, potentials, strict=True
-    ):
-        potential_cols = potential.parameter_cols
-
-        potential_values = potential.parameters.detach().clone()
-        potential_values_flat = potential_values.flatten()
-
-        n_rows = len(potential_values)
-        unfrozen_rows = set(range(n_rows))
-
-        if potential_type in cols:
-            assert len({*cols[potential_type]} - {*potential_cols}) == 0, (
-                f"unknown columns: {potential_cols}"
-            )
-
-            idxs.extend(
-                col_offset + col_idx + row_idx * potential_values.shape[-1]
-                for row_idx in range(n_rows)
-                if row_idx in unfrozen_rows
-                for col_idx, col in enumerate(potential_cols)
-                if col in cols[potential_type]
-            )
-
-        col_offset += len(potential_values_flat)
-
-    # Get the indices of the regularised values in the unfrozen idxs of the trainable
-    trained_and_regularised_idxs = set()
-    for idx_in_unfrozen, unfrozen_idx in enumerate(trainable._unfrozen_idxs):
-        if unfrozen_idx in idxs:
-            trained_and_regularised_idxs.add(idx_in_unfrozen)
-
-    return smee.utils.tensor_like(
-        torch.tensor(
-            list(trained_and_regularised_idxs),
-            dtype=torch.long,
-        ),
-        trainable._unfrozen_idxs,
+    return LossRecord(
+        energy=loss_energy * loss_energy_weight,
+        forces=loss_forces * loss_force_weight,
+        regularisation=regularisation_loss,
     )
 
 
-def compute_regularisation_penalty(
+def compute_regularisation_loss(
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
-    regularisation_settings: RegularisationSettings,
+    regularisation_target: typing.Literal["initial", "zero"],
+    n_atoms: int,
 ) -> torch.Tensor:
     """Compute regularisation penalty"""
-    penalty = torch.tensor(0.0, device=trainable_parameters.device)
+    reg_loss = torch.tensor(0.0, device=trainable_parameters.device)
 
-    # Get the idxs of the parameters to regularise
-    if hasattr(trainable, "regularised_parameter_idxs"):
-        regularised_parameter_idxs = trainable.regularised_parameter_idxs
-    else:
-        regularised_parameter_idxs = get_regularised_parameter_idxs(
-            trainable, regularisation_settings.parameters
-        )
-        trainable.regularised_parameter_idxs = regularised_parameter_idxs
+    regularisation_idxs, regularisation_strengths = (
+        trainable.get_regularization_idxs_and_strengths()
+    )
 
-    if regularisation_settings.regularisation_value == "initial":
-        target = initial_parameters[regularised_parameter_idxs]
-    elif regularisation_settings.regularisation_value == "zero":
-        target = torch.zeros_like(trainable_parameters[regularised_parameter_idxs])
+    if len(regularisation_idxs) == 0:
+        return reg_loss
+
+    if all(strength == 0.0 for strength in regularisation_strengths):
+        return reg_loss
+
+    if regularisation_target == "initial":
+        target = initial_parameters[regularisation_idxs]
+    elif regularisation_target == "zero":
+        target = torch.zeros_like(trainable_parameters[regularisation_idxs])
     else:
         raise NotImplementedError(
-            f"regularisation value "
-            f"{regularisation_settings.regularisation_value} not implemented"
+            f"regularisation value " f"{regularisation_target} not implemented"
         )
 
     # L2 regularisation on all parameters
-    penalty += (
-        (trainable_parameters[regularised_parameter_idxs] - target) ** 2
-    ).mean() * regularisation_settings.regularisation_strength
+    reg_loss += (
+        ((trainable_parameters[regularisation_idxs] - target) ** 2)
+        * regularisation_strengths
+    ).sum() / n_atoms
 
-    return penalty
+    return reg_loss
 
 
 def get_loss_closure_fn(
@@ -214,7 +135,7 @@ def get_loss_closure_fn(
     initial_x: torch.Tensor,
     topology: smee.TensorTopology,
     dataset: datasets.Dataset,
-    regularisation_settings: RegularisationSettings,
+    # regularisation_settings: RegularisationSettings,
 ) -> descent.optim.ClosureFn:
     """
     Return a default closure function
@@ -253,8 +174,12 @@ def get_loss_closure_fn(
             )[:2]
             loss: torch.Tensor = ((y_pred - y_ref) ** 2).mean()
 
-            regularisation_penalty = compute_regularisation_penalty(
-                trainable, _x, initial_x, regularisation_settings
+            regularisation_penalty = compute_regularisation_loss(
+                trainable,
+                _x,
+                initial_x,
+                regularisation_settings,
+                n_atoms=topology.n_atoms,
             )
             loss += regularisation_penalty
 

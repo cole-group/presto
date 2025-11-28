@@ -48,8 +48,7 @@ The test suite covers the following modules:
    - Integration tests with subprocess
 
 7. **test_loss_functions.py** - Tests for loss and regularisation:
-   - get_regularised_parameter_idxs
-   - compute_regularisation_penalty
+   - compute_regularisation_loss
    - Parameter scaling and caching
 
 8. **test_writers.py** - Tests for output writers:

@@ -19,6 +19,7 @@ from rdkit.Chem import Draw
 from tqdm import tqdm
 
 from .outputs import OutputStage, OutputType, StageKind
+from .loss import LossRecord
 from .settings import WorkflowSettings
 
 logger = loguru.logger
@@ -65,28 +66,22 @@ def read_errors(
 
 
 def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
-    idxs, losses_test, losses_train, iteration = [], [], [], []
+    df_rows = []
+    names = []
+    for loss_type in ["train", "test"]:
+        for field in LossRecord._fields:
+            names.append(f"loss_{loss_type}_{field}")
 
     for i, loss_datafile in paths_by_iter.items():
         df = pd.read_csv(
             loss_datafile,
             sep=r"\s+",
             header=None,
-            names=["idx", "loss_train", "loss_test"],
+            names=names,
         )
-        idxs.append(df["idx"].tolist())
-        losses_test.append(df["loss_train"].tolist())
-        losses_train.append(df["loss_test"].tolist())
-        iteration.append(np.ones_like(df["idx"].tolist()) * i)
+        df_rows.append(df.assign(iteration=i))
 
-    return pd.DataFrame(
-        data={
-            "idx": np.concatenate(idxs),
-            "loss_train": np.concatenate(losses_test),
-            "loss_test": np.concatenate(losses_train),
-            "iteration": np.concatenate(iteration),
-        }
-    )
+    return pd.concat(df_rows, ignore_index=True)
 
 
 def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
@@ -97,19 +92,41 @@ def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
     # Colour by iteration - full line for train, dotted for test
     for i in losses["iteration"].unique():
-        ax.plot(
-            losses[losses["iteration"] == i].index,
-            losses[losses["iteration"] == i]["loss_train"],
-            label=f"train-{i}",
-            color=f"C{i}",
-        )
-        ax.plot(
-            losses[losses["iteration"] == i].index,
-            losses[losses["iteration"] == i]["loss_test"],
-            label=f"test-{i}",
-            color=f"C{i}",
-            linestyle="--",
-        )
+        loss_names = [name for name in losses.columns if name.startswith("loss_")]
+        for loss_name in loss_names:
+            if loss_name == "loss_test_regularisation":
+                continue  # Skip regularisation loss as not meaningful
+            linestyle = "-" if "train" in loss_name else "--"
+            color_idx = (
+                0 if "energy" in loss_name else 1 if "forces" in loss_name else 2
+            )
+            label = loss_name.split("_")[1] + " " + loss_name.split("_")[-1]
+            ax.plot(
+                losses[losses["iteration"] == i].index,
+                losses[losses["iteration"] == i][loss_name],
+                label=(
+                    label if i == 0 else None
+                ),  # Don't repeat labels for new iterations
+                color=f"C{color_idx}",
+                linestyle=linestyle,
+            )
+
+        # If this isn't the last iteration, add a vertical line to separate iterations # and label it
+        if i != losses["iteration"].unique()[-1]:
+            ax.axvline(
+                x=losses[losses["iteration"] == i].index[-1] + 0.5,
+                color="black",
+                linestyle=":",
+                alpha=0.5,
+            )
+            ax.text(
+                losses[losses["iteration"] == i].index[-1] + 0.5,
+                ax.get_ylim()[1] * 0.9,
+                f"Iteration {i}",
+                rotation=90,
+                verticalalignment="top",
+                horizontalalignment="right",
+            )
 
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
@@ -496,7 +513,6 @@ def plot_ff_values(
     ax.set_ylabel(f"{parameter_key} / {q_units}")
     ax.set_xlabel("Key ID")
     ax.set_title(f"{potential_type} {parameter_key}")
-    # ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 
 
 pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
@@ -528,6 +544,10 @@ def plot_all_ffs(
     ):
         for j, param_key in enumerate(param_keys):
             plt_fn(fig, axs[j, i], force_fields, molecule, potential_type, param_key)
+
+        # If this is the last potential type, add legend
+        if i == ncols - 1:
+            axs[j, i].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
         # Hide the remaining axes
         for k in range(j + 1, nrows):

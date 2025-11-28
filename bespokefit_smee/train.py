@@ -16,7 +16,7 @@ import torch
 from tqdm import tqdm
 
 # from .sample import get_data_MLMD, get_data_MMMD
-from .loss_functions import get_loss_closure_fn, prediction_loss
+from .loss import get_loss_closure_fn, prediction_loss, LossRecord
 from .outputs import OutputType
 from .settings import (
     TrainingSettings,
@@ -219,29 +219,40 @@ def train_adam(
                 colour="blue",
                 desc="Optimising MM parameters",
             ):
-                loss_trn = prediction_loss(
+                losses_train = prediction_loss(
                     dataset,
                     trainable,
                     trainable_parameters,
                     initial_parameters,
                     topology,
+                    settings.loss_energy_weight,
                     settings.loss_force_weight,
-                    settings.regularisation_settings,
+                    settings.regularisation_target,
                     str(device),
                 )
+                tot_loss_train = sum(losses_train)
+
+                logger.info(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
                 if i % 10 == 0:
-                    loss_tst = prediction_loss(
+                    losses_test = prediction_loss(
                         dataset_test,
                         trainable,
                         trainable_parameters,
                         initial_parameters,
                         topology,
+                        settings.loss_energy_weight,
                         settings.loss_force_weight,
-                        settings.regularisation_settings,
+                        settings.regularisation_target,
                         str(device),
                     )
-                    write_metrics(i, loss_trn, loss_tst, writer, metrics_file)
-                loss_trn.backward(retain_graph=True)  # type: ignore[no-untyped-call]
+                    write_metrics(
+                        i,
+                        losses_train,
+                        losses_test,
+                        writer,
+                        metrics_file,
+                    )
+                tot_loss_train.backward(retain_graph=True)  # type: ignore[no-untyped-call]
                 # trainable.freeze_grad()
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
@@ -249,16 +260,20 @@ def train_adam(
                 if i % settings.learning_rate_decay_step == 0:
                     scheduler.step()
         # some book-keeping and outputting
-        loss_tst = prediction_loss(
+        losses_test = prediction_loss(
             dataset_test,
             trainable,
             trainable_parameters,
             initial_parameters,
             topology,
+            settings.loss_energy_weight,
             settings.loss_force_weight,
-            settings.regularisation_settings,
+            settings.regularisation_target,
             str(device),
         )
-        write_metrics(settings.n_epochs, loss_trn, loss_tst, writer, metrics_file)
+
+        write_metrics(
+            settings.n_epochs, losses_train, losses_test, writer, metrics_file
+        )
 
         return trainable_parameters, trainable

@@ -17,7 +17,6 @@ from bespokefit_smee.settings import (
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDSamplingSettings,
-    MSMSettings,
     ParameterisationSettings,
     RegularisationSettings,
     TrainingSettings,
@@ -189,17 +188,17 @@ class TestRegularisationSettings:
         """Test default values."""
         settings = RegularisationSettings()
         assert settings.regularisation_strength == 100.0
-        assert settings.regularisation_value == "initial"
+        assert settings.regularisation_target == "initial"
         assert "ProperTorsions" in settings.parameters
         assert "k" in settings.parameters["ProperTorsions"]
 
-    def test_regularisation_value_validation(self):
+    def test_regularisation_target_validation(self):
         """Test that only valid regularisation values are accepted."""
-        RegularisationSettings(regularisation_value="initial")
-        RegularisationSettings(regularisation_value="zero")
+        RegularisationSettings(regularisation_target="initial")
+        RegularisationSettings(regularisation_target="zero")
 
         with pytest.raises(ValidationError):
-            RegularisationSettings(regularisation_value="invalid")
+            RegularisationSettings(regularisation_target="invalid")
 
     @given(
         strength=st.floats(
@@ -255,26 +254,6 @@ class TestTrainingSettings:
         assert settings.learning_rate == learning_rate
 
 
-class TestMSMSettings:
-    """Tests for MSM settings."""
-
-    def test_default_values(self):
-        """Test default values."""
-        settings = MSMSettings()
-        assert settings.ml_potential == "egret-1"
-        assert settings.vib_scaling == 0.957
-
-    def test_finite_step_and_tolerance(self):
-        """Test that finite step and tolerance are set."""
-        settings = MSMSettings()
-        assert settings.finite_step.value_in_unit(omm_unit.nanometers) == pytest.approx(
-            0.0005291772
-        )
-        assert settings.tolerance.value_in_unit(
-            omm_unit.kilocalories_per_mole / omm_unit.angstrom
-        ) == pytest.approx(0.005291772)
-
-
 class TestParameterisationSettings:
     """Tests for parameterisation settings."""
 
@@ -304,26 +283,16 @@ class TestParameterisationSettings:
         assert len(settings.excluded_smirks) == 3
         assert "[*:1]-[*:2]#[*:3]-[*:4]" in settings.excluded_smirks
 
-    def test_linear_harmonics_and_torsions(self):
+    def test_linearise_harmonics_and_torsions(self):
         """Test linear harmonics and torsions settings."""
         settings = ParameterisationSettings(smiles="CCO")
-        assert settings.linear_harmonics is True
+        assert settings.linearise_harmonics is True
         assert settings.linear_torsions is False
 
     def test_expand_torsions_default(self):
         """Test that expand torsions is True by default."""
         settings = ParameterisationSettings(smiles="CCO")
         assert settings.expand_torsions is True
-
-    def test_msm_settings_optional(self):
-        """Test that MSM settings are optional."""
-        settings = ParameterisationSettings(smiles="CCO")
-        assert settings.msm_settings is None
-
-        settings_with_msm = ParameterisationSettings(
-            smiles="CCO", msm_settings=MSMSettings()
-        )
-        assert settings_with_msm.msm_settings is not None
 
     @given(smiles=st.sampled_from(["CCO", "CC", "C", "CCCC", "c1ccccc1"]))
     @hypothesis_settings(max_examples=5)

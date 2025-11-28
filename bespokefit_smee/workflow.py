@@ -8,6 +8,8 @@ import loguru
 from openff.toolkit import ForceField
 from tqdm import tqdm
 
+from descent.train import Trainable
+
 from bespokefit_smee.parameterise import convert_to_smirnoff
 
 from .analyse import analyse_workflow
@@ -32,7 +34,8 @@ def get_bespoke_force_field(
     """
     Fit a bespoke force field. This involves:
 
-    - Parameterising a base force field for the target molecule
+    - Parameterising a base force field for the target molecule and generating
+      specific tagged SMARTS parameters
     - Generating training data (e.g. from high-temperature MD simulations)
     - Optimising the parameters of the force field to reproduce the training data
     - Validating the fitted force field against test data
@@ -68,13 +71,25 @@ def get_bespoke_force_field(
         output_settings.to_yaml(settings_output_path)
 
     # Parameterise the base force field
-    # TODO: break this down and make the getting the trainable the responsibility of the
-    # train module. Also process everything at the OFF FF level before converting to the
-    # tensor FF (will be a bit of a pain to update to do this though...)
-    off_mol, initial_off_ff, tensor_top, tensor_ff, trainable = parameterise(
+    off_mol, initial_off_ff, tensor_top, tensor_ff = parameterise(
         settings.parameterisation_settings, device=settings.device_type
     )
+
+    pruned_parameter_configs = {
+        p_type: p_config
+        for p_type, p_config in settings.training_settings.parameter_configs.items()
+        if p_type in tensor_ff.potentials_by_type
+    }
+
+    trainable = Trainable(
+        tensor_ff,
+        pruned_parameter_configs,
+        settings.training_settings.attribute_configs,
+    )
+
     trainable_parameters = trainable.to_values().to((settings.device))
+
+    # Required for LM optimiser only
     for param in tensor_top.parameters.values():
         param.assignment_matrix = param.assignment_matrix.to_dense()
 

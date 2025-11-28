@@ -4,6 +4,7 @@ import warnings
 from abc import ABC
 from pathlib import Path
 from typing import Literal, Union
+from descent.train import AttributeConfig, ParameterConfig
 
 import numpy as np
 import torch
@@ -24,31 +25,50 @@ from typing_extensions import Self
 from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
 from .outputs import OutputType, WorkflowPathManager
-from .utils.typing import OptimiserName, PathLike, TorchDevice, ValenceType
+from .utils.typing import (
+    AllowedAttributeType,
+    OptimiserName,
+    PathLike,
+    TorchDevice,
+    ValenceType,
+    NonLinearValenceType,
+)
 
 _DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
+
+_DEFAULT_MODEL_CONFIG = ConfigDict(
+    extra="forbid",
+    validate_assignment=True,
+)
+
+
+def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
+    """Save the settings to a YAML file"""
+    data = model.model_dump(mode="json")
+    with open(yaml_path, "w") as file:
+        yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
+
+
+def _model_from_yaml(cls, yaml_path: PathLike) -> Self:
+    """Load settings from a YAML file"""
+    with open(yaml_path, "r") as file:
+        settings_data = yaml.safe_load(file)
+    return cls(**settings_data)
 
 
 class _DefaultSettings(BaseModel, ABC):
     """Default configuration for all models."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        validate_assignment=True,
-    )
+    model_config = _DEFAULT_MODEL_CONFIG
 
     def to_yaml(self, yaml_path: PathLike) -> None:
         """Save the settings to a YAML file"""
-        data = self.model_dump(mode="json")
-        with open(yaml_path, "w") as file:
-            yaml.dump(data, file, default_flow_style=False, sort_keys=False)
+        _model_to_yaml(self, yaml_path)
 
     @classmethod
     def from_yaml(cls, yaml_path: PathLike) -> Self:
         """Load settings from a YAML file"""
-        with open(yaml_path, "r") as file:
-            settings_data = yaml.safe_load(file)
-        return cls(**settings_data)
+        return _model_from_yaml(cls, yaml_path)
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -265,30 +285,6 @@ def _get_default_regularised_parameters() -> dict[ValenceType, list[str]]:
     }
 
 
-class RegularisationSettings(_DefaultSettings):
-    """Settings for regularisation of the force field parameters. Note that
-    regularisation is applied after scaling the parameters to ensure similar
-    magnitudes."""
-
-    regularisation_strength: float = Field(
-        100.0, description="Strength of the L2 regularisation term."
-    )
-
-    regularisation_value: Literal["initial", "zero"] = Field(
-        "initial",
-        description="Value to regularise parameters towards. 'initial' is the initial parameter value, "
-        "'zero' is zero.",
-    )
-
-    # TODO: Better validation for this. Should probably be in the same
-    # place as the option to linearise, and where the ParameterConfigs are
-    # created. Should probably create PR to descent.
-    parameters: dict[ValenceType, list[str]] = Field(
-        default_factory=_get_default_regularised_parameters,
-        description="Dictionary of parameters to be regularised by valence type.",
-    )
-
-
 class TrainingSettings(_DefaultSettings):
     """Settings for the training process."""
 
@@ -296,26 +292,77 @@ class TrainingSettings(_DefaultSettings):
         "adam",
         description="Optimiser to use for the training. 'adam' is Adam, 'lm' is Levenberg-Marquardt",
     )
-    test_data_path: Path | None = Field(
-        None,
-        description="Path to the test data. If None, the data will be generated using the ML potential.",
+    # Use AttributeConfigs to prevent the user passing exclude or include keys,
+    # which should be set in the parameterisation settings because they decide
+    # which tagged SMARTS are generated
+    parameter_configs: dict[ValenceType, ParameterConfig] = Field(
+        default_factory=lambda: {
+            "LinearBonds": ParameterConfig(
+                cols=["k1", "k2"],
+                scales={"k1": 0.0024, "k2": 0.0024},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                include=None,
+                exclude=None,
+            ),
+            "LinearAngles": ParameterConfig(
+                cols=["k1", "k2"],
+                scales={"k1": 0.0207, "k2": 0.0207},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                include=None,
+                exclude=None,
+            ),
+            "ProperTorsions": ParameterConfig(
+                cols=["k"],
+                scales={
+                    "k": 0.3252,
+                },
+                limits={"k": (None, None)},
+                regularize={"k": 1000.0},
+                include=None,
+                # Exclude linear torsions to avoid non-zero force constants which can
+                # cause instabilities. Taken from https://github.com/openforcefield/openff-forcefields/blob/05f7ad0daad1ccdefdf931846fd13df863ab5c7d/openforcefields/offxml/openff-2.2.1.offxml#L326-L328
+                exclude=[
+                    {"id": "[*:1]-[*:2]#[*:3]-[*:4]"},
+                    {"id": "[*:1]~[*:2]-[*:3]#[*:4]"},
+                    {"id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]"},
+                ],
+            ),
+            "ImproperTorsions": ParameterConfig(
+                cols=["k"],
+                scales={
+                    "k": 0.1647,
+                },
+                limits={"k": (0, None)},
+                regularize={"k": 1000.0},
+                include=None,
+                exclude=None,
+            ),
+        },
+        description="Configuration for the force field parameters to be trained.",
     )
-    data: str | None = Field(
-        None,
-        description="Location of pre-calculated data set. Must be None unless method == 'data'",
+
+    attribute_configs: dict[AllowedAttributeType, AttributeConfig] = Field(
+        {},
+        description="Configuration for the force field attributes to be trained. "
+        "This allows 1-4 scaling for 'vdW' and 'Electrostatics' to be trained.",
     )
+
     n_epochs: int = Field(1000, description="Number of epochs in the ML fit")
     learning_rate: float = Field(0.01, description="Learning Rate in the ML fit")
     learning_rate_decay: float = Field(
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
     )
     learning_rate_decay_step: int = Field(10, description="Learning Rate Decay Step")
+    loss_energy_weight: float = Field(
+        1000.0, description="Scaling Factor for the Energy loss term"
+    )
     loss_force_weight: float = Field(
         0.1, description="Scaling Factor for the Force loss term"
     )
-    regularisation_settings: RegularisationSettings = Field(
-        default_factory=lambda: RegularisationSettings(),
-        description="Settings for regularisation of the force field parameters",
+    regularisation_target: Literal["initial", "zero"] = Field(
+        "initial",
+        description="Target value to regularise parameters towards. 'initial' is the initial parameter value, "
+        "'zero' is zero.",
     )
 
     @property
@@ -326,26 +373,18 @@ class TrainingSettings(_DefaultSettings):
         }
 
 
-class MSMSettings(_DefaultSettings):
-    """Settings for the modified Seminario method."""
+class TypeGenerationSettings(_DefaultSettings):
+    """Settings for generating tagged SMARTS types for a given potential type."""
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "egret-1",
-        description="The machine learning potential to use for calculating the Hessian matrix",
+    max_extend_distance: int = Field(
+        -1,
+        description="Maximum number of bonds to extend from the atoms to which the potential is applied "
+        "when generating tagged SMARTS patterns. A value of -1 means no limit.",
     )
-
-    finite_step: OpenMMQuantity[unit.nanometers] = Field(  # type: ignore[type-arg]
-        default=0.0005291772 * unit.nanometers,
-        description="Finite step to calculate Hessian (Angstrom)",
-    )
-
-    tolerance: OpenMMQuantity[unit.kilocalories_per_mole / unit.angstrom] = Field(  # type: ignore[type-arg, valid-type]
-        default=0.005291772 * unit.kilocalories_per_mole / unit.angstrom,
-        description="Tolerance for the geometry optimizer",
-    )
-    vib_scaling: float = Field(
-        0.957,
-        description="Vibrational scaling factor",
+    exclude: list[str] = Field(
+        [],
+        description="List of SMARTS patterns to exclude when generating tagged SMARTS types. If present, "
+        " these patterns will remain the same as in the initial force field.",
     )
 
 
@@ -360,33 +399,35 @@ class ParameterisationSettings(_DefaultSettings):
         " OpenFF force field, or your own .offxml file.",
     )
 
-    excluded_smirks: list[str] = Field(
-        [
-            "[*:1]-[*:2]#[*:3]-[*:4]",  # Linear torsions should be kept linear
-            "[*:1]~[*:2]-[*:3]#[*:4]",  # Linear torsions should be kept linear
-            "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",  # Linear torsions should be kept linear
-        ],
-        description="List of SMARTS patterns to exclude from training,"
-        "i.e. to keep the parameters from the initial force field.",
-    )
-
-    linear_harmonics: bool = Field(
-        True,
-        description="Linearise the harmonic potentials in the Force Field (Default)",
-    )
-    linear_torsions: bool = Field(
-        False,
-        description="Linearise the torsion potentials in the Force Field (Default)",
-    )
-    msm_settings: MSMSettings | None = Field(
-        default=None,
-        description="Settings for the modified Seminario method. If None, the modified Seminario method "
-        "will not be used to derive bonded parameters.",
-    )
-
     expand_torsions: bool = Field(
         True,
         description="Whether to expand the torsion periodicities up to 4.",
+    )
+
+    linearise_harmonics: bool = Field(
+        True,
+        description="Linearise the harmonic potentials in the Force Field (Default)",
+    )
+
+    type_generation_settings: dict[NonLinearValenceType, TypeGenerationSettings] = (
+        Field(
+            default_factory=lambda: {
+                "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+                "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+                "ProperTorsions": TypeGenerationSettings(
+                    max_extend_distance=-1,
+                    exclude=[
+                        "[*:1]-[*:2]#[*:3]-[*:4]",  # Linear torsions should be kept linear
+                        "[*:1]~[*:2]-[*:3]#[*:4]",  # Linear torsions should be kept linear
+                        "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",  # Linear torsions should be kept linear
+                    ],
+                ),
+                "ImproperTorsions": TypeGenerationSettings(
+                    max_extend_distance=-1, exclude=[]
+                ),
+            },
+            description="Settings for generating tagged SMARTS types for each valence type.",
+        )
     )
 
     # Make sure that the smiles isn't set to the placeholder value (as done in the CLI)
@@ -484,6 +525,42 @@ class WorkflowSettings(_DefaultSettings):
             )
 
         return value
+
+    # Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
+    # in the training settings
+    @model_validator(mode="after")
+    def validate_parameterisation_training_consistency(self) -> Self:
+        """Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
+        in the training settings."""
+
+        harmonics_linearised = self.parameterisation_settings.linearise_harmonics
+        excluded_valence_types = (
+            ("Bonds", "Angles")
+            if harmonics_linearised
+            else ("LinearBonds", "LinearAngles")
+        )
+        if any(
+            valence_type in self.training_settings.parameter_configs
+            for valence_type in excluded_valence_types
+        ):
+            raise InvalidSettingsError(
+                f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
+                f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
+            )
+
+        param_settings = self.parameterisation_settings
+        train_settings = self.training_settings
+
+        if not param_settings.linearise_harmonics:
+            for valence_type in ["Bonds", "Angles"]:
+                if valence_type in train_settings.parameter_configs:
+                    raise InvalidSettingsError(
+                        f"ParameterisationSettings.linearise_harmonics is False, but TrainingSettings.parameter_configs "
+                        f"contains {valence_type}. Cannot train harmonic parameters if they are not linearised "
+                        f"in the parameterisation.",
+                    )
+
+        return self
 
     @property
     def device(self) -> torch.device:
