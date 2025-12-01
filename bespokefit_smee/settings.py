@@ -3,12 +3,12 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Literal, Union
-from descent.train import AttributeConfig, ParameterConfig
+from typing import Literal, TypeVar, Union
 
 import numpy as np
 import torch
 import yaml
+from descent.train import AttributeConfig, ParameterConfig
 from openmm import unit
 from packaging.version import Version
 from pydantic import (
@@ -27,11 +27,11 @@ from ._exceptions import InvalidSettingsError
 from .outputs import OutputType, WorkflowPathManager
 from .utils.typing import (
     AllowedAttributeType,
+    NonLinearValenceType,
     OptimiserName,
     PathLike,
     TorchDevice,
     ValenceType,
-    NonLinearValenceType,
 )
 
 _DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
@@ -49,7 +49,10 @@ def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
 
 
-def _model_from_yaml(cls, yaml_path: PathLike) -> Self:
+_T = TypeVar("_T", bound=BaseModel)
+
+
+def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
     """Load settings from a YAML file"""
     with open(yaml_path, "r") as file:
         settings_data = yaml.safe_load(file)
@@ -296,26 +299,24 @@ class TrainingSettings(_DefaultSettings):
     # which should be set in the parameterisation settings because they decide
     # which tagged SMARTS are generated
     parameter_configs: dict[ValenceType, ParameterConfig] = Field(
-        default_factory=lambda: {
+        default_factory=lambda: {  # type: ignore[arg-type]
             "LinearBonds": ParameterConfig(
                 cols=["k1", "k2"],
-                scales={"k1": 0.0024, "k2": 0.0024},
+                scales={"k1": 0.0028, "k2": 0.0028},
                 limits={"k1": (1e-8, None), "k2": (1e-8, None)},
                 include=None,
                 exclude=None,
             ),
             "LinearAngles": ParameterConfig(
                 cols=["k1", "k2"],
-                scales={"k1": 0.0207, "k2": 0.0207},
+                scales={"k1": 0.012, "k2": 0.011},
                 limits={"k1": (1e-8, None), "k2": (1e-8, None)},
                 include=None,
                 exclude=None,
             ),
             "ProperTorsions": ParameterConfig(
                 cols=["k"],
-                scales={
-                    "k": 0.3252,
-                },
+                scales={"k": 1.3},
                 limits={"k": (None, None)},
                 regularize={"k": 1000.0},
                 include=None,
@@ -329,9 +330,7 @@ class TrainingSettings(_DefaultSettings):
             ),
             "ImproperTorsions": ParameterConfig(
                 cols=["k"],
-                scales={
-                    "k": 0.1647,
-                },
+                scales={"k": 0.12},
                 limits={"k": (0, None)},
                 regularize={"k": 1000.0},
                 include=None,
@@ -411,7 +410,7 @@ class ParameterisationSettings(_DefaultSettings):
 
     type_generation_settings: dict[NonLinearValenceType, TypeGenerationSettings] = (
         Field(
-            default_factory=lambda: {
+            default_factory=lambda: {  # type: ignore[arg-type]
                 "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
                 "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
                 "ProperTorsions": TypeGenerationSettings(

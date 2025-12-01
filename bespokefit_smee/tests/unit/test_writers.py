@@ -3,9 +3,11 @@
 import h5py
 import pytest
 import smee
+import smee.converters
 import torch
 from openff.toolkit import ForceField, Molecule
 
+from bespokefit_smee.loss import LossRecord
 from bespokefit_smee.writers import write_scatter
 
 
@@ -191,17 +193,30 @@ class TestWriteMetrics:
         metrics_file = tmp_path / "metrics.txt"
         writer_dir = tmp_path / "writer"
 
-        loss_trn = torch.tensor(1.5)
-        loss_tst = torch.tensor(1.2)
+        loss_train = LossRecord(
+            energy=torch.tensor(1.0),
+            forces=torch.tensor(0.5),
+            regularisation=torch.tensor(1.5),
+        )
+
+        loss_test = LossRecord(
+            energy=torch.tensor(1.2),
+            forces=torch.tensor(0.6),
+            regularisation=torch.tensor(1.5),
+        )
 
         with open_writer(writer_dir) as writer:
             with open(metrics_file, "w") as f:
-                write_metrics(0, loss_trn, loss_tst, writer, f)
+                write_metrics(0, loss_train, loss_test, writer, f)
 
         assert metrics_file.exists()
         content = metrics_file.read_text()
-        assert "1.5" in content
-        assert "1.2" in content
+        assert "1.00" in content
+        assert "1.20" in content
+        assert "0.50" in content
+        assert "0.60" in content
+        assert "1.50" in content
+        assert len(content.strip().split()) == 6
 
     def test_write_metrics_multiple_iterations(self, tmp_path):
         """Test write_metrics for multiple iterations."""
@@ -213,9 +228,17 @@ class TestWriteMetrics:
         with open_writer(writer_dir) as writer:
             with open(metrics_file, "w") as f:
                 for i in range(3):
-                    loss_trn = torch.tensor(1.5 - i * 0.1)
-                    loss_tst = torch.tensor(1.2 - i * 0.1)
-                    write_metrics(i, loss_trn, loss_tst, writer, f)
+                    loss_train = LossRecord(
+                        energy=torch.tensor(1.0 - i * 0.1),
+                        forces=torch.tensor(0.5 - i * 0.05),
+                        regularisation=torch.tensor(1.5),
+                    )
+                    loss_test = LossRecord(
+                        energy=torch.tensor(1.2 - i * 0.1),
+                        forces=torch.tensor(0.6 - i * 0.05),
+                        regularisation=torch.tensor(1.5),
+                    )
+                    write_metrics(i, loss_train, loss_test, writer, f)
 
         lines = metrics_file.read_text().strip().split("\n")
         assert len(lines) == 3

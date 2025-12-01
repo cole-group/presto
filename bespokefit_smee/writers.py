@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import predict, LossRecord
+from .loss import LossRecord, predict
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -189,9 +189,21 @@ def report(
             )[:2]
             loss_tst = ((y_pred - y_ref) ** 2).mean()
 
+            loss_train = LossRecord(
+                energy=loss,
+                forces=torch.tensor(float("nan"), device=x.device),
+                regularisation=torch.tensor(float("nan"), device=x.device),
+            )
+
+            loss_test = LossRecord(
+                energy=loss_tst,
+                forces=torch.tensor(float("nan"), device=x.device),
+                regularisation=torch.tensor(float("nan"), device=x.device),
+            )
+
             with open_writer(experiment_dir) as writer:
                 with open(metrics_file, "a") as f:
-                    write_metrics(step, loss, loss_tst, writer, f)
+                    write_metrics(step, loss_train, loss_test, writer, f)
 
 
 def write_metrics(
@@ -237,12 +249,12 @@ def get_potential_summary(potential: smee.TensorPotential) -> str:
     output.append(f"fn={potential.fn}")
 
     if potential.attributes is not None:
-        assert (
-            potential.attribute_units is not None
-        ), "Attribute units are None even though attributes are not None"
-        assert (
-            potential.attribute_cols is not None
-        ), "Attribute columns are None even though attributes are not None"
+        assert potential.attribute_units is not None, (
+            "Attribute units are None even though attributes are not None"
+        )
+        assert potential.attribute_cols is not None, (
+            "Attribute columns are None even though attributes are not None"
+        )
         attribute_rows = [
             {
                 f"{col}{potential.attribute_units[idx]}": (
@@ -287,12 +299,12 @@ def get_potential_comparison(
     output.append(f"fn={pot1.fn}")
 
     if pot1.attributes is not None:
-        assert (
-            pot1.attribute_units is not None
-        ), "Attribute units are None even though attributes are not None"
-        assert (
-            pot1.attribute_cols is not None
-        ), "Attribute columns are None even though attributes are not None"
+        assert pot1.attribute_units is not None, (
+            "Attribute units are None even though attributes are not None"
+        )
+        assert pot1.attribute_cols is not None, (
+            "Attribute columns are None even though attributes are not None"
+        )
         attribute_rows = [
             {
                 f"{col}{pot1.attribute_units[idx]}": (

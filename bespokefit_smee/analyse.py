@@ -18,8 +18,8 @@ from PIL import Image
 from rdkit.Chem import Draw
 from tqdm import tqdm
 
-from .outputs import OutputStage, OutputType, StageKind
 from .loss import LossRecord
+from .outputs import OutputStage, OutputType, StageKind
 from .settings import WorkflowSettings
 
 logger = loguru.logger

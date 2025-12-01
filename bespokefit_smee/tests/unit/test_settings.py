@@ -18,8 +18,8 @@ from bespokefit_smee.settings import (
     MMMDMetadynamicsSamplingSettings,
     MMMDSamplingSettings,
     ParameterisationSettings,
-    RegularisationSettings,
     TrainingSettings,
+    TypeGenerationSettings,
     WorkflowSettings,
 )
 
@@ -181,37 +181,6 @@ class TestMMMDMetadynamicsSamplingSettings:
         assert OutputType.PDB_TRAJECTORY in settings.output_types
 
 
-class TestRegularisationSettings:
-    """Tests for regularisation settings."""
-
-    def test_default_values(self):
-        """Test default values."""
-        settings = RegularisationSettings()
-        assert settings.regularisation_strength == 100.0
-        assert settings.regularisation_target == "initial"
-        assert "ProperTorsions" in settings.parameters
-        assert "k" in settings.parameters["ProperTorsions"]
-
-    def test_regularisation_target_validation(self):
-        """Test that only valid regularisation values are accepted."""
-        RegularisationSettings(regularisation_target="initial")
-        RegularisationSettings(regularisation_target="zero")
-
-        with pytest.raises(ValidationError):
-            RegularisationSettings(regularisation_target="invalid")
-
-    @given(
-        strength=st.floats(
-            min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False
-        )
-    )
-    @hypothesis_settings(max_examples=10)
-    def test_regularisation_strength_property(self, strength):
-        """Test that regularisation strength can be set to positive values."""
-        settings = RegularisationSettings(regularisation_strength=strength)
-        assert settings.regularisation_strength == strength
-
-
 class TestTrainingSettings:
     """Tests for training settings."""
 
@@ -254,6 +223,49 @@ class TestTrainingSettings:
         assert settings.learning_rate == learning_rate
 
 
+class TestTypeGenerationSettings:
+    """Tests for type generation settings."""
+
+    def test_default_values(self):
+        """Test default values."""
+        settings = TypeGenerationSettings()
+        assert settings.max_extend_distance == -1
+        assert settings.exclude == []
+
+    def test_custom_max_extend_distance(self):
+        """Test custom max_extend_distance."""
+        settings = TypeGenerationSettings(max_extend_distance=3)
+        assert settings.max_extend_distance == 3
+
+    def test_custom_exclude_list(self):
+        """Test custom exclude list."""
+        exclude_list = ["[*:1]-[*:2]", "[*:1]~[*:2]"]
+        settings = TypeGenerationSettings(exclude=exclude_list)
+        assert settings.exclude == exclude_list
+
+    def test_max_extend_distance_unlimited(self):
+        """Test that -1 means unlimited extension."""
+        settings = TypeGenerationSettings(max_extend_distance=-1)
+        assert settings.max_extend_distance == -1
+
+    def test_max_extend_distance_zero(self):
+        """Test that 0 means no extension."""
+        settings = TypeGenerationSettings(max_extend_distance=0)
+        assert settings.max_extend_distance == 0
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Test YAML serialization round-trip."""
+        settings = TypeGenerationSettings(
+            max_extend_distance=2, exclude=["[*:1]-[*:2]#[*:3]-[*:4]"]
+        )
+        yaml_path = tmp_path / "type_gen_settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = TypeGenerationSettings.from_yaml(yaml_path)
+        assert loaded.max_extend_distance == 2
+        assert loaded.exclude == ["[*:1]-[*:2]#[*:3]-[*:4]"]
+
+
 class TestParameterisationSettings:
     """Tests for parameterisation settings."""
 
@@ -277,17 +289,20 @@ class TestParameterisationSettings:
         settings = ParameterisationSettings(smiles="CCO")
         assert settings.initial_force_field == "openff_unconstrained-2.2.1.offxml"
 
-    def test_default_excluded_smirks(self):
-        """Test that default excluded SMIRKS are set."""
+    def test_default_type_generation_settings(self):
+        """Test that default type generation settings are set."""
         settings = ParameterisationSettings(smiles="CCO")
-        assert len(settings.excluded_smirks) == 3
-        assert "[*:1]-[*:2]#[*:3]-[*:4]" in settings.excluded_smirks
+        assert "ProperTorsions" in settings.type_generation_settings
+        assert len(settings.type_generation_settings["ProperTorsions"].exclude) == 3
+        assert (
+            "[*:1]-[*:2]#[*:3]-[*:4]"
+            in settings.type_generation_settings["ProperTorsions"].exclude
+        )
 
-    def test_linearise_harmonics_and_torsions(self):
-        """Test linear harmonics and torsions settings."""
+    def test_linearise_harmonics(self):
+        """Test linear harmonics setting."""
         settings = ParameterisationSettings(smiles="CCO")
         assert settings.linearise_harmonics is True
-        assert settings.linear_torsions is False
 
     def test_expand_torsions_default(self):
         """Test that expand torsions is True by default."""

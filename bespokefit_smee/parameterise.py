@@ -3,7 +3,7 @@
 import collections
 import copy
 import math
-from typing import cast
+from typing import Callable, cast
 
 import loguru
 import openff.interchange
@@ -485,7 +485,6 @@ def parameterise(
         potential_type,
         type_generation_settings,
     ) in settings.type_generation_settings.items():
-
         potential = force_field.potentials_by_type.get(potential_type)
 
         if potential is None:
@@ -551,76 +550,159 @@ def _expand_torsions(
     return ff_copy
 
 
+def _add_angle_within_range(initial_angle: float, diff: float) -> float:
+    """Add a difference to an angle cap to be within [0, pi]"""
+    new_angle = initial_angle + diff
+    if diff > 0:
+        return min(new_angle, math.pi)
+    else:
+        return max(new_angle, 0.0)
+
+
+def _compute_linear_harmonic_params(
+    k: float,
+    eq_value: float,
+    compute_lower_bound: Callable[[float], float],
+    compute_upper_bound: Callable[[float], float],
+) -> tuple[float, float, float, float]:
+    """Compute linearized harmonic parameters from standard parameters.
+
+    This generic function distributes a force constant across two bounds,
+    inversely proportional to the distance from each bound.
+
+    Args:
+        k: Force constant (e.g., kcal/mol/Å² or kcal/mol/rad²)
+        eq_value: Equilibrium value (e.g., bond length or angle)
+        compute_lower_bound: Function that takes eq_value and returns
+            lower bound
+        compute_upper_bound: Function that takes eq_value and returns
+            upper bound
+
+    Returns:
+        Tuple of (k1, k2, eq1, eq2) where:
+        - k1, k2: Distributed force constants
+        - eq1, eq2: Lower and upper equilibrium value bounds
+    """
+    eq1 = compute_lower_bound(eq_value)
+    eq2 = compute_upper_bound(eq_value)
+    d = eq2 - eq1
+    # Distribute force constant inversely proportional to distance from bounds
+    k1 = k * (eq2 - eq_value) / d
+    k2 = k * (eq_value - eq1) / d
+    return k1, k2, eq1, eq2
+
+
+def _linearize_bond_parameters(
+    potential: smee.TensorPotential, device_type: str
+) -> smee.TensorPotential:
+    """Linearize bond potential parameters.
+
+    Converts standard harmonic bond parameters (k, length) to linearized
+    form (k1, k2, b1, b2) where the equilibrium bond length range is
+    [0.5*length, 1.5*length].
+    """
+    new_potential = copy.deepcopy(potential)
+    new_potential.type = "LinearBonds"
+    new_potential.fn = "(k1+k2)/2*(r-(k1*length1+k2*length2)/(k1+k2))**2"
+    new_potential.parameter_cols = ("k1", "k2", "b1", "b2")
+
+    # Get dtype from the first parameter
+    dtype = potential.parameters.dtype
+
+    new_params = [
+        _compute_linear_harmonic_params(
+            param[0].item(),
+            param[1].item(),
+            lambda b: b - 0.4,  # Lower bound: current length - 0.4 Å
+            lambda b: b + 0.4,  # Upper bound: current length + 0.4 Å
+        )
+        for param in potential.parameters
+    ]
+
+    new_potential.parameters = torch.tensor(
+        new_params, dtype=dtype, requires_grad=False, device=device_type
+    )
+    new_potential.parameter_units = (
+        _KCAL_PER_MOL_ANGSQ,
+        _KCAL_PER_MOL_ANGSQ,
+        _ANGSTROM,
+        _ANGSTROM,
+    )
+    return new_potential
+
+
+def _linearize_angle_parameters(
+    potential: smee.TensorPotential, device_type: str
+) -> smee.TensorPotential:
+    """Linearize angle potential parameters.
+
+    Converts standard harmonic angle parameters (k, angle) to linearized form
+    (k1, k2, angle1, angle2) where the equilibrium angle range is [0, π].
+    """
+    new_potential = copy.deepcopy(potential)
+    new_potential.type = "LinearAngles"
+    new_potential.fn = "(k1+k2)/2*(r-(k1*angle1+k2*angle2)/(k1+k2))**2"
+    new_potential.parameter_cols = ("k1", "k2", "angle1", "angle2")
+
+    # Get dtype from the first parameter
+    dtype = potential.parameters.dtype
+
+    new_params = [
+        _compute_linear_harmonic_params(
+            param[0].item(),
+            param[1].item(),
+            lambda a: max(0.0, a - math.pi / 3),  # Lower bound: max(0, angle - π/3)
+            lambda a: min(math.pi, a + math.pi / 3),  # Upper bound: min(π, angle + π/3)
+        )
+        for param in potential.parameters
+    ]
+
+    new_potential.parameters = torch.tensor(
+        new_params, dtype=dtype, requires_grad=False, device=device_type
+    )
+    new_potential.parameter_units = (
+        _KCAL_PER_MOL_RADSQ,
+        _KCAL_PER_MOL_RADSQ,
+        _RADIANS,
+        _RADIANS,
+    )
+    return new_potential
+
+
 def linearise_harmonics_force_field(
     ff: smee.TensorForceField, device_type: str
 ) -> smee.TensorForceField:
-    """Linearize the harmonic potential parameters in the forcefield for more robust optimization"""
+    """Linearize the harmonic potential parameters in the forcefield.
+
+    This converts Bonds and Angles potentials to their linearized forms
+    (LinearBonds and LinearAngles) for more robust optimization.
+    """
     ff_copy = copy.deepcopy(ff)
     ff_copy.potentials = []
+
     for potential in ff.potentials:
-        if potential.type in {"Bonds"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearBonds"
-            new_potential.fn = "(k1+k2)/2*(r-(k1*length1+k2*length2)/(k1+k2))**2"
-            new_potential.parameter_cols = ("k1", "k2", "b1", "b2")
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                b = param[1].item()
-                dt = param.dtype
-                b1 = b * 0.5
-                b2 = b * 1.5
-                d = b2 - b1
-                k1 = k * (b2 - b) / d
-                k2 = k * (b - b1) / d
-                new_params.append([k1, k2, b1, b2])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, requires_grad=False, device=device_type
+        if potential.type == "Bonds":
+            ff_copy.potentials.append(
+                _linearize_bond_parameters(potential, device_type)
             )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL_ANGSQ,
-                _KCAL_PER_MOL_ANGSQ,
-                _ANGSTROM,
-                _ANGSTROM,
+        elif potential.type == "Angles":
+            ff_copy.potentials.append(
+                _linearize_angle_parameters(potential, device_type)
             )
-            ff_copy.potentials.append(new_potential)
-        elif potential.type in {"Angles"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearAngles"
-            new_potential.fn = "(k1+k2)/2*(r-(k1*angle1+k2*angle2)/(k1+k2))**2"
-            new_potential.parameter_cols = ("k1", "k2", "angle1", "angle2")
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                a = param[1].item()
-                dt = param.dtype
-                # a1 = a * 0.9
-                # a2 = a * 1.1
-                a1 = 0.0
-                a2 = math.pi
-                d = a2 - a1
-                k1 = k * (a2 - a) / d
-                k2 = k * (a - a1) / d
-                new_params.append([k1, k2, a1, a2])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, requires_grad=False, device=device_type
-            )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL_RADSQ,
-                _KCAL_PER_MOL_RADSQ,
-                _RADIANS,
-                _RADIANS,
-            )
-            ff_copy.potentials.append(new_potential)
         else:
             ff_copy.potentials.append(potential)
+
     return ff_copy
 
 
 def linearise_harmonics_topology(
-    topology: smee.TensorTopology, device_type: str
+    topology: smee.TensorTopology, device_type: TorchDevice
 ) -> smee.TensorTopology:
-    """Linearize the harmonic potential parameters in the topology for more robust optimization"""
+    """Linearize harmonic potential parameters in the topology.
+
+    This updates the topology to use LinearBonds and LinearAngles
+    parameter maps instead of Bonds and Angles.
+    """
     topology_copy = topology.to(device_type)
     topology_copy.parameters["LinearBonds"] = copy.deepcopy(
         topology_copy.parameters["Bonds"]

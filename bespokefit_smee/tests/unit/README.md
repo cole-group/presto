@@ -11,9 +11,7 @@ The test suite covers the following modules:
 
 1. **test_settings.py** - Comprehensive tests for all settings classes:
    - SamplingSettings (MM MD, ML MD, Metadynamics)
-   - RegularisationSettings
    - TrainingSettings
-   - MSMSettings
    - ParameterisationSettings
    - WorkflowSettings
    - Uses hypothesis for property-based testing

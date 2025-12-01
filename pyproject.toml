@@ -111,7 +111,7 @@ rdkit = ">=2024.03.6"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
-descent = { git = "https://github.com/SimonBoothroyd/descent.git"}
+descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 mace-torch = "*"
 bespokefit_smee ={ path = ".", editable = true }
@@ -125,11 +125,11 @@ cuda = "12"
 [tool.pixi.feature.gpu.dependencies]
 cuda-version = ">=12"
 pytorch-gpu = "*"
-cuequivariance="*"
-cuequivariance-torch="*"
+# cuequivariance="*"
+# cuequivariance-torch="*"
 
-[tool.pixi.feature.gpu.pypi-dependencies]
-cuequivariance-ops-torch-cu12="*"
+# [tool.pixi.feature.gpu.pypi-dependencies]
+# cuequivariance-ops-torch-cu12="*"
 
 [tool.pixi.feature.cpu.dependencies]
 pytorch = "*"

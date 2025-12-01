@@ -16,7 +16,7 @@ import torch
 from tqdm import tqdm
 
 # from .sample import get_data_MLMD, get_data_MMMD
-from .loss import get_loss_closure_fn, prediction_loss, LossRecord
+from .loss import get_loss_closure_fn, prediction_loss
 from .outputs import OutputType
 from .settings import (
     TrainingSettings,
@@ -112,6 +112,8 @@ def train_levenberg_marquardt(
         tuple[torch.Tensor, descent.train.Trainable]
             The updated parameters and the trainable object.
     """
+    raise NotImplementedError("LM optimiser is not currently supported.")
+
     # Make sure we have all the required output paths and no others
     if set(output_paths.keys()) != settings.output_types:
         raise ValueError(
@@ -252,7 +254,7 @@ def train_adam(
                         writer,
                         metrics_file,
                     )
-                tot_loss_train.backward(retain_graph=True)  # type: ignore[no-untyped-call]
+                tot_loss_train.backward(retain_graph=True)  # type: ignore[union-attr]
                 # trainable.freeze_grad()
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)

@@ -5,10 +5,9 @@ import pathlib
 
 import datasets
 import loguru
+from descent.train import Trainable
 from openff.toolkit import ForceField
 from tqdm import tqdm
-
-from descent.train import Trainable
 
 from bespokefit_smee.parameterise import convert_to_smirnoff
 

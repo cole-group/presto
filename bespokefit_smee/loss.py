@@ -102,50 +102,56 @@ def compute_regularisation_loss(
     """Compute regularisation penalty"""
     reg_loss = torch.tensor(0.0, device=trainable_parameters.device)
 
-    regularisation_idxs, regularisation_strengths = (
-        trainable.get_regularization_idxs_and_strengths()
-    )
+    regularised_idxs = trainable.regularized_idxs
+    regularisation_weights = trainable.regularization_weights
 
-    if len(regularisation_idxs) == 0:
+    if len(regularised_idxs) == 0:
         return reg_loss
 
-    if all(strength == 0.0 for strength in regularisation_strengths):
+    if all(weight == 0.0 for weight in regularisation_weights):
         return reg_loss
 
     if regularisation_target == "initial":
-        target = initial_parameters[regularisation_idxs]
+        target = initial_parameters[regularised_idxs]
     elif regularisation_target == "zero":
-        target = torch.zeros_like(trainable_parameters[regularisation_idxs])
+        target = torch.zeros_like(trainable_parameters[regularised_idxs])
     else:
         raise NotImplementedError(
-            f"regularisation value " f"{regularisation_target} not implemented"
+            f"regularisation value {regularisation_target} not implemented"
         )
 
     # L2 regularisation on all parameters
     reg_loss += (
-        ((trainable_parameters[regularisation_idxs] - target) ** 2)
-        * regularisation_strengths
+        ((trainable_parameters[regularised_idxs] - target) ** 2)
+        * regularisation_weights
     ).sum() / n_atoms
 
     return reg_loss
 
 
 def get_loss_closure_fn(
-    trainable: descent.train.Trainable,
-    initial_x: torch.Tensor,
-    topology: smee.TensorTopology,
     dataset: datasets.Dataset,
+    trainable: descent.train.Trainable,
+    trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
+    topology: smee.TensorTopology,
+    loss_energy_weight: float,
+    loss_force_weight: float,
+    regularisation_target: typing.Literal["initial", "zero"],
     # regularisation_settings: RegularisationSettings,
 ) -> descent.optim.ClosureFn:
     """
     Return a default closure function
 
     Args:
-        trainable: The trainable object.
-        initial_x: The initial parameters before training.
-        topology: The topology of the system.
-        dataset: The dataset to use for the loss function.
-        regularisation_settings: Settings for regularisation.
+        dataset: The dataset to predict the energies and forces of.
+        trainable: The trainable object containing the force field.
+        trainable_parameters: The parameters to be optimized.
+        initial_parameters: The initial parameters before training.
+        topology: The topology of the molecule in the dataset.
+        loss_energy_weight: Weight for the energy loss term.
+        loss_force_weight: Weight for the force loss term.
+        regularisation_target: The type of regularisation to apply ('initial' or 'zero').
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient (if requested), and hessian (if requested).
@@ -177,8 +183,8 @@ def get_loss_closure_fn(
             regularisation_penalty = compute_regularisation_loss(
                 trainable,
                 _x,
-                initial_x,
-                regularisation_settings,
+                initial_parameters,
+                regularisation_target=regularisation_target,
                 n_atoms=topology.n_atoms,
             )
             loss += regularisation_penalty
