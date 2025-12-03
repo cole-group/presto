@@ -41,4 +41,5 @@ jobs:
 
         git fetch --all --prune
 
+        pixi run -e cpu docs-build
         pixi run -e cpu docs-deploy VERSION="$VERSION"
