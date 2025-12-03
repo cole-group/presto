@@ -214,5 +214,6 @@ test = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=x
 type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict bespokefit_smee" }
 
 # Docs tasks require docs feature
-docs = { cmd = "mkdocs build" }
+"docs-build" = { cmd = "mkdocs build" }
+"docs-serve" = { cmd = "mkdocs serve" }
 "docs-deploy" = { cmd = "mike deploy --push --update-aliases $VERSION" }
