@@ -1,4 +1,4 @@
-"""Functionality for generating the initial parameterisation."""
+"""Convert OpenFF ForceField <--> smee TensorForceField."""
 
 import collections
 import copy
@@ -15,6 +15,11 @@ from openff.units import Quantity
 from openff.units import unit as off_unit
 from rdkit import Chem
 
+from .create_types import (
+    _add_parameter_with_overwrite,
+    _create_smarts,
+    add_types_to_forcefield,
+)
 from .settings import ParameterisationSettings
 from .utils.typing import TorchDevice
 
@@ -31,25 +36,6 @@ _KCAL_PER_MOL_RADSQ = off_unit.kilocalories_per_mole / off_unit.radians**2
 def _reflect_angle(angle: float) -> float:
     """Reflect an angle (in radians) to be in the range [0, pi)."""
     return math.pi - abs((angle % (2 * math.pi)) - math.pi)
-
-
-def _add_parameter_with_overwrite(
-    handler: openff.toolkit.typing.engines.smirnoff.parameters.ParameterHandler,
-    parameter_dict: dict[str, str | Quantity],
-) -> None:
-    """Add a parameter to a handler, overwriting any existing parameter with the same smirks."""
-    old_parameter = handler.get_parameter({"smirks": parameter_dict["smirks"]})
-    new_parameter = handler._INFOTYPE(**parameter_dict)
-    if old_parameter:
-        assert len(old_parameter) == 1
-        old_parameter = old_parameter[0]
-        logger.info(
-            f"Overwriting existing parameter with smirks {parameter_dict['smirks']}."
-        )
-        idx = handler._index_of_parameter(old_parameter)
-        handler._parameters[idx] = new_parameter
-    else:
-        handler._parameters.append(new_parameter)
 
 
 def convert_to_smirnoff(
@@ -145,7 +131,6 @@ def convert_to_smirnoff(
                     }
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
-
         elif potential.type == "LinearAngles":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -191,7 +176,6 @@ def convert_to_smirnoff(
                     }
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
-
         elif potential.type == "LinearProperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -243,7 +227,6 @@ def convert_to_smirnoff(
                     }
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
-
         elif potential.type == "LinearImproperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -298,20 +281,6 @@ def convert_to_smirnoff(
                 _add_parameter_with_overwrite(handler, parameter_dict)
 
     return ff_smirnoff
-
-
-def _create_smarts(mol: openff.toolkit.Molecule, idxs: torch.Tensor) -> str:
-    """Create a mapped SMARTS representation of a molecule."""
-    from rdkit import Chem
-
-    mol_rdkit = mol.to_rdkit()
-
-    for i, idx in enumerate(idxs):
-        atom = mol_rdkit.GetAtomWithIdx(int(idx))
-        atom.SetAtomMapNum(i + 1)
-
-    smarts = Chem.MolToSmarts(mol_rdkit)
-    return smarts
 
 
 def _prepare_potential(
@@ -459,17 +428,108 @@ def parameterise(
     tensor_top: smee.TensorTopology
         The topology of the molecule.
     tensor_ff: smee.TensorForceField
-        The force field with unique parameters for each topologically symmetric term.
+        The force field with unique parameters for each topologically
+        symmetric term.
     """
     mol = openff.toolkit.Molecule.from_smiles(
-        settings.smiles, allow_undefined_stereo=True, hydrogens_are_explicit=False
+        settings.smiles,
+        allow_undefined_stereo=True,
+        hydrogens_are_explicit=False,
     )
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
     if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
         logger.warning(
-            "The force field contains a constraint for [#1:1]-[*:2] which is not supported. "
-            "Removing this constraint."
+            "The force field contains a constraint for [#1:1]-[*:2] which "
+            "is not supported. Removing this constraint."
+        )
+        del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
+
+    if settings.expand_torsions:
+        torsion_generation_settings = settings.type_generation_settings.get(
+            "ProperTorsions"
+        )
+        excluded_smirks = (
+            torsion_generation_settings.exclude
+            if torsion_generation_settings is not None
+            else None
+        )
+        off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
+
+    # Add bespoke parameters to the force field
+    bespoke_ff = copy.deepcopy(off_ff)
+
+    add_types_to_forcefield(
+        mol,
+        bespoke_ff,
+        settings.type_generation_settings,
+    )
+
+    # Convert to tensor format
+    force_field, [topology] = smee.converters.convert_interchange(
+        openff.interchange.Interchange.from_smirnoff(bespoke_ff, mol.to_topology())
+    )
+
+    # Move the force field and topology to the requested device
+    force_field = force_field.to(device)
+    topology = topology.to(device)
+
+    if settings.linearise_harmonics:
+        force_field = linearise_harmonics_force_field(force_field, device)
+        topology = linearise_harmonics_topology(topology, device)
+
+    return (
+        mol,
+        off_ff,
+        topology,
+        force_field,
+    )
+
+
+def parameterise_old(
+    settings: ParameterisationSettings,
+    device: TorchDevice = "cuda",
+) -> tuple[
+    openff.toolkit.Molecule,
+    openff.toolkit.ForceField,
+    smee.TensorTopology,
+    smee.TensorForceField,
+]:
+    """Old implementation of parameterise using _prepare_potential.
+
+    This is kept for comparison/testing purposes.
+
+    Parameters
+    ----------
+    settings: ParameterisationSettings
+        The settings for the parameterisation.
+
+    device: TorchDevice, default "cuda"
+        The device to use for the force field and topology.
+
+    Returns
+    -------
+    mol: openff.toolkit.Molecule
+        The molecule that has been parameterised.
+    off_ff: openff.toolkit.ForceField
+        The original force field, used as a base for the bespoke force field.
+    tensor_top: smee.TensorTopology
+        The topology of the molecule.
+    tensor_ff: smee.TensorForceField
+        The force field with unique parameters for each topologically
+        symmetric term.
+    """
+    mol = openff.toolkit.Molecule.from_smiles(
+        settings.smiles,
+        allow_undefined_stereo=True,
+        hydrogens_are_explicit=False,
+    )
+    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
+
+    if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
+        logger.warning(
+            "The force field contains a constraint for [#1:1]-[*:2] which "
+            "is not supported. Removing this constraint."
         )
         del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
 
@@ -504,7 +564,9 @@ def parameterise(
 
         if potential is None:
             logger.warning(
-                f"No potential of type {potential_type} found in the force field. Skipping bespoke parameterisation for this type."
+                f"No potential of type {potential_type} found in the "
+                f"force field. Skipping bespoke parameterisation for this "
+                f"type."
             )
             continue
 

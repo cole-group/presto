@@ -9,11 +9,11 @@ from descent.train import Trainable
 from openff.toolkit import ForceField
 from tqdm import tqdm
 
-from bespokefit_smee.parameterise import convert_to_smirnoff
+from bespokefit_smee.convert import convert_to_smirnoff
 
 from .analyse import analyse_workflow
+from .convert import parameterise
 from .outputs import OutputStage, OutputType, StageKind
-from .parameterise import parameterise
 from .sample import _SAMPLING_FNS_REGISTRY, SampleFn
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY

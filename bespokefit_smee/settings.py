@@ -380,11 +380,28 @@ class TypeGenerationSettings(_DefaultSettings):
         description="Maximum number of bonds to extend from the atoms to which the potential is applied "
         "when generating tagged SMARTS patterns. A value of -1 means no limit.",
     )
+    include: list[str] = Field(
+        [],
+        description="List of SMARTS present in the initial force field for which to generate new SMARTS "
+        " patterns. This allows you to split specific types for reparameterisation. This is mutually exclusive "
+        "with the exclude field.",
+    )
+
     exclude: list[str] = Field(
         [],
         description="List of SMARTS patterns to exclude when generating tagged SMARTS types. If present, "
-        " these patterns will remain the same as in the initial force field.",
+        " these patterns will remain the same as in the initial force field. This is mutually exclusive "
+        "with the include field.",
     )
+
+    @model_validator(mode="after")
+    def validate_include_exclude(self) -> Self:
+        """Ensure that only one of include or exclude is set."""
+        if self.include and self.exclude:
+            raise InvalidSettingsError(
+                "Only one of include or exclude can be set in TypeGenerationSettings."
+            )
+        return self
 
 
 class ParameterisationSettings(_DefaultSettings):
@@ -546,9 +563,6 @@ class WorkflowSettings(_DefaultSettings):
                 f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
-
-        param_settings = self.parameterisation_settings
-        train_settings = self.training_settings
 
         return self
 

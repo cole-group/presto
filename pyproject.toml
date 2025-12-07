@@ -32,7 +32,7 @@ ignore-init-module-imports = true
 exclude = ["bespokefit_smee/models/compile_aimnet2_ens_models.py"]
 
 [tool.coverage.run]
-omit = ["**/tests/*", "**/_version.py"]
+omit = ["**/tests/*", "**/_version.py", "bespokefit_smee/models/compile_aimnet2_ens_models.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
