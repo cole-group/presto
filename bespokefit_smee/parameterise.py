@@ -33,6 +33,25 @@ def _reflect_angle(angle: float) -> float:
     return math.pi - abs((angle % (2 * math.pi)) - math.pi)
 
 
+def _add_parameter_with_overwrite(
+    handler: openff.toolkit.typing.engines.smirnoff.parameters.ParameterHandler,
+    parameter_dict: dict[str, str | Quantity],
+) -> None:
+    """Add a parameter to a handler, overwriting any existing parameter with the same smirks."""
+    old_parameter = handler.get_parameter({"smirks": parameter_dict["smirks"]})
+    new_parameter = handler._INFOTYPE(**parameter_dict)
+    if old_parameter:
+        assert len(old_parameter) == 1
+        old_parameter = old_parameter[0]
+        logger.info(
+            f"Overwriting existing parameter with smirks {parameter_dict['smirks']}."
+        )
+        idx = handler._index_of_parameter(old_parameter)
+        handler._parameters[idx] = new_parameter
+    else:
+        handler._parameters.append(new_parameter)
+
+
 def convert_to_smirnoff(
     ff: smee.TensorForceField, base: openff.toolkit.ForceField | None = None
 ) -> openff.toolkit.ForceField:
@@ -82,15 +101,8 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(potential.parameter_cols)
                     }
                 )
-                if current_param := handler.get_parameter(
-                    {"smirks": parameter_dict["smirks"]}
-                ):
-                    logger.warning(
-                        f"Parameter with smirks {parameter_dict['smirks']} already exists in the force field."
-                        f"Current parameter: {current_param}. New parameter: {parameter_dict}. Skipping addition of new parameter."
-                    )
-                    continue
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
         elif potential.type == "LinearBonds":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -132,7 +144,8 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
         elif potential.type == "LinearAngles":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -177,7 +190,8 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
         elif potential.type == "LinearProperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -228,7 +242,8 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_torsion_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
         elif potential.type == "LinearImproperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -280,7 +295,7 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_torsion_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
 
     return ff_smirnoff
 

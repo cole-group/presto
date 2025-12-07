@@ -550,15 +550,6 @@ class WorkflowSettings(_DefaultSettings):
         param_settings = self.parameterisation_settings
         train_settings = self.training_settings
 
-        if not param_settings.linearise_harmonics:
-            for valence_type in ["Bonds", "Angles"]:
-                if valence_type in train_settings.parameter_configs:
-                    raise InvalidSettingsError(
-                        f"ParameterisationSettings.linearise_harmonics is False, but TrainingSettings.parameter_configs "
-                        f"contains {valence_type}. Cannot train harmonic parameters if they are not linearised "
-                        f"in the parameterisation.",
-                    )
-
         return self
 
     @property

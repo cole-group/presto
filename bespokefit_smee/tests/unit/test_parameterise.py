@@ -14,6 +14,7 @@ from pint import Quantity
 
 from ...loss import predict
 from ...parameterise import (
+    _add_parameter_with_overwrite,
     convert_to_smirnoff,
     parameterise,
 )
@@ -325,3 +326,188 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
     assert torch.allclose(energy_pred, openmm_relative, rtol=1e-3, atol=0.1), (
         f"Energy predictions differ for {smiles}: pred={energy_pred}, ref={openmm_relative}"
     )
+
+
+class TestAddParameterWithOverwrite:
+    """Tests for the _add_parameter_with_overwrite function."""
+
+    def test_add_new_parameter(self):
+        """Test adding a new bond parameter to a handler."""
+        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        original_count = len(bond_handler.parameters)
+
+        # Use a SMIRKS that doesn't exist in the force field
+        param_dict = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-new-test",
+            "length": 1.5 * openff.toolkit.unit.angstrom,
+            "k": 500.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+
+        _add_parameter_with_overwrite(bond_handler, param_dict)
+
+        assert len(bond_handler.parameters) == original_count + 1
+        added_param = bond_handler.parameters[-1]
+        assert added_param.smirks == "[#99:1]-[#99:2]"
+        assert added_param.id == "b-new-test"
+        assert added_param.length.m_as("angstrom") == pytest.approx(1.5)
+        assert added_param.k.m_as(
+            "kilocalorie_per_mole / angstrom**2"
+        ) == pytest.approx(500.0)
+
+    def test_overwrite_existing_parameter(self):
+        """Test overwriting an existing parameter with the same SMIRKS."""
+        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        # Find an existing parameter to overwrite
+        original_param = bond_handler.parameters[0]
+        original_smirks = original_param.smirks
+        original_count = len(bond_handler.parameters)
+
+        # Create a new parameter with the same SMIRKS but different values
+        param_dict = {
+            "smirks": original_smirks,
+            "id": "b-overwrite",
+            "length": 9.99 * openff.toolkit.unit.angstrom,
+            "k": 999.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+
+        _add_parameter_with_overwrite(bond_handler, param_dict)
+
+        # Check that the parameter count hasn't changed
+        assert len(bond_handler.parameters) == original_count
+
+        # Check that the parameter was overwritten
+        overwritten_param = bond_handler.get_parameter({"smirks": original_smirks})[0]
+        assert overwritten_param.smirks == original_smirks
+        assert overwritten_param.id == "b-overwrite"
+        assert overwritten_param.length.m_as("angstrom") == pytest.approx(9.99)
+        assert overwritten_param.k.m_as(
+            "kilocalorie_per_mole / angstrom**2"
+        ) == pytest.approx(999.0)
+
+    def test_parameter_preserves_position_on_overwrite(self):
+        """Test that overwriting a parameter preserves its position in the handler."""
+        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        # Get the 5th parameter (arbitrary choice)
+        target_index = 4
+        original_param = bond_handler.parameters[target_index]
+        original_smirks = original_param.smirks
+
+        # Save the parameters before and after for comparison
+        param_before = bond_handler.parameters[target_index - 1]
+        param_after = bond_handler.parameters[target_index + 1]
+
+        param_dict = {
+            "smirks": original_smirks,
+            "id": "b-test-position",
+            "length": 8.88 * openff.toolkit.unit.angstrom,
+            "k": 888.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+
+        _add_parameter_with_overwrite(bond_handler, param_dict)
+
+        # Check that the parameter at the same index has been updated
+        updated_param = bond_handler.parameters[target_index]
+        assert updated_param.id == "b-test-position"
+        assert updated_param.smirks == original_smirks
+
+        # Check that surrounding parameters are unchanged
+        assert bond_handler.parameters[target_index - 1] is param_before
+        assert bond_handler.parameters[target_index + 1] is param_after
+
+    def test_add_multiple_new_parameters(self):
+        """Test adding multiple new parameters sequentially."""
+        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        original_count = len(bond_handler.parameters)
+
+        param_dicts = [
+            {
+                "smirks": "[#97:1]-[#97:2]",
+                "id": "b1",
+                "length": 1.5 * openff.toolkit.unit.angstrom,
+                "k": 500.0
+                * openff.toolkit.unit.kilocalorie_per_mole
+                / openff.toolkit.unit.angstrom**2,
+            },
+            {
+                "smirks": "[#98:1]-[#98:2]",
+                "id": "b2",
+                "length": 1.4 * openff.toolkit.unit.angstrom,
+                "k": 600.0
+                * openff.toolkit.unit.kilocalorie_per_mole
+                / openff.toolkit.unit.angstrom**2,
+            },
+            {
+                "smirks": "[#99:1]-[#99:2]",
+                "id": "b3",
+                "length": 1.2 * openff.toolkit.unit.angstrom,
+                "k": 800.0
+                * openff.toolkit.unit.kilocalorie_per_mole
+                / openff.toolkit.unit.angstrom**2,
+            },
+        ]
+
+        for param_dict in param_dicts:
+            _add_parameter_with_overwrite(bond_handler, param_dict)
+
+        assert len(bond_handler.parameters) == original_count + 3
+        for i, param_dict in enumerate(param_dicts):
+            param = bond_handler.parameters[original_count + i]
+            assert param.smirks == param_dict["smirks"]
+            assert param.id == param_dict["id"]
+
+    def test_mixed_add_and_overwrite(self):
+        """Test a mix of adding new parameters and overwriting existing ones."""
+        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        original_count = len(bond_handler.parameters)
+        original_first_smirks = bond_handler.parameters[0].smirks
+
+        # Overwrite the first parameter
+        overwrite_dict = {
+            "smirks": original_first_smirks,
+            "id": "b-overwrite",
+            "length": 7.77 * openff.toolkit.unit.angstrom,
+            "k": 777.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, overwrite_dict)
+
+        # Add a new parameter
+        new_dict = {
+            "smirks": "[#97:1]-[#97:2]",
+            "id": "b-new",
+            "length": 3.33 * openff.toolkit.unit.angstrom,
+            "k": 333.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, new_dict)
+
+        # Check counts
+        assert len(bond_handler.parameters) == original_count + 1
+
+        # Check overwritten parameter
+        overwritten_param = bond_handler.parameters[0]
+        assert overwritten_param.id == "b-overwrite"
+
+        # Check new parameter is at the end
+        new_param = bond_handler.parameters[-1]
+        assert new_param.id == "b-new"
+        assert new_param.smirks == "[#97:1]-[#97:2]"
