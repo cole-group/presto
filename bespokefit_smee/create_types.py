@@ -47,6 +47,8 @@ def _add_parameter_with_overwrite(
     if old_parameter:
         assert len(old_parameter) == 1
         old_parameter = old_parameter[0]
+        # Ensure we don't change the name
+        new_parameter.id = old_parameter.id
         logger.info(
             f"Overwriting existing parameter with smirks {parameter_dict['smirks']}."
         )
