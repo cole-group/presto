@@ -457,11 +457,9 @@ def parameterise(
         off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
 
     # Add bespoke parameters to the force field
-    bespoke_ff = copy.deepcopy(off_ff)
-
-    add_types_to_forcefield(
+    bespoke_ff = add_types_to_forcefield(
         mol,
-        bespoke_ff,
+        off_ff,
         settings.type_generation_settings,
     )
 

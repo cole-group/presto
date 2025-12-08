@@ -295,6 +295,9 @@ def _add_types_to_parameter_handler(
 
     # Deduplicate symmetry-related SMARTS patterns
     unique_smarts = _deduplicate_symmetry_related_smarts(bespoke_smarts_list)
+    logger.info(
+        f"Generated {len(unique_smarts)} unique bespoke SMARTS patterns for handler {handler_name}."
+    )
 
     # Second pass: add the unique SMARTS patterns to the handler
     for bespoke_smarts in unique_smarts:
