@@ -270,9 +270,9 @@ class TestParameterisationSettings:
     """Tests for parameterisation settings."""
 
     def test_valid_smiles(self):
-        """Test that valid SMILES are accepted."""
+        """Test that valid SMILES are accepted and converted to list."""
         settings = ParameterisationSettings(smiles="CCO")
-        assert settings.smiles == "CCO"
+        assert settings.smiles == ["CCO"]
 
     def test_invalid_smiles_raises_error(self):
         """Test that invalid SMILES raise error."""
@@ -312,9 +312,9 @@ class TestParameterisationSettings:
     @given(smiles=st.sampled_from(["CCO", "CC", "C", "CCCC", "c1ccccc1"]))
     @hypothesis_settings(max_examples=5)
     def test_valid_simple_smiles(self, smiles):
-        """Test that simple valid SMILES are accepted."""
+        """Test that simple valid SMILES are accepted and converted to list."""
         settings = ParameterisationSettings(smiles=smiles)
-        assert settings.smiles == smiles
+        assert settings.smiles == [smiles]
 
 
 class TestWorkflowSettings:

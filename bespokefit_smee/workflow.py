@@ -69,8 +69,8 @@ def get_bespoke_force_field(
         output_settings.output_dir = pathlib.Path(".")
         output_settings.to_yaml(settings_output_path)
 
-    # Parameterise the base force field
-    off_mol, initial_off_ff, tensor_top, tensor_ff = parameterise(
+    # Parameterise the base force field for all molecules
+    off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
         settings.parameterisation_settings, device=settings.device_type
     )
 
@@ -89,21 +89,22 @@ def get_bespoke_force_field(
     trainable_parameters = trainable.to_values().to((settings.device))
 
     # Required for LM optimiser only
-    for param in tensor_top.parameters.values():
-        param.assignment_matrix = param.assignment_matrix.to_dense()
+    for tensor_top in tensor_tops:
+        for param in tensor_top.parameters.values():
+            param.assignment_matrix = param.assignment_matrix.to_dense()
 
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()
 
-    # Generate the test data
+    # Generate the test data for all molecules
     stage = OutputStage(StageKind.TESTING)
     path_manager.mk_stage_dir(stage)
     test_sample_fn: SampleFn = _SAMPLING_FNS_REGISTRY[
         type(settings.testing_sampling_settings)
     ]
     logger.info("Generating test data")
-    dataset_test = test_sample_fn(
-        mol=off_mol,
+    datasets_test = test_sample_fn(
+        mols=off_mols,
         off_ff=initial_off_ff,
         device=settings.device,
         settings=settings.testing_sampling_settings,
@@ -112,27 +113,41 @@ def get_bespoke_force_field(
             for output_type in settings.testing_sampling_settings.output_types
         },
     )
-    dataset_test.save_to_disk(
-        path_manager.get_output_path(stage, OutputType.ENERGIES_AND_FORCES)
-    )
+    for mol_idx, dataset_test in enumerate(datasets_test):
+        dataset_path = path_manager.get_output_path(
+            stage, OutputType.ENERGIES_AND_FORCES
+        )
+        dataset_path_mol = dataset_path.parent / f"{dataset_path.stem}_mol{mol_idx}"
+        dataset_test.save_to_disk(str(dataset_path_mol))
 
     # Write out statistics on the initial force field
     stage = OutputStage(StageKind.INITIAL_STATISTICS)
     path_manager.mk_stage_dir(stage)
-    energy_mean, energy_sd, forces_mean, forces_sd = write_scatter(
-        dataset_test,
-        tensor_ff,
-        tensor_top,
-        str(settings.device),
-        path_manager.get_output_path(stage, OutputType.SCATTER),
-    )
-    logger.info(
-        f"Initial force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e}, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e}"
-    )
+
+    # Write scatter plots for each molecule
+    for mol_idx, (dataset_test, tensor_top) in enumerate(
+        zip(datasets_test, tensor_tops, strict=True)
+    ):
+        scatter_path = path_manager.get_output_path(stage, OutputType.SCATTER)
+        scatter_path_mol = (
+            scatter_path.parent
+            / f"{scatter_path.stem}_mol{mol_idx}{scatter_path.suffix}"
+        )
+        energy_mean, energy_sd, forces_mean, forces_sd = write_scatter(
+            dataset_test,
+            tensor_ff,
+            tensor_top,
+            str(settings.device),
+            str(scatter_path_mol),
+        )
+        logger.info(
+            f"Molecule {mol_idx} initial force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e}, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e}"
+        )
+
     off_ff = convert_to_smirnoff(
         trainable.to_force_field(trainable_parameters), base=initial_off_ff
     )
-    off_ff.to_file(path_manager.get_output_path(stage, OutputType.OFFXML))
+    off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
     train_sample_fn = _SAMPLING_FNS_REGISTRY[type(settings.training_sampling_settings)]
 
@@ -147,11 +162,11 @@ def get_bespoke_force_field(
     ):
         stage = OutputStage(StageKind.TRAINING, iteration)
         path_manager.mk_stage_dir(stage)
-        dataset_train = None  # Only None for the first iteration
+        datasets_train = None  # Only None for the first iteration
 
-        dataset_train_new = train_sample_fn(
-            mol=off_mol,
-            off_ff=initial_off_ff,
+        datasets_train_new = train_sample_fn(
+            mols=off_mols,
+            off_ff=off_ff,
             device=settings.device,
             settings=settings.training_sampling_settings,
             output_paths={
@@ -161,15 +176,24 @@ def get_bespoke_force_field(
         )
 
         # Update training dataset: concatenate if memory is enabled and not the first iteration
-        should_concatenate = settings.memory and dataset_train is not None
-        dataset_train = (
-            datasets.combine.concatenate_datasets([dataset_train, dataset_train_new])
-            if should_concatenate
-            else dataset_train_new
-        )
-        dataset_train.save_to_disk(
-            path_manager.get_output_path(stage, OutputType.ENERGIES_AND_FORCES)
-        )
+        should_concatenate = settings.memory and datasets_train is not None
+        if should_concatenate:
+            datasets_train = [
+                datasets.combine.concatenate_datasets([ds_old, ds_new])
+                for ds_old, ds_new in zip(
+                    datasets_train, datasets_train_new, strict=True
+                )
+            ]
+        else:
+            datasets_train = datasets_train_new
+
+        # Save each dataset
+        for mol_idx, dataset_train in enumerate(datasets_train):
+            dataset_path = path_manager.get_output_path(
+                stage, OutputType.ENERGIES_AND_FORCES
+            )
+            dataset_path_mol = dataset_path.parent / f"{dataset_path.stem}_mol{mol_idx}"
+            dataset_train.save_to_disk(str(dataset_path_mol))
 
         train_output_paths = {
             output_type: path_manager.get_output_path(stage, output_type)
@@ -180,9 +204,9 @@ def get_bespoke_force_field(
             trainable_parameters=trainable_parameters,
             initial_parameters=initial_parameters,
             trainable=trainable,
-            topology=tensor_top,
-            dataset=dataset_train,
-            dataset_test=dataset_test,
+            topologies=tensor_tops,
+            datasets=datasets_train,
+            datasets_test=datasets_test,
             settings=settings.training_settings,
             output_paths=train_output_paths,
             device=settings.device,
@@ -198,34 +222,31 @@ def get_bespoke_force_field(
         off_ff = convert_to_smirnoff(
             trainable.to_force_field(trainable_parameters), base=initial_off_ff
         )
-        off_ff.to_file(path_manager.get_output_path(stage, OutputType.OFFXML))
+        off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
-        energy_mean_new, energy_sd_new, forces_mean_new, forces_sd_new = write_scatter(
-            dataset_test,
-            tensor_ff,
-            tensor_top,
-            str(settings.device),
-            path_manager.get_output_path(stage, OutputType.SCATTER),
-        )
-        logger.info(
-            f"Iteration {iteration} force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e}, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e}"
-        )
-        logger.info(
-            f"    Energy Error (Mean): {energy_mean:10.3e}->{energy_mean_new:10.3e} : Change = {energy_mean_new - energy_mean:10.3e}"
-        )
-        logger.info(
-            f"                 (SD):   {energy_sd:10.3e}->{energy_sd_new:10.3e} : Change = {energy_sd_new - energy_sd:10.3e}"
-        )
-        logger.info(
-            f"    Forces Error (Mean): {forces_mean:10.3e}->{forces_mean_new:10.3e} : Change = {forces_mean_new - forces_mean:10.3e}"
-        )
-        logger.info(
-            f"                 (SD):   {forces_sd:10.3e}->{forces_sd_new:10.3e} : Change = {forces_sd_new - forces_sd:10.3e}"
-        )
-        energy_mean, energy_sd = energy_mean_new, energy_sd_new
-        forces_mean, forces_sd = forces_mean_new, forces_sd_new
+        # Write scatter plots for each molecule
+        for mol_idx, (dataset_test, tensor_top) in enumerate(
+            zip(datasets_test, tensor_tops, strict=True)
+        ):
+            scatter_path = path_manager.get_output_path(stage, OutputType.SCATTER)
+            scatter_path_mol = (
+                scatter_path.parent
+                / f"{scatter_path.stem}_mol{mol_idx}{scatter_path.suffix}"
+            )
+            energy_mean_new, energy_sd_new, forces_mean_new, forces_sd_new = (
+                write_scatter(
+                    dataset_test,
+                    tensor_ff,
+                    tensor_top,
+                    str(settings.device),
+                    str(scatter_path_mol),
+                )
+            )
+            logger.info(
+                f"Iteration {iteration} Molecule {mol_idx} force field statistics: Energy (Mean/SD): {energy_mean_new:.3e}/{energy_sd_new:.3e}, Forces (Mean/SD): {forces_mean_new:.3e}/{forces_sd_new:.3e}"
+            )
 
     # Plot
-    analyse_workflow(settings)
+    analyse_workflow(settings, off_mols)
 
     return off_ff

@@ -47,8 +47,9 @@ def _add_parameter_with_overwrite(
     if old_parameter:
         assert len(old_parameter) == 1
         old_parameter = old_parameter[0]
-        # Ensure we don't change the name
-        new_parameter.id = old_parameter.id
+        # If no ID provided in parameter_dict, keep the old ID
+        if "id" not in parameter_dict:
+            new_parameter.id = old_parameter.id
         logger.info(
             f"Overwriting existing parameter with smirks {parameter_dict['smirks']}."
         )
@@ -326,28 +327,100 @@ def _add_types_to_parameter_handler(
 
 
 def add_types_to_forcefield(
-    mol: openff.toolkit.Molecule,
+    mols: openff.toolkit.Molecule | list[openff.toolkit.Molecule],
     force_field: openff.toolkit.ForceField,
     type_generation_settings: dict[NonLinearValenceType, TypeGenerationSettings],
 ) -> openff.toolkit.ForceField:
-    """Add bespoke types to a force field based on the given molecule and type generation settings."""
+    """Add bespoke types to a force field based on multiple molecules and type generation settings.
+
+    Parameters
+    ----------
+    mols : openff.toolkit.Molecule | list[openff.toolkit.Molecule]
+        Molecule or list of molecules to parameterize
+    force_field : openff.toolkit.ForceField
+        The base force field to add bespoke parameters to
+    type_generation_settings : dict[NonLinearValenceType, TypeGenerationSettings]
+        Settings for generating tagged SMARTS types for each valence type
+
+    Returns
+    -------
+    openff.toolkit.ForceField
+        Force field with bespoke parameters added, deduplicated across all molecules
+    """
+    # Convert single molecule to list for backward compatibility
+    if isinstance(mols, openff.toolkit.Molecule):
+        mols = [mols]
+
     # Create a copy of the force field to avoid modifying the original
     ff_copy = copy.deepcopy(force_field)
 
     for handler_name, settings in type_generation_settings.items():
         parameter_handler = ff_copy.get_parameter_handler(handler_name)
 
-        updated_handler = _add_types_to_parameter_handler(
-            mol,
-            parameter_handler,
-            handler_name=handler_name,
-            max_extend_distance=settings.max_extend_distance,
-            excluded_smirks=settings.exclude,
-            included_smirks=settings.include,
+        # Collect all SMARTS patterns from all molecules
+        all_bespoke_smarts: list[str] = []
+        smarts_to_param: dict[
+            str, openff.toolkit.typing.engines.smirnoff.parameters.ParameterType
+        ] = {}
+
+        for mol in mols:
+            # Find all matches for this handler on the molecule
+            matches = parameter_handler.find_matches(mol.to_topology())
+
+            for match_key, match in matches.items():
+                param = match.parameter_type
+                atom_indices = match_key
+
+                # Get the original parameter's SMIRKS
+                original_smirks = param.smirks
+
+                # Check if this parameter should be excluded
+                if settings.exclude and original_smirks in settings.exclude:
+                    continue
+
+                # Check if this parameter should be included (if include list exists)
+                if settings.include and original_smirks not in settings.include:
+                    continue
+
+                # Create bespoke SMARTS pattern
+                bespoke_smarts = _create_smarts(
+                    mol, atom_indices, settings.max_extend_distance
+                )
+
+                if bespoke_smarts not in smarts_to_param:
+                    all_bespoke_smarts.append(bespoke_smarts)
+                    smarts_to_param[bespoke_smarts] = param
+
+        # Deduplicate symmetry-related SMARTS patterns across all molecules
+        unique_smarts = _deduplicate_symmetry_related_smarts(all_bespoke_smarts)
+        logger.info(
+            f"Generated {len(unique_smarts)} unique bespoke SMARTS patterns for handler {handler_name} across {len(mols)} molecules."
         )
+
+        # Add the unique SMARTS patterns to the handler
+        handler_copy = copy.deepcopy(parameter_handler)
+
+        for bespoke_smarts in unique_smarts:
+            param = smarts_to_param[bespoke_smarts]
+
+            # Create a new parameter dict based on the original parameter
+            new_param_dict = {"smirks": bespoke_smarts}
+
+            # Copy over all parameter attributes from the original
+            for attr_name in param.to_dict().keys():
+                if attr_name not in ["smirks", "id"]:
+                    attr_value = getattr(param, attr_name)
+                    new_param_dict[attr_name] = attr_value
+
+            # Generate a unique ID for the new parameter
+            counter = len(handler_copy.parameters) + 1
+            new_param_dict["id"] = f"{handler_name[0].lower()}-bespoke-{counter}"
+
+            # Add the new parameter to the handler
+            _add_parameter_with_overwrite(handler_copy, new_param_dict)
 
         # Update the force field with the modified parameter handler
         ff_copy.deregister_parameter_handler(handler_name)
-        ff_copy.register_parameter_handler(updated_handler)
+        ff_copy.register_parameter_handler(handler_copy)
 
     return ff_copy

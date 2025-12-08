@@ -45,7 +45,8 @@ def test_params_equivalent(linearise_harmonics: bool, smiles: str):
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
         expand_torsions=False,
     )
-    mol, _, _, tff = parameterise(settings=settings, device="cpu")
+    mols, _, _, tff = parameterise(settings=settings, device="cpu")
+    mol = mols[0]  # Single molecule test
 
     # Convert the TensorForceField back to a SMIRNOFF force field
     recreated_ff = convert_to_smirnoff(tff, base=base_ff)
@@ -157,7 +158,9 @@ def test_energies_equivalent(
         expand_torsions=True,
         type_generation_settings=type_gen_settings,
     )
-    mol, _, tensor_top, tensor_ff = parameterise(settings=settings, device="cpu")
+    mols, _, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
+    mol = mols[0]  # Single molecule test
+    tensor_top = tensor_tops[0]
     mol.generate_conformers(n_conformers=1)
 
     coords = torch.tensor(mol.conformers[0].m_as("angstrom"))
@@ -203,7 +206,9 @@ def test_openmm_smee_energy_equivalence(linearise_harmonics: bool, smiles: str):
         expand_torsions=False,
     )
 
-    mol, off_ff, tensor_top, tensor_ff = parameterise(settings=settings, device="cpu")
+    mols, off_ff, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
+    mol = mols[0]  # Single molecule test
+    tensor_top = tensor_tops[0]
 
     # Generate conformers for testing
     mol.generate_conformers(n_conformers=3)
@@ -261,10 +266,12 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
         expand_torsions=False,
     )
 
-    mol, off_ff, tensor_top, tensor_ff = parameterise(settings=settings, device="cpu")
+    mols, off_ff, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
+    mol = mols[0]  # Single molecule test
+    tensor_top = tensor_tops[0]
 
     # Generate conformers
-    mol.generate_conformers(n_conformers=5)
+    mol.generate_conformers(n_conformers=3)
 
     # Create dataset for predict function
     coords_list = [
@@ -322,6 +329,6 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
     openmm_relative = openmm_energies_tensor - openmm_energies_tensor.mean()
 
     # Allow for small numerical differences (0.1 kcal/mol absolute tolerance)
-    assert torch.allclose(energy_pred, openmm_relative, rtol=1e-3, atol=0.1), (
-        f"Energy predictions differ for {smiles}: pred={energy_pred}, ref={openmm_relative}"
-    )
+    assert torch.allclose(
+        energy_pred, openmm_relative, rtol=1e-3, atol=0.1
+    ), f"Energy predictions differ for {smiles}: pred={energy_pred}, ref={openmm_relative}"

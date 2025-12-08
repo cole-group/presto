@@ -47,7 +47,7 @@ _OMM_KCAL_PER_MOL_ANGS = openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom
 class SampleFnArgs(TypedDict):
     """Arguments for sampling functions."""
 
-    mol: openff.toolkit.Molecule
+    mols: list[openff.toolkit.Molecule]
     off_ff: openff.toolkit.ForceField
     device: torch.device
     settings: settings.SamplingSettings
@@ -57,7 +57,7 @@ class SampleFnArgs(TypedDict):
 class SampleFn(Protocol):
     """A protocol for sampling functions."""
 
-    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> datasets.Dataset: ...
+    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> list[datasets.Dataset]: ...
 
 
 _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
@@ -255,19 +255,18 @@ def recalculate_energies_and_forces(
 
 @_register_sampling_fn(settings.MMMDSamplingSettings)
 def sample_mmmd(
-    mol: openff.toolkit.Molecule,
+    mols: list[openff.toolkit.Molecule],
     off_ff: openff.toolkit.ForceField,
     device: torch.device,
     settings: settings.MMMDSamplingSettings,
     output_paths: dict[OutputType, pathlib.Path],
-) -> datasets.Dataset:
-    """Generate a dataset of samples from MD with the given MM force field,
-    and energies and forces of snapshots from the ML potential.
+) -> list[datasets.Dataset]:
+    """Generate datasets of samples from MD with the given MM force field for multiple molecules.
 
     Parameters
     ----------
-    mol : openff.toolkit.Molecule
-        The molecule to sample.
+    mols : list[openff.toolkit.Molecule]
+        The molecules to sample.
     off_ff : openff.toolkit.ForceField
         The MM force field to use for sampling.
     device : torch.device
@@ -279,61 +278,74 @@ def sample_mmmd(
 
     Returns
     -------
-    datasets.Dataset
-        The generated dataset of samples with energies and forces.
+    list[datasets.Dataset]
+        The generated datasets of samples with energies and forces, one per molecule.
     """
-    mol = _copy_mol_and_add_conformers(mol, settings.n_conformers)
-    interchange = openff.interchange.Interchange.from_smirnoff(
-        off_ff, openff.toolkit.Topology.from_molecules(mol)
-    )
-    system = interchange.to_openmm_system()
-    simulation = Simulation(
-        interchange.topology.to_openmm(),
-        system,
-        _get_integrator(settings.temperature, settings.timestep),
-    )
+    if set(output_paths.keys()) != settings.output_types:
+        raise ValueError(
+            f"Output paths must contain exactly the keys {settings.output_types}"
+        )
 
-    # First, generate the MD snapshots using the MM potential
-    mm_dataset = _run_md(
-        mol,
-        simulation,
-        simulation.step,
-        settings.equilibration_n_steps_per_conformer,
-        settings.production_n_snapshots_per_conformer,
-        settings.production_n_steps_per_snapshot_per_conformer,
-        str(output_paths.get(OutputType.PDB_TRAJECTORY, None)),
-    )
+    all_datasets = []
 
-    # Now, recalculate energies and forces using the ML potential
-    ml_system = _get_ml_omm_system(mol, settings.ml_potential)
-    ml_simulation = Simulation(
-        interchange.topology,
-        ml_system,
-        _get_integrator(settings.temperature, settings.timestep),
-    )
-    ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+    for mol_idx, mol in enumerate(mols):
+        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
+        )
 
-    return ml_dataset
+        system = interchange.to_openmm_system()
+        integrator = _get_integrator(settings.temperature, settings.timestep)
+        simulation = Simulation(interchange.topology.to_openmm(), system, integrator)
+
+        # Create molecule-specific PDB path
+        pdb_path = None
+        if OutputType.PDB_TRAJECTORY in output_paths:
+            base_path = output_paths[OutputType.PDB_TRAJECTORY]
+            pdb_path = str(
+                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+            )
+
+        mm_dataset = _run_md(
+            mol_with_conformers,
+            simulation,
+            simulation.step,
+            settings.equilibration_n_steps_per_conformer,
+            settings.production_n_snapshots_per_conformer,
+            settings.production_n_steps_per_snapshot_per_conformer,
+            pdb_path,
+        )
+
+        # Recalculate energies and forces using the ML potential
+        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_simulation = Simulation(
+            interchange.topology,
+            ml_system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+        ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        all_datasets.append(ml_dataset)
+
+    return all_datasets
 
 
 @_register_sampling_fn(settings.MLMDSamplingSettings)
 def sample_mlmd(
-    mol: openff.toolkit.Molecule,
+    mols: list[openff.toolkit.Molecule],
     off_ff: openff.toolkit.ForceField,
     device: torch.device,
     settings: settings.MLMDSamplingSettings,
     output_paths: dict[OutputType, pathlib.Path],
-) -> datasets.Dataset:
-    """Generate a dataset of samples (with energies and forces) all
-    from MD with an ML potential.
+) -> list[datasets.Dataset]:
+    """Generate datasets of samples from MD with an ML potential for multiple molecules.
 
     Parameters
     ----------
-    mol : openff.toolkit.Molecule
-        The molecule to sample.
+    mols : list[openff.toolkit.Molecule]
+        The molecules to sample.
     off_ff : openff.toolkit.ForceField
-        The MM force field. Kept for consistency with other sampling functions,
-        but not used here.
+        The MM force field (kept for consistency).
     device : torch.device
         The device to use for any MD or ML calculations.
     settings : _SamplingSettings
@@ -343,26 +355,45 @@ def sample_mlmd(
 
     Returns
     -------
-    datasets.Dataset
-        The generated dataset of samples with energies and forces.
+    list[datasets.Dataset]
+        The generated datasets of samples with energies and forces, one per molecule.
     """
-    mol = _copy_mol_and_add_conformers(mol, settings.n_conformers)
-    ml_system = _get_ml_omm_system(mol, settings.ml_potential)
-    integrator = _get_integrator(settings.temperature, settings.timestep)
-    ml_simulation = Simulation(mol.to_topology().to_openmm(), ml_system, integrator)
+    if set(output_paths.keys()) != settings.output_types:
+        raise ValueError(
+            f"Output paths must contain exactly the keys {settings.output_types}"
+        )
 
-    # Generate the MD snapshots using the ML potential
-    ml_dataset = _run_md(
-        mol,
-        ml_simulation,
-        ml_simulation.step,
-        settings.equilibration_n_steps_per_conformer,
-        settings.production_n_snapshots_per_conformer,
-        settings.production_n_steps_per_snapshot_per_conformer,
-        str(output_paths.get(OutputType.PDB_TRAJECTORY, None)),
-    )
+    all_datasets = []
 
-    return ml_dataset
+    for mol_idx, mol in enumerate(mols):
+        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        integrator = _get_integrator(settings.temperature, settings.timestep)
+        ml_simulation = Simulation(
+            mol_with_conformers.to_topology().to_openmm(), ml_system, integrator
+        )
+
+        # Create molecule-specific PDB path
+        pdb_path = None
+        if OutputType.PDB_TRAJECTORY in output_paths:
+            base_path = output_paths[OutputType.PDB_TRAJECTORY]
+            pdb_path = str(
+                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+            )
+
+        ml_dataset = _run_md(
+            mol_with_conformers,
+            ml_simulation,
+            ml_simulation.step,
+            settings.equilibration_n_steps_per_conformer,
+            settings.production_n_snapshots_per_conformer,
+            settings.production_n_steps_per_snapshot_per_conformer,
+            pdb_path,
+        )
+
+        all_datasets.append(ml_dataset)
+
+    return all_datasets
 
 
 def _get_torsion_bias_forces(
@@ -413,102 +444,138 @@ def _get_torsion_bias_forces(
 
 @_register_sampling_fn(settings.MMMDMetadynamicsSamplingSettings)
 def sample_mmmd_metadynamics(
-    mol: openff.toolkit.Molecule,
+    mols: list[openff.toolkit.Molecule],
     off_ff: openff.toolkit.ForceField,
     device: torch.device,
     settings: settings.MMMDMetadynamicsSamplingSettings,
     output_paths: dict[OutputType, pathlib.Path],
-) -> datasets.Dataset:
-    """Generate a dataset of samples from MD with the given MM force field
-    with metadynamics samplings of the torsions. Each torsion is treated as an
-    independent collective variable and biased independently. This function
-    generates samples using the MM potential, and recalculates energies and
-    forces of snapshots from the ML potential.
+) -> list[datasets.Dataset]:
+    """Generate datasets using metadynamics for multiple molecules.
 
     Parameters
     ----------
-    mol : openff.toolkit.Molecule
-        The molecule to sample.
+    mols : list[openff.toolkit.Molecule]
+        The molecules to sample.
     off_ff : openff.toolkit.ForceField
-        The MM force field to use for sampling.
+        The MM force field to use.
     device : torch.device
         The device to use for any MD or ML calculations.
-    settings : settings.MMMDMetadynamicsSamplingSettings
+    settings : MMMDMetadynamicsSamplingSettings
         The sampling settings to use.
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
     Returns
     -------
-    datasets.Dataset
-        The generated dataset of samples with energies and forces.
+    list[datasets.Dataset]
+        The generated datasets of samples with energies and forces, one per molecule.
     """
-    # Make sure we have all the required output paths and no others
     if set(output_paths.keys()) != settings.output_types:
         raise ValueError(
             f"Output paths must contain exactly the keys {settings.output_types}"
         )
 
-    mol = _copy_mol_and_add_conformers(mol, settings.n_conformers)
-    interchange = openff.interchange.Interchange.from_smirnoff(
-        off_ff, openff.toolkit.Topology.from_molecules(mol)
-    )
+    all_datasets = []
 
-    torsions = get_rot_torsions_by_rot_bond(mol)
-    if not torsions:
-        raise ValueError("No rotatable bonds found in the molecule.")
+    for mol_idx, mol in enumerate(mols):
+        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
+        )
 
-    # Configure metadynamics
-    bias_variables = _get_torsion_bias_forces(
-        mol,
-        torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
-        torsions_to_exclude=_TORSIONS_TO_EXCLUDE_SMARTS,
-        bias_width=settings.bias_width,
-    )
+        torsions = get_rot_torsions_by_rot_bond(mol_with_conformers)
+        if not torsions:
+            logger.warning(
+                f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
+            )
+            # Fall back to regular MD for this molecule
+            system = interchange.to_openmm_system()
+            integrator = _get_integrator(settings.temperature, settings.timestep)
+            simulation = Simulation(
+                interchange.topology.to_openmm(), system, integrator
+            )
 
-    system = interchange.to_openmm_system()
+            pdb_path = None
+            if OutputType.PDB_TRAJECTORY in output_paths:
+                base_path = output_paths[OutputType.PDB_TRAJECTORY]
+                pdb_path = str(
+                    base_path.parent
+                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+                )
 
-    bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
-    bias_dir.mkdir()
+            mm_dataset = _run_md(
+                mol_with_conformers,
+                simulation,
+                simulation.step,
+                settings.equilibration_n_steps_per_conformer,
+                settings.production_n_snapshots_per_conformer,
+                settings.production_n_steps_per_snapshot_per_conformer,
+                pdb_path,
+            )
+        else:
+            # Setup metadynamics
+            bias_variables = _get_torsion_bias_forces(
+                mol_with_conformers,
+                torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
+                torsions_to_exclude=_TORSIONS_TO_EXCLUDE_SMARTS,
+                bias_width=settings.bias_width,
+            )
 
-    metad = Metadynamics(  # type: ignore[no-untyped-call]
-        system=system,
-        variables=bias_variables,
-        temperature=settings.temperature,
-        biasFactor=settings.bias_factor,
-        height=settings.bias_height,
-        frequency=settings.n_steps_per_bias,
-        saveFrequency=settings.n_steps_per_bias_save,
-        biasDir=bias_dir,
-        independentCVs=True,
-    )
+            system = interchange.to_openmm_system()
 
-    simulation = Simulation(
-        interchange.topology.to_openmm(),
-        system,
-        _get_integrator(settings.temperature, settings.timestep),
-    )
+            # Create molecule-specific bias directory
+            base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
+            bias_dir = base_bias_dir.parent / f"{base_bias_dir.stem}_mol{mol_idx}"
+            bias_dir.mkdir(parents=True, exist_ok=True)
 
-    step_fn = functools.partial(metad.step, simulation)
+            metad = Metadynamics(  # type: ignore[no-untyped-call]
+                system=system,
+                variables=bias_variables,
+                temperature=settings.temperature,
+                biasFactor=settings.bias_factor,
+                height=settings.bias_height,
+                frequency=settings.n_steps_per_bias,
+                saveFrequency=settings.n_steps_per_bias_save,
+                biasDir=bias_dir,
+                independentCVs=True,
+            )
 
-    # First, generate the MD snapshots using the MM potential
-    mm_dataset = _run_md(
-        mol,
-        simulation,
-        step_fn,
-        settings.equilibration_n_steps_per_conformer,
-        settings.production_n_snapshots_per_conformer,
-        settings.production_n_steps_per_snapshot_per_conformer,
-        str(output_paths.get(OutputType.PDB_TRAJECTORY, None)),
-    )
+            simulation = Simulation(
+                interchange.topology.to_openmm(),
+                system,
+                _get_integrator(settings.temperature, settings.timestep),
+            )
 
-    # Now, recalculate energies and forces using the ML potential
-    ml_system = _get_ml_omm_system(mol, settings.ml_potential)
-    ml_simulation = Simulation(
-        interchange.topology.to_openmm(),
-        ml_system,
-        _get_integrator(settings.temperature, settings.timestep),
-    )
-    ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+            step_fn = functools.partial(metad.step, simulation)
 
-    return ml_dataset
+            # Create molecule-specific PDB path
+            pdb_path = None
+            if OutputType.PDB_TRAJECTORY in output_paths:
+                base_path = output_paths[OutputType.PDB_TRAJECTORY]
+                pdb_path = str(
+                    base_path.parent
+                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+                )
+
+            mm_dataset = _run_md(
+                mol_with_conformers,
+                simulation,
+                step_fn,
+                settings.equilibration_n_steps_per_conformer,
+                settings.production_n_snapshots_per_conformer,
+                settings.production_n_steps_per_snapshot_per_conformer,
+                pdb_path,
+            )
+
+        # Recalculate with ML potential
+        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_simulation = Simulation(
+            interchange.topology.to_openmm(),
+            ml_system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+        ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        all_datasets.append(ml_dataset)
+
+    return all_datasets

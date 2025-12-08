@@ -403,13 +403,13 @@ def parameterise(
     settings: ParameterisationSettings,
     device: TorchDevice = "cuda",
 ) -> tuple[
-    openff.toolkit.Molecule,
+    list[openff.toolkit.Molecule],
     openff.toolkit.ForceField,
-    smee.TensorTopology,
+    list[smee.TensorTopology],
     smee.TensorForceField,
 ]:
     """Prepare a Trainable object that contains a force field with
-    unique parameters for each topologically symmetric term of a molecule.
+    unique parameters for each topologically symmetric term across multiple molecules.
 
     Parameters
     ----------
@@ -421,21 +421,24 @@ def parameterise(
 
     Returns
     -------
-    mol: openff.toolkit.Molecule
-        The molecule that has been parameterised.
+    mols: list[openff.toolkit.Molecule]
+        The molecules that have been parameterised.
     off_ff: openff.toolkit.ForceField
         The original force field, used as a base for the bespoke force field.
-    tensor_top: smee.TensorTopology
-        The topology of the molecule.
+    tensor_tops: list[smee.TensorTopology]
+        The topologies of the molecules.
     tensor_ff: smee.TensorForceField
         The force field with unique parameters for each topologically
         symmetric term.
     """
-    mol = openff.toolkit.Molecule.from_smiles(
-        settings.smiles,
-        allow_undefined_stereo=True,
-        hydrogens_are_explicit=False,
-    )
+    # Create molecules from SMILES
+    mols = [
+        openff.toolkit.Molecule.from_smiles(
+            smiles, allow_undefined_stereo=True, hydrogens_are_explicit=False
+        )
+        for smiles in settings.smiles
+    ]
+
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
     if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
@@ -456,30 +459,36 @@ def parameterise(
         )
         off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
 
-    # Add bespoke parameters to the force field
+    # Add bespoke parameters to the force field (deduplicated across all molecules)
     bespoke_ff = add_types_to_forcefield(
-        mol,
+        mols,
         off_ff,
         settings.type_generation_settings,
     )
 
-    # Convert to tensor format
-    force_field, [topology] = smee.converters.convert_interchange(
+    # Create separate Interchange objects for each molecule
+    interchanges = [
         openff.interchange.Interchange.from_smirnoff(bespoke_ff, mol.to_topology())
-    )
+        for mol in mols
+    ]
 
-    # Move the force field and topology to the requested device
+    # Convert all interchanges at once to get a shared force field
+    # and separate topologies that all reference the same parameters
+    force_field, tensor_tops = smee.converters.convert_interchange(interchanges)
     force_field = force_field.to(device)
-    topology = topology.to(device)
+
+    # Move each topology to the device
+    tensor_tops = [top.to(device) for top in tensor_tops]
 
     if settings.linearise_harmonics:
         force_field = linearise_harmonics_force_field(force_field, device)
-        topology = linearise_harmonics_topology(topology, device)
+        for i in range(len(tensor_tops)):
+            tensor_tops[i] = linearise_harmonics_topology(tensor_tops[i], device)
 
     return (
-        mol,
+        mols,
         off_ff,
-        topology,
+        tensor_tops,
         force_field,
     )
 

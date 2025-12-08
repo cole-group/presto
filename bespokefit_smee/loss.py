@@ -26,25 +26,24 @@ class LossRecord(typing.NamedTuple):
 
 
 def prediction_loss(
-    dataset: datasets.Dataset,
+    datasets: list[datasets.Dataset],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
-    topology: smee.TensorTopology,
+    topologies: list[smee.TensorTopology],
     loss_energy_weight: float,
     loss_force_weight: float,
     regularisation_target: typing.Literal["initial", "zero"],
     device_type: str,
 ) -> LossRecord:
-    """Predict the loss function for a guess forcefield against a dataset according
-    to eqn. B2 in https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0155322.
+    """Predict the loss function for a guess forcefield against datasets for multiple molecules.
 
     Args:
-        dataset: The dataset to predict the energies and forces of.
+        datasets: List of datasets to predict the energies and forces of.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
-        topologies: The topologies of the molecules in the dataset.
+        topologies: List of topologies of the molecules in the datasets.
         loss_energy_weight: Weight for the energy loss term.
         loss_force_weight: Weight for the force loss term.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
@@ -53,41 +52,66 @@ def prediction_loss(
     Returns:
         The computed loss as a LossRecord.
     """
-    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
-        dataset,
-        trainable.to_force_field(trainable_parameters),
-        {dataset[0]["smiles"]: topology},
-        device_type=device_type,
-        normalize=False,
+    force_field = trainable.to_force_field(trainable_parameters)
+
+    total_energy_loss = torch.tensor(
+        0.0, dtype=torch.float64, device=trainable_parameters.device
     )
-
-    n_confs = energy_ref_all.shape[0]
-    n_atoms = topology.n_atoms
-
-    loss_energy: torch.Tensor = (
-        ((energy_ref_all - energy_pred_all) / n_atoms) ** 2
-    ).sum() / n_confs
-
-    loss_forces: torch.Tensor = ((forces_ref_all - forces_pred_all) ** 2).sum() / (
-        3 * n_atoms * n_confs
+    total_force_loss = torch.tensor(
+        0.0, dtype=torch.float64, device=trainable_parameters.device
     )
+    total_n_confs = 0
+    total_n_atoms = 0
 
-    # Regularisation penalty
+    # Compute prediction loss for each molecule
+    for dataset, topology in zip(datasets, topologies, strict=True):
+        energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
+            dataset,
+            force_field,
+            {dataset[0]["smiles"]: topology},
+            device_type=device_type,
+            normalize=False,
+        )
+
+        n_confs = energy_ref_all.shape[0]
+        n_atoms = topology.n_atoms
+
+        # Energy loss (per atom, per conf)
+        energy_loss_mol: torch.Tensor = (
+            ((energy_ref_all - energy_pred_all) / n_atoms) ** 2
+        ).sum() / n_confs
+        total_energy_loss = total_energy_loss + energy_loss_mol
+
+        # Force loss (per atom, per conf)
+        force_loss_mol: torch.Tensor = (
+            (forces_ref_all - forces_pred_all) ** 2
+        ).sum() / (3 * n_atoms * n_confs)
+        total_force_loss = total_force_loss + force_loss_mol
+
+        total_n_confs += n_confs
+        total_n_atoms += n_atoms
+
+    # Average losses across molecules
+    n_molecules = len(datasets)
+    avg_energy_loss = total_energy_loss / n_molecules
+    avg_force_loss = total_force_loss / n_molecules
+
+    # Compute regularization once for all molecules
     regularisation_loss = compute_regularisation_loss(
         trainable,
         trainable_parameters,
         initial_parameters,
         regularisation_target,
-        n_atoms=n_atoms,
+        n_atoms=total_n_atoms,
     )
 
     logger.info(
-        f"Loss: Energy={loss_energy.item():.4f} Forces={loss_forces.item():.4f} Reg={regularisation_loss.item():.4f}"
+        f"Loss: Energy={avg_energy_loss.item():.4f} Forces={avg_force_loss.item():.4f} Reg={regularisation_loss.item():.4f}"
     )
 
     return LossRecord(
-        energy=loss_energy * loss_energy_weight,
-        forces=loss_forces * loss_force_weight,
+        energy=avg_energy_loss * loss_energy_weight,
+        forces=avg_force_loss * loss_force_weight,
         regularisation=regularisation_loss,
     )
 
@@ -130,11 +154,11 @@ def compute_regularisation_loss(
 
 
 def get_loss_closure_fn(
-    dataset: datasets.Dataset,
+    datasets: list[datasets.Dataset],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
-    topology: smee.TensorTopology,
+    topologies: list[smee.TensorTopology],
     loss_energy_weight: float,
     loss_force_weight: float,
     regularisation_target: typing.Literal["initial", "zero"],
@@ -144,11 +168,11 @@ def get_loss_closure_fn(
     Return a default closure function
 
     Args:
-        dataset: The dataset to predict the energies and forces of.
+        datasets: List of datasets to predict the energies and forces of.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
-        topology: The topology of the molecule in the dataset.
+        topologies: List of topologies of the molecules in the datasets.
         loss_energy_weight: Weight for the energy loss term.
         loss_force_weight: Weight for the force loss term.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
@@ -171,25 +195,31 @@ def get_loss_closure_fn(
         def loss_fn(_x: torch.Tensor) -> torch.Tensor:
             """Compute the loss function for the given trainable parameters."""
             ff = trainable.to_force_field(_x)
-            y_ref, y_pred = predict(
-                dataset,
-                ff,
-                {dataset[0]["smiles"]: topology},
-                device_type=x.device.type,
-                normalize=False,
-            )[:2]
-            loss: torch.Tensor = ((y_pred - y_ref) ** 2).mean()
+
+            total_loss = torch.tensor(0.0, device=x.device)
+            total_n_atoms = sum(topology.n_atoms for topology in topologies)
+
+            # Compute loss across all molecules
+            for dataset, topology in zip(datasets, topologies, strict=True):
+                y_ref, y_pred = predict(
+                    dataset,
+                    ff,
+                    {dataset[0]["smiles"]: topology},
+                    device_type=x.device.type,
+                    normalize=False,
+                )[:2]
+                total_loss += ((y_pred - y_ref) ** 2).mean()
 
             regularisation_penalty = compute_regularisation_loss(
                 trainable,
                 _x,
                 initial_parameters,
                 regularisation_target=regularisation_target,
-                n_atoms=topology.n_atoms,
+                n_atoms=total_n_atoms,
             )
-            loss += regularisation_penalty
+            total_loss += regularisation_penalty
 
-            return loss
+            return total_loss
 
         loss += loss_fn(x)
 

@@ -1,6 +1,7 @@
 """Functionality for analysing the results of a BespokeFitSMEE run."""
 
 import io
+import pathlib
 from pathlib import Path
 from typing import Any, Literal
 
@@ -560,7 +561,7 @@ def plot_all_ffs(
     return fig, axs
 
 
-def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
+def analyse_workflow(workflow_settings: WorkflowSettings, mols: list[Molecule]) -> None:
     """Analyse the results of a BespokeFitSMEE workflow."""
 
     with plt.style.context(PLT_STYLE):
@@ -568,10 +569,6 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         path_manager = workflow_settings.get_path_manager()
         stage = OutputStage(StageKind.PLOTS)
         path_manager.mk_stage_dir(stage)
-        mol = Molecule.from_smiles(
-            workflow_settings.parameterisation_settings.smiles,
-            allow_undefined_stereo=True,
-        )
 
         output_paths_by_output_type = path_manager.get_all_output_paths_by_output_type()
         training_metric_paths = dict(
@@ -587,69 +584,98 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         )
         plt.close(fig)
 
-        # Plot the errors
+        # Plot errors and correlations for each molecule
         scatter_paths = dict(enumerate(output_paths_by_output_type[OutputType.SCATTER]))
-        errors = read_errors(scatter_paths)
-        fig, axs = plt.subplots(3, 2, figsize=(13, 18))
-        # TODO: typing below which is ignored
-        plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.ERROR_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
 
-        # Plot the correlation plots
-        fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
-        plot_energy_correlation(
-            fig,
-            ax,
-            errors["energy_reference"],
-            errors["energy_predicted"],
-        )
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.CORRELATION_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        # Group scatter paths by molecule
+        scatter_paths_by_mol: dict[int, dict[int, pathlib.Path]] = {}
+        for iter_idx, scatter_path in scatter_paths.items():
+            # Parse molecule index from filename
+            stem = scatter_path.stem
+            if "_mol" in stem:
+                mol_idx_str = stem.split("_mol")[-1]
+                mol_idx = int(mol_idx_str)
+            else:
+                mol_idx = 0  # Default for backward compatibility
 
-        # Plot the force error by atom index
-        fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
-        plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
-        fig.savefig(
-            str(
-                path_manager.get_output_path(
-                    stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT
-                )
-            ),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+            if mol_idx not in scatter_paths_by_mol:
+                scatter_paths_by_mol[mol_idx] = {}
+            scatter_paths_by_mol[mol_idx][iter_idx] = scatter_path
 
-        # Plot the force field changes
+        # Plot for each molecule
+        for mol_idx, mol in enumerate(mols):
+            if mol_idx not in scatter_paths_by_mol:
+                logger.warning(f"No scatter paths found for molecule {mol_idx}")
+                continue
+
+            errors = read_errors(scatter_paths_by_mol[mol_idx])
+
+            # Plot the errors
+            fig, axs = plt.subplots(3, 2, figsize=(13, 18))
+            plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
+            error_plot_path = path_manager.get_output_path(stage, OutputType.ERROR_PLOT)
+            error_plot_path_mol = (
+                error_plot_path.parent
+                / f"{error_plot_path.stem}_mol{mol_idx}{error_plot_path.suffix}"
+            )
+            fig.savefig(str(error_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+            # Plot the correlation plots
+            fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
+            plot_energy_correlation(
+                fig,
+                ax,
+                errors["energy_reference"],
+                errors["energy_predicted"],
+            )
+            corr_plot_path = path_manager.get_output_path(
+                stage, OutputType.CORRELATION_PLOT
+            )
+            corr_plot_path_mol = (
+                corr_plot_path.parent
+                / f"{corr_plot_path.stem}_mol{mol_idx}{corr_plot_path.suffix}"
+            )
+            fig.savefig(str(corr_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+            # Plot the force error by atom index
+            fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
+            plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
+            force_error_plot_path = path_manager.get_output_path(
+                stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT
+            )
+            force_error_plot_path_mol = (
+                force_error_plot_path.parent
+                / f"{force_error_plot_path.stem}_mol{mol_idx}{force_error_plot_path.suffix}"
+            )
+            fig.savefig(str(force_error_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+        # Plot the force field changes for each molecule
         ff_paths = load_force_fields(
             dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
         )
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "values")
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.PARAMETER_VALUES_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        for mol_idx, mol in enumerate(mols):
+            fig, axs = plot_all_ffs(ff_paths, mol, "values")
+            param_values_plot_path = path_manager.get_output_path(
+                stage, OutputType.PARAMETER_VALUES_PLOT
+            )
+            param_values_plot_path_mol = (
+                param_values_plot_path.parent
+                / f"{param_values_plot_path.stem}_mol{mol_idx}{param_values_plot_path.suffix}"
+            )
+            fig.savefig(str(param_values_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "differences")
-        fig.savefig(
-            str(
-                path_manager.get_output_path(
-                    stage, OutputType.PARAMETER_DIFFERENCES_PLOT
-                )
-            ),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+            fig, axs = plot_all_ffs(ff_paths, mol, "differences")
+            param_diff_plot_path = path_manager.get_output_path(
+                stage, OutputType.PARAMETER_DIFFERENCES_PLOT
+            )
+            param_diff_plot_path_mol = (
+                param_diff_plot_path.parent
+                / f"{param_diff_plot_path.stem}_mol{mol_idx}{param_diff_plot_path.suffix}"
+            )
+            fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)

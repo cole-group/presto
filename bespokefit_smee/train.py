@@ -44,9 +44,9 @@ class TrainingFnArgs(TypedDict):
     trainable_parameters: torch.Tensor
     initial_parameters: torch.Tensor
     trainable: descent.train.Trainable
-    topology: smee.TensorTopology
-    dataset: datasets.Dataset
-    dataset_test: datasets.Dataset
+    topologies: list[smee.TensorTopology]
+    datasets: list[datasets.Dataset]
+    datasets_test: list[datasets.Dataset]
     settings: TrainingSettings
     output_paths: dict[OutputType, Path]
     device: torch.device
@@ -157,9 +157,9 @@ def train_adam(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
-    topology: smee.TensorTopology,
-    dataset: datasets.Dataset,
-    dataset_test: datasets.Dataset,
+    topologies: list[smee.TensorTopology],
+    datasets: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -175,12 +175,12 @@ def train_adam(
             The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
-        topology: smee.TensorTopology
-            The topology of the system.
-        dataset: datasets.Dataset
-            The dataset to be used for training.
-        dataset_test: datasets.Dataset
-            The dataset to be used for testing.
+        topologies: list[smee.TensorTopology]
+            The topologies of the systems.
+        datasets: list[datasets.Dataset]
+            The datasets to be used for training.
+        datasets_test: list[datasets.Dataset]
+            The datasets to be used for testing.
         settings: TrainingSettings
             The settings object containing training parameters.
         output_paths: dict[OutputType, PathLike]
@@ -222,11 +222,11 @@ def train_adam(
                 desc="Optimising MM parameters",
             ):
                 losses_train = prediction_loss(
-                    dataset,
+                    datasets,
                     trainable,
                     trainable_parameters,
                     initial_parameters,
-                    topology,
+                    topologies,
                     settings.loss_energy_weight,
                     settings.loss_force_weight,
                     settings.regularisation_target,
@@ -237,11 +237,11 @@ def train_adam(
                 logger.info(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
                 if i % 10 == 0:
                     losses_test = prediction_loss(
-                        dataset_test,
+                        datasets_test,
                         trainable,
                         trainable_parameters,
                         initial_parameters,
-                        topology,
+                        topologies,
                         settings.loss_energy_weight,
                         settings.loss_force_weight,
                         settings.regularisation_target,
@@ -263,11 +263,11 @@ def train_adam(
                     scheduler.step()
         # some book-keeping and outputting
         losses_test = prediction_loss(
-            dataset_test,
+            datasets_test,
             trainable,
             trainable_parameters,
             initial_parameters,
-            topology,
+            topologies,
             settings.loss_energy_weight,
             settings.loss_force_weight,
             settings.regularisation_target,

@@ -407,7 +407,10 @@ class TypeGenerationSettings(_DefaultSettings):
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
-    smiles: str = Field(..., description="SMILES string")
+    smiles: Union[str, list[str]] = Field(
+        ...,
+        description="SMILES string or list of SMILES for molecules to fit",
+    )
 
     initial_force_field: str = Field(
         "openff_unconstrained-2.2.1.offxml",
@@ -446,11 +449,27 @@ class ParameterisationSettings(_DefaultSettings):
         )
     )
 
-    # Make sure that the smiles isn't set to the placeholder value (as done in the CLI)
-    @field_validator("smiles")
-    def validate_smiles(cls, value: str) -> str:
-        if Chem.MolFromSmiles(value) is None:
-            raise ValueError(f"Invalid SMILES string: {value}")
+    # Validate that all SMILES strings are valid
+    @field_validator("smiles", mode="before")
+    def validate_smiles(cls, value: str | list[str]) -> list[str]:
+        """Validate all SMILES are valid, unique. Accepts string or list."""
+        # Convert single string to list for backward compatibility
+        if isinstance(value, str):
+            value = [value]
+
+        if not value:
+            raise ValueError("smiles list cannot be empty")
+
+        # Check for duplicates
+        if len(value) != len(set(value)):
+            duplicates = [s for s in value if value.count(s) > 1]
+            unique_duplicates = list(set(duplicates))
+            raise ValueError(f"Duplicate SMILES found: {unique_duplicates}")
+
+        # Validate each SMILES string
+        for smiles in value:
+            if Chem.MolFromSmiles(smiles) is None:
+                raise ValueError(f"Invalid SMILES string: {smiles}")
         return value
 
 
