@@ -47,8 +47,19 @@ def get_single_torsion_by_rot_bond(
         if rot_bond not in torsions_by_rot_bonds:
             torsions_by_rot_bonds[rot_bond] = torsion
         else:
-            # If we already have a torsion for this rotatable bond, skip it
-            continue
+            # If we already have a torsion for this rotatable bond
+            # only override it if sum of weights of the end atoms is higher
+            existing_torsion = torsions_by_rot_bonds[rot_bond]
+            existing_weight = (
+                mol.atoms[existing_torsion[0]].atomic_number
+                + mol.atoms[existing_torsion[3]].atomic_number
+            )
+            new_weight = (
+                mol.atoms[torsion[0]].atomic_number
+                + mol.atoms[torsion[3]].atomic_number
+            )
+            if new_weight > existing_weight:
+                torsions_by_rot_bonds[rot_bond] = torsion
 
     return torsions_by_rot_bonds
 

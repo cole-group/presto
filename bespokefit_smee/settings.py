@@ -274,10 +274,180 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
+class MMMDMetadynamicsSeededFrozenTorsionsSamplingSettings(_SamplingSettingsBase):
+    """Settings for MD sampling using metadynamics to generate seed
+    conformations, then running MD with frozen torsions from each seed.
+
+    This protocol:
+    1. Runs metadynamics on all rotatable bonds to generate initial
+       samples
+    2. Bins samples by torsion angle, selects diverse samples per bin,
+       freezes each torsion, minimizes, and selects the lowest energy
+       as the seed for that bin
+    3. For each seed, runs MD with the torsion frozen to generate
+       training samples
+    """
+
+    sampling_protocol: Literal["mm_md_metadynamics_seeded_frozen_torsions"] = Field(
+        "mm_md_metadynamics_seeded_frozen_torsions",
+        description="Sampling protocol to use.",
+    )
+
+    # Metadynamics settings for initial sampling
+    bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
+
+    bias_factor: float = Field(
+        10.0,
+        description="Bias factor for well-tempered metadynamics. Typical range: 5-20",
+    )
+
+    bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]  # noqa: E501
+        2.0 * unit.kilojoules_per_mole,
+        description="Initial height of the bias",
+    )
+
+    bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]  # noqa: E501
+        0.5 * unit.picoseconds,
+        description="Frequency at which to add bias",
+    )
+
+    bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]  # noqa: E501
+        1.0 * unit.picoseconds,
+        description="Frequency at which to save the bias",
+    )
+
+    # Seed selection settings
+    n_angle_bins: int = Field(
+        12,
+        description="Number of bins to divide the torsion angle range "
+        "(-π to π) into. E.g., 12 bins = 30 degree bins.",
+    )
+
+    n_samples_per_bin: int = Field(
+        5,
+        description="Maximum number of diverse samples to select from "
+        "each bin for minimization",
+    )
+
+    frozen_torsion_force_constant: OpenMMQuantity[  # type: ignore[valid-type, type-arg]
+        unit.kilojoules_per_mole / unit.radians**2
+    ] = Field(
+        0.1 * unit.kilocalories_per_mole / unit.degree**2,
+        description="Force constant for freezing torsions during "
+        "minimization and sampling",
+    )
+
+    frozen_snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]  # noqa: E501
+        1 * unit.picoseconds,
+        description="Interval between saving snapshots during "
+        "production sampling with frozen torsions",
+    )
+
+    # Frozen torsion MD settings
+    frozen_equilibration_sampling_time_per_seed: OpenMMQuantity[  # type: ignore[type-arg]
+        unit.picoseconds
+    ] = Field(
+        default=0.1 * unit.picoseconds,
+        description="Equilibration sampling time per seed conformation "
+        "with frozen torsion",
+    )
+
+    frozen_production_sampling_time_per_seed: OpenMMQuantity[  # type: ignore[type-arg]
+        unit.picoseconds
+    ] = Field(
+        default=10 * unit.picoseconds,
+        description="Production sampling time per seed conformation "
+        "with frozen torsion",
+    )
+
+    @model_validator(mode="after")
+    def validate_frequencies(self) -> Self:
+        # Validate metadynamics frequencies
+        for freq, name in [
+            (self.bias_frequency, "frequency"),
+            (self.bias_save_frequency, "save_frequency"),
+        ]:
+            n_steps = freq / self.timestep
+            if not n_steps.is_integer():
+                raise InvalidSettingsError(
+                    f"{name} ({freq}) must be divisible by the "
+                    f"timestep ({self.timestep})."
+                )
+
+            n_saves = self.production_sampling_time_per_conformer / freq
+            if not n_saves.is_integer():
+                raise InvalidSettingsError(
+                    f"production_sampling_time_per_conformer "
+                    f"({self.production_sampling_time_per_conformer}) "
+                    f"must be divisible by the {name} ({freq})."
+                )
+
+        # Validate frozen MD times
+        for time, name in [
+            (
+                self.frozen_equilibration_sampling_time_per_seed,
+                "frozen_equilibration_sampling_time_per_seed",
+            ),
+            (
+                self.frozen_production_sampling_time_per_seed,
+                "frozen_production_sampling_time_per_seed",
+            ),
+        ]:
+            n_steps = time / self.timestep
+            if not n_steps.is_integer():
+                raise InvalidSettingsError(
+                    f"{name} ({time}) must be divisible by the "
+                    f"timestep ({self.timestep})."
+                )
+
+        # Validate frozen production sampling time divides by snapshot
+        # interval
+        n_snapshots = (
+            self.frozen_production_sampling_time_per_seed / self.snapshot_interval
+        )
+        if not n_snapshots.is_integer():
+            raise InvalidSettingsError(
+                f"frozen_production_sampling_time_per_seed "
+                f"({self.frozen_production_sampling_time_per_seed}) "
+                f"must be divisible by the snapshot_interval "
+                f"({self.snapshot_interval})."
+            )
+
+        return self
+
+    @property
+    def n_steps_per_bias(self) -> int:
+        return int(self.bias_frequency / self.timestep)
+
+    @property
+    def n_steps_per_bias_save(self) -> int:
+        return int(self.bias_save_frequency / self.timestep)
+
+    @property
+    def frozen_equilibration_n_steps_per_seed(self) -> int:
+        return int(self.frozen_equilibration_sampling_time_per_seed / self.timestep)
+
+    @property
+    def frozen_production_n_snapshots_per_seed(self) -> int:
+        return int(
+            self.frozen_production_sampling_time_per_seed
+            / self.frozen_snapshot_interval
+        )
+
+    @property
+    def frozen_production_n_steps_per_snapshot_per_seed(self) -> int:
+        return int(self.snapshot_interval / self.timestep)
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
+
+
 SamplingSettings = Union[
     MMMDSamplingSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
+    MMMDMetadynamicsSeededFrozenTorsionsSamplingSettings,
 ]
 
 
