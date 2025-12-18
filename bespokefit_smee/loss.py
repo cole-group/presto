@@ -9,10 +9,13 @@ import descent
 import descent.optim
 import descent.train
 import descent.utils.loss
+import descent.targets.energy
 import loguru
 import smee
 import smee.utils
 import torch
+
+from bespokefit_smee.utils.typing import ValenceType
 
 logger = loguru.logger
 
@@ -206,6 +209,172 @@ def get_loss_closure_fn(
     return closure_fn
 
 
+def filter_dataset_by_hydrogen_force_errors(
+    dataset: datasets.Dataset,
+    force_field: smee.TensorForceField,
+    topology: smee.TensorTopology,
+    threshold_multiplier: float = 4.0,
+    device_type: str = "cpu",
+) -> datasets.Dataset:
+    """Filter dataset to remove conformations with large hydrogen force errors.
+
+    This function should be called once per training iteration to filter the dataset
+    before training begins. It:
+    a) Computes the magnitude of force differences for each atom
+    b) Computes the median force difference for all carbon atoms
+    c) Filters out conformations where any hydrogen has force error > threshold_multiplier
+       times the median carbon force difference
+
+    Args:
+        dataset: The dataset containing energies, forces, and coordinates
+        force_field: The force field to use for predictions
+        topology: The topology containing atomic numbers
+        threshold_multiplier: Multiplier for median carbon force error threshold (default: 4.0)
+        device_type: The device type (e.g., 'cpu' or 'cuda')
+
+    Returns:
+        Filtered dataset with conformations removed that have excessive hydrogen force errors
+    """
+    # Get predictions for the current force field
+    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
+        dataset,
+        force_field,
+        {dataset[0]["smiles"]: topology},
+        device_type=device_type,
+        normalize=False,
+    )
+
+    # Reshape forces for filtering
+    n_confs = len(dataset[0]["energy"])
+    forces_ref_reshaped = forces_ref_all.reshape(n_confs, -1, 3)
+    forces_pred_reshaped = forces_pred_all.reshape(n_confs, -1, 3)
+
+    # Compute force difference magnitude for each atom
+    # Shape: (n_confs, n_atoms)
+    force_diff_magnitude = torch.norm(forces_ref_reshaped - forces_pred_reshaped, dim=2)
+
+    # Get atomic numbers from topology
+    atomic_numbers = topology.atomic_nums
+
+    # Create masks for carbon (atomic number 6) and hydrogen (atomic number 1)
+    carbon_mask = atomic_numbers == 6
+    hydrogen_mask = atomic_numbers == 1
+
+    # Compute median force difference for all carbon atoms across all conformations
+    carbon_force_diffs = force_diff_magnitude[:, carbon_mask]
+    median_carbon_force_diff = torch.median(carbon_force_diffs)
+
+    # Compute threshold
+    threshold = threshold_multiplier * median_carbon_force_diff
+
+    # Check if any hydrogen in each conformation exceeds the threshold
+    hydrogen_force_diffs = force_diff_magnitude[:, hydrogen_mask]
+
+    # For each conformation, check if max hydrogen force error exceeds threshold
+    max_hydrogen_error_per_conf = hydrogen_force_diffs.max(dim=1).values
+
+    # Keep conformations where max hydrogen error is below threshold
+    keep_mask = max_hydrogen_error_per_conf <= threshold
+
+    # Convert to numpy for indexing
+    keep_indices = keep_mask.cpu().numpy()
+
+    n_confs_discarded = n_confs - keep_indices.sum()
+    if n_confs_discarded > 0:
+        logger.info(
+            f"Filtered out {n_confs_discarded}/{n_confs} conformations due to large hydrogen force errors"
+        )
+
+    # Filter the arrays within the dataset entry
+    return descent.targets.energy.create_dataset(
+        [
+            {
+                "smiles": dataset[0]["smiles"],
+                "energy": dataset[0]["energy"][keep_indices],
+                "forces": dataset[0]["forces"]
+                .reshape(n_confs, -1, 3)[keep_indices]
+                .flatten(),
+                "coords": dataset[0]["coords"]
+                .reshape(n_confs, -1, 3)[keep_indices]
+                .flatten(),
+            }
+        ]
+    )
+
+
+# TODO: Move the following two functions back into smee (they are copied with minor changes)
+
+
+def compute_energy(
+    system: smee.TensorSystem | smee.TensorTopology,
+    force_field: smee.TensorForceField,
+    conformer: torch.Tensor,
+    box_vectors: torch.Tensor | None = None,
+    vdw_energy_threshold: float | None = None,
+) -> torch.Tensor:
+    """Computes the potential energy [kcal / mol] of a system / topology in a given
+    conformation(s).
+
+    Args:
+        system: The system or topology to compute the potential energy of.
+        force_field: The force field that defines the potential energy function.
+        conformer: The conformer(s) to evaluate the potential at with
+            ``shape=(n_particles, 3)`` or ``shape=(n_confs, n_particles, 3)``.
+        box_vectors: The box vectors of the system with ``shape=(3, 3)`` if the
+            system is periodic, or ``None`` if the system is non-periodic.
+        vdw_energy_threshold: Per-atom threshold for including van der Waals energy
+            contributions. If ``None``, all contributions are included. If set,
+            energies will be set to NaN when the per-atom van der Waals energy exceeds
+            this threshold.
+
+    Returns:
+        The potential energy of the conformer(s) [kcal / mol].
+    """
+    import importlib
+    from smee.potentials._potentials import (
+        _precompute_pairwise,
+        _prepare_inputs,
+        compute_energy_potential,
+    )
+
+    # register the built-in potential energy functions
+    importlib.import_module("smee.potentials.nonbonded")
+    importlib.import_module("smee.potentials.valence")
+
+    system, conformer, box_vectors = _prepare_inputs(system, conformer, box_vectors)
+    pairwise = _precompute_pairwise(system, force_field, conformer, box_vectors)
+
+    total_energy = smee.utils.zeros_like(
+        conformer.shape[0] if conformer.ndim == 3 else 1, conformer
+    )
+
+    for potential in force_field.potentials:
+
+        energy = compute_energy_potential(
+            system, potential, conformer, box_vectors, pairwise
+        )
+        # print(potential.type)
+        # print(energy - min(energy).item())
+        # breakpoint()
+
+        # if potential.type == "vdW":  # and vdw_energy_threshold is not None:
+        # per_atom_vdw_energy = energy / system.n_particles
+        # energy = torch.where(
+        #     per_atom_vdw_energy > vdw_energy_threshold,
+        #     torch.tensor(float("nan"), device=energy.device),
+        #     energy,
+        # )
+        # continue
+
+        total_energy += energy
+
+        # energy += compute_energy_potential(
+        #     system, potential, conformer, box_vectors, pairwise
+        # )
+
+    return total_energy
+
+
 def predict(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
@@ -254,7 +423,7 @@ def predict(
         )
         topology = topologies[smiles]
 
-        energy_pred = smee.compute_energy(topology, force_field, coords)
+        energy_pred = compute_energy(topology, force_field, coords)
         forces_pred = -torch.autograd.grad(
             energy_pred.sum(),
             coords,

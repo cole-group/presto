@@ -630,26 +630,26 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         plt.close(fig)
 
         # Plot the force field changes
-        ff_paths = load_force_fields(
-            dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
-        )
+        # ff_paths = load_force_fields(
+        #     dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
+        # )
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "values")
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.PARAMETER_VALUES_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        # fig, axs = plot_all_ffs(ff_paths, mol, "values")
+        # fig.savefig(
+        #     str(path_manager.get_output_path(stage, OutputType.PARAMETER_VALUES_PLOT)),
+        #     dpi=300,
+        #     bbox_inches="tight",
+        # )
+        # plt.close(fig)
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "differences")
-        fig.savefig(
-            str(
-                path_manager.get_output_path(
-                    stage, OutputType.PARAMETER_DIFFERENCES_PLOT
-                )
-            ),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        # fig, axs = plot_all_ffs(ff_paths, mol, "differences")
+        # fig.savefig(
+        #     str(
+        #         path_manager.get_output_path(
+        #             stage, OutputType.PARAMETER_DIFFERENCES_PLOT
+        #         )
+        #     ),
+        #     dpi=300,
+        #     bbox_inches="tight",
+        # )
+        # plt.close(fig)

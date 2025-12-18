@@ -68,7 +68,12 @@ def convert_to_smirnoff(
     ff_smirnoff = openff.toolkit.ForceField() if base is None else copy.deepcopy(base)
 
     for potential in ff.potentials:
-        if potential.type in {"Bonds", "Angles", "ProperTorsions", "ImproperTorsions"}:
+        if potential.type in {
+            "Bonds",
+            "Angles",
+            "ProperTorsions",
+            "ImproperTorsions",
+        }:
             assert potential.attribute_cols is None
             parameters_by_smarts: dict[str, dict[int | None, torch.Tensor]] = (
                 collections.defaultdict(dict)
@@ -297,6 +302,76 @@ def convert_to_smirnoff(
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
 
+        elif potential.type == "vdW":
+            handler = ff_smirnoff.get_parameter_handler(potential.type)
+
+            # check if we have handler attributes to update
+            attribute_names = potential.attribute_cols
+            attribute_units = potential.attribute_units
+
+            if potential.attributes is not None:
+                opt_attributes = potential.attributes.detach().cpu().numpy()
+                for j, (p, unit) in enumerate(zip(attribute_names, attribute_units)):
+                    setattr(handler, p, opt_attributes[j] * unit)
+
+            parameters_by_smarts: dict[str, dict[int | None, torch.Tensor]] = (
+                collections.defaultdict(dict)
+            )
+            for parameter, parameter_key in zip(
+                potential.parameters, potential.parameter_keys, strict=True
+            ):
+                assert parameter_key.mult not in parameters_by_smarts[parameter_key.id]
+                parameters_by_smarts[parameter_key.id][parameter_key.mult] = parameter
+
+            for smarts, parameters_by_mult in parameters_by_smarts.items():
+                mults = {*parameters_by_mult}
+                if None in mults and len(mults) > 1:
+                    raise NotImplementedError("unexpected parameters found")
+                if None not in mults and mults != {*range(len(mults))}:
+                    raise NotImplementedError("unexpected parameters found")
+                counter = len(handler.parameters) + 1
+                parameter_id = f"{potential.type[0].lower()}-bespoke-{counter}"
+                parameter_dict: dict[str, str | Quantity] = {
+                    "smirks": smarts,
+                    "id": parameter_id,
+                }
+                parameter_dict.update(
+                    {
+                        (col if mult is None else f"{col}{mult + 1}"): float(
+                            parameter[col_idx]
+                        )
+                        * potential.parameter_units[col_idx]
+                        for mult, parameter in parameters_by_mult.items()
+                        for col_idx, col in enumerate(potential.parameter_cols)
+                    }
+                )
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
+            # ff_handler = ff_smirnoff.get_parameter_handler("vdW")
+
+            # # check if we have handler attributes to update
+            # attribute_names = potential.attribute_cols
+            # attribute_units = potential.attribute_units
+
+            # if potential.attributes is not None:
+            #     opt_attributes = potential.attributes.detach().cpu().numpy()
+            #     for j, (p, unit) in enumerate(zip(attribute_names, attribute_units)):
+            #         setattr(ff_handler, p, opt_attributes[j] * unit)
+
+            # parameter_names = potential.parameter_cols
+            # parameter_units = potential.parameter_units
+
+            # for i in range(len(potential.parameters)):
+            #     smirks = potential.parameter_keys[i].id
+            #     if "EP" in smirks:
+            #         print(f"Skipping {smirks} as it is a virtual site")
+            #         # skip fitted sites to dimers, we only have water and it should be 0 anyway
+            #         continue
+            #     ff_parameter = ff_handler[smirks]
+            #     opt_parameters = potential.parameters[i].detach().cpu().numpy()
+            #     for j, (p, unit) in enumerate(zip(parameter_names, parameter_units)):
+            #         setattr(ff_parameter, p, opt_parameters[j] * unit)
+
     return ff_smirnoff
 
 
@@ -338,8 +413,14 @@ def _prepare_potential(
 
     excluded_smirks_to_ids = {}
 
+    if potential.type != "vdW":
+        particle_idxs_list = parameter_map.particle_idxs
+    else:
+        particle_idxs_list = torch.tensor(
+            [[i] for i in range(mol.n_atoms)], dtype=torch.long
+        )
     for particle_idxs, assignment_row in zip(
-        parameter_map.particle_idxs,
+        particle_idxs_list,
         parameter_map.assignment_matrix.to_dense(),
         strict=True,
     ):
@@ -410,7 +491,7 @@ def _prepare_potential(
     ]
 
     assignment_matrix = smee.utils.zeros_like(
-        (len(parameter_map.particle_idxs), len(potential.parameters)),
+        (len(particle_idxs_list), len(potential.parameters)),
         parameter_map.assignment_matrix,
     )
 
@@ -425,7 +506,7 @@ def _prepare_potential(
                 particle_idxs_updated.append(particle_idx)
 
     parameter_map.particle_idxs = smee.utils.tensor_like(
-        particle_idxs_updated, parameter_map.particle_idxs
+        particle_idxs_updated, particle_idxs_list
     )
     parameter_map.assignment_matrix = assignment_matrix.to_sparse()
 

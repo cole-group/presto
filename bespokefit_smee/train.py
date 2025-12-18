@@ -234,7 +234,7 @@ def train_adam(
                 )
                 tot_loss_train = sum(losses_train)
 
-                logger.info(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
+                logger.debug(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
                 if i % 10 == 0:
                     losses_test = prediction_loss(
                         dataset_test,

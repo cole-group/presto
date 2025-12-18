@@ -171,6 +171,17 @@ def get_bespoke_force_field(
             path_manager.get_output_path(stage, OutputType.ENERGIES_AND_FORCES)
         )
 
+        # Filter out conformations with large hydrogen force errors
+        from bespokefit_smee.loss import filter_dataset_by_hydrogen_force_errors
+
+        # dataset_train = filter_dataset_by_hydrogen_force_errors(
+        #     dataset_train,
+        #     tensor_ff,
+        #     tensor_top,
+        #     threshold_multiplier=2.0,
+        #     device_type=str(settings.device),
+        # )
+
         train_output_paths = {
             output_type: path_manager.get_output_path(stage, output_type)
             for output_type in settings.training_settings.output_types
