@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import yaml
 from descent.train import AttributeConfig, ParameterConfig
+from openff.toolkit import Molecule
 from openmm import unit
 from packaging.version import Version
 from pydantic import (
@@ -291,7 +292,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     minimisation structures. This extends MMMDMetadynamicsSamplingSettings by generating
     additional training data from torsion-restrained minimisations."""
 
-    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(
+    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
         "mm_md_metadynamics_torsion_minimisation",
         description="Sampling protocol to use.",
     )
@@ -307,7 +308,9 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
         description="Number of MM minimisation steps with restrained torsions.",
     )
 
-    torsion_restraint_force_constant: OpenMMQuantity[unit.kilojoules_per_mole / unit.radian**2] = Field(  # type: ignore[type-arg]
+    torsion_restraint_force_constant: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
+        unit.kilojoules_per_mole / unit.radian**2
+    ] = Field(
         1000.0 * unit.kilojoules_per_mole / unit.radian**2,
         description="Force constant for torsion restraints.",
     )
@@ -538,6 +541,14 @@ class ParameterisationSettings(_DefaultSettings):
                 raise ValueError(f"Invalid SMILES string: {smiles}")
         return value
 
+    @property
+    def molecules(self) -> list[Molecule]:
+        """Return the list of OpenFF Molecule objects for the SMILES strings."""
+        return [
+            Molecule.from_smiles(smiles, allow_undefined_stereo=True)
+            for smiles in self.smiles
+        ]
+
 
 class WorkflowSettings(_DefaultSettings):
     """Overall settings for the full fitting workflow."""
@@ -657,9 +668,13 @@ class WorkflowSettings(_DefaultSettings):
 
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
+        # Get the number of molecules from the smiles list
+        smiles = self.parameterisation_settings.smiles
+        n_mols = len(smiles) if isinstance(smiles, list) else 1
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,
+            n_mols=n_mols,
             training_settings=self.training_settings,
             training_sampling_settings=self.training_sampling_settings,
             testing_sampling_settings=self.testing_sampling_settings,

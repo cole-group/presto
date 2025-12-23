@@ -3,11 +3,10 @@
 import numpy as np
 import pytest
 import torch
-from openmm import CustomTorsionForce, System
+from openmm import System
 from openmm import unit as omm_unit
 from openmm.app import Simulation
 from openmm.app import Topology as OMMTopology
-from openff.toolkit import ForceField, Molecule
 
 from bespokefit_smee.data_utils import (
     create_dataset_with_uniform_weights,
@@ -246,8 +245,9 @@ class TestRemoveTorsionRestraintForces:
     @pytest.fixture
     def simulation_with_restraints(self):
         """Create a simulation with torsion restraints added."""
-        from bespokefit_smee.sample import _add_torsion_restraint_forces
         from openmm import HarmonicBondForce, LangevinMiddleIntegrator
+
+        from bespokefit_smee.sample import _add_torsion_restraint_forces
 
         system = System()
         for _ in range(4):
@@ -356,10 +356,10 @@ class TestWeightedDatasetIntegration:
         """Test that sample_mmmd creates a weighted dataset."""
         # This is a lightweight test that checks the function signature
         # Full integration tests are in the integration test folder
-        from bespokefit_smee.sample import sample_mmmd
-
         # Check the function accepts the right arguments
         import inspect
+
+        from bespokefit_smee.sample import sample_mmmd
 
         sig = inspect.signature(sample_mmmd)
         params = list(sig.parameters.keys())
@@ -370,9 +370,9 @@ class TestWeightedDatasetIntegration:
 
     def test_sample_mlmd_creates_weighted_dataset(self):
         """Test that sample_mlmd creates a weighted dataset."""
-        from bespokefit_smee.sample import sample_mlmd
-
         import inspect
+
+        from bespokefit_smee.sample import sample_mlmd
 
         sig = inspect.signature(sample_mlmd)
         params = list(sig.parameters.keys())
@@ -381,9 +381,9 @@ class TestWeightedDatasetIntegration:
 
     def test_sample_mmmd_metadynamics_creates_weighted_dataset(self):
         """Test that sample_mmmd_metadynamics creates a weighted dataset."""
-        from bespokefit_smee.sample import sample_mmmd_metadynamics
-
         import inspect
+
+        from bespokefit_smee.sample import sample_mmmd_metadynamics
 
         sig = inspect.signature(sample_mmmd_metadynamics)
         params = list(sig.parameters.keys())
@@ -452,8 +452,9 @@ class TestGenerateTorsionMinimisedDatasetPDBOutput:
 
     def test_function_accepts_pdb_path_arguments(self):
         """Test that generate_torsion_minimised_dataset accepts PDB path arguments."""
-        from bespokefit_smee.sample import generate_torsion_minimised_dataset
         import inspect
+
+        from bespokefit_smee.sample import generate_torsion_minimised_dataset
 
         sig = inspect.signature(generate_torsion_minimised_dataset)
         params = list(sig.parameters.keys())
@@ -462,8 +463,9 @@ class TestGenerateTorsionMinimisedDatasetPDBOutput:
 
     def test_pdb_path_defaults_to_none(self):
         """Test that PDB path arguments default to None."""
-        from bespokefit_smee.sample import generate_torsion_minimised_dataset
         import inspect
+
+        from bespokefit_smee.sample import generate_torsion_minimised_dataset
 
         sig = inspect.signature(generate_torsion_minimised_dataset)
         assert sig.parameters["ml_pdb_path"].default is None

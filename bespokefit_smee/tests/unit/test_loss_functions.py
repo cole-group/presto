@@ -12,7 +12,6 @@ from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 
 from bespokefit_smee.data_utils import (
-    WEIGHTED_DATA_SCHEMA,
     create_dataset_with_uniform_weights,
     merge_weighted_datasets,
 )
@@ -308,7 +307,6 @@ class TestPredictionLossWithWeights:
 
         # Create weighted dataset with real conformer coordinates
         n_confs = mol.n_conformers
-        n_atoms = mol.n_atoms
         coords_list = [
             torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
             for i in range(n_confs)
@@ -521,7 +519,6 @@ class TestPredictFunction:
             mol.generate_conformers(n_conformers=1)
             n_confs = 1
 
-        n_atoms = mol.n_atoms
         coords_list = [
             torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
             for i in range(n_confs)
@@ -607,7 +604,6 @@ class TestPredictWithWeightsMultipleEntries:
         tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
         smiles = mol.to_smiles(mapped=True)
 
-        n_atoms = mol.n_atoms
         n_confs = len(mol.conformers)
         coords_list = [
             torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)

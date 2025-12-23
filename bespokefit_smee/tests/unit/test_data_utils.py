@@ -1,6 +1,5 @@
 """Unit tests for data_utils module."""
 
-import numpy as np
 import pytest
 import torch
 
@@ -156,8 +155,6 @@ class TestCreateDatasetWithUniformWeights:
 
     def test_nan_forces_get_zero_weight(self, sample_data):
         """Test that conformations with NaN forces get zero forces weight."""
-        n_confs = 4
-        n_atoms = 3
         forces = sample_data["forces"].clone()
         # Set forces for conformation 1 to NaN
         forces[1] = float("nan")
@@ -172,7 +169,6 @@ class TestCreateDatasetWithUniformWeights:
 
     def test_nan_forces_with_custom_weight(self, sample_data):
         """Test that NaN forces get zero weight even with custom weight specified."""
-        n_confs = 4
         forces = sample_data["forces"].clone()
         forces[2] = float("nan")
         sample_data["forces"] = forces

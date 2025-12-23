@@ -46,7 +46,7 @@ class TestMultiMoleculeParameterisation:
 
         # Check that each topology can be used with its corresponding force field
         # (topology 0 uses force_field from molecule 0, etc.)
-        for mol, top in zip(mols, tops):
+        for mol, top in zip(mols, tops, strict=True):
             assert top.n_atoms == mol.n_atoms
         assert mols[1].n_atoms == 9  # Ethanol
         assert mols[2].n_atoms == 14  # Butane
@@ -159,9 +159,6 @@ class TestMultiMoleculeTypeGeneration:
 
         ff_with_types = add_types_to_forcefield(mols, ff, type_gen_settings)
 
-        # All three molecules should match at least some of the same bespoke parameters
-        bond_handler = ff_with_types.get_parameter_handler("Bonds")
-
         # Check that the force field can label all molecules
         for mol in mols:
             labels = ff_with_types.label_molecules(mol.to_topology())[0]
@@ -273,7 +270,7 @@ class TestMultiMoleculeParameterSharing:
 
     def test_parameter_updates_affect_all_molecules(self):
         """Test that updating parameters affects all molecules."""
-        from descent.train import Trainable, ParameterConfig
+        from descent.train import ParameterConfig, Trainable
 
         settings = ParameterisationSettings(
             smiles=["CC", "CCC"],

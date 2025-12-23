@@ -329,6 +329,6 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
     openmm_relative = openmm_energies_tensor - openmm_energies_tensor.mean()
 
     # Allow for small numerical differences (0.1 kcal/mol absolute tolerance)
-    assert torch.allclose(
-        energy_pred, openmm_relative, rtol=1e-3, atol=0.1
-    ), f"Energy predictions differ for {smiles}: pred={energy_pred}, ref={openmm_relative}"
+    assert torch.allclose(energy_pred, openmm_relative, rtol=1e-3, atol=0.1), (
+        f"Energy predictions differ for {smiles}: pred={energy_pred}, ref={openmm_relative}"
+    )

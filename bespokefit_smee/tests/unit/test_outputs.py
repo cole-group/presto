@@ -6,16 +6,52 @@ from pathlib import Path
 import pytest
 
 from bespokefit_smee.outputs import (
+    PER_MOLECULE_OUTPUT_TYPES,
     OutputStage,
     OutputType,
     StageKind,
     WorkflowPathManager,
     delete_path,
+    get_mol_path,
 )
 from bespokefit_smee.settings import (
     MMMDSamplingSettings,
     TrainingSettings,
 )
+
+
+class TestGetMolPath:
+    """Tests for the get_mol_path utility function."""
+
+    def test_file_with_extension(self):
+        """Test get_mol_path with a file that has an extension."""
+        base_path = Path("/output/scatter.hdf5")
+        result = get_mol_path(base_path, 0)
+        assert result == Path("/output/scatter_mol0.hdf5")
+
+        result = get_mol_path(base_path, 5)
+        assert result == Path("/output/scatter_mol5.hdf5")
+
+    def test_file_without_extension(self):
+        """Test get_mol_path with a directory (no extension)."""
+        base_path = Path("/output/energy_data")
+        result = get_mol_path(base_path, 0)
+        assert result == Path("/output/energy_data_mol0")
+
+        result = get_mol_path(base_path, 3)
+        assert result == Path("/output/energy_data_mol3")
+
+    def test_nested_path(self):
+        """Test get_mol_path with nested directory structure."""
+        base_path = Path("/a/b/c/file.png")
+        result = get_mol_path(base_path, 2)
+        assert result == Path("/a/b/c/file_mol2.png")
+
+    def test_relative_path(self):
+        """Test get_mol_path with relative path."""
+        base_path = Path("output/data.txt")
+        result = get_mol_path(base_path, 1)
+        assert result == Path("output/data_mol1.txt")
 
 
 class TestOutputType:
@@ -91,6 +127,7 @@ class TestWorkflowPathManager:
         return WorkflowPathManager(
             output_dir=tmp_path,
             n_iterations=2,
+            n_mols=2,
             training_settings=TrainingSettings(),
             training_sampling_settings=MMMDSamplingSettings(),
             testing_sampling_settings=MMMDSamplingSettings(),
@@ -181,9 +218,15 @@ class TestWorkflowPathManager:
         for stage, outputs in all_paths.items():
             assert isinstance(stage, OutputStage)
             assert isinstance(outputs, dict)
-            for output_type, path in outputs.items():
+            for output_type, path_or_paths in outputs.items():
                 assert isinstance(output_type, OutputType)
-                assert isinstance(path, Path)
+                # Per-molecule types return lists, others return single Path
+                if output_type in PER_MOLECULE_OUTPUT_TYPES:
+                    assert isinstance(path_or_paths, list)
+                    for path in path_or_paths:
+                        assert isinstance(path, Path)
+                else:
+                    assert isinstance(path_or_paths, Path)
 
     def test_get_all_output_paths_only_existing(self, path_manager, tmp_path):
         """Test getting only existing output paths."""
@@ -218,16 +261,23 @@ class TestWorkflowPathManager:
         offxml_path = path_manager.get_output_path(stage, OutputType.OFFXML)
         offxml_path.write_text("test")
 
-        scatter_path = path_manager.get_output_path(stage, OutputType.SCATTER)
-        scatter_path.write_text("test")
+        # Create per-molecule scatter files
+        scatter_paths = [
+            path_manager.get_output_path_for_mol(stage, OutputType.SCATTER, mol_idx)
+            for mol_idx in range(path_manager.n_mols)
+        ]
+        for scatter_path in scatter_paths:
+            scatter_path.write_text("test")
 
         assert offxml_path.exists()
-        assert scatter_path.exists()
+        for scatter_path in scatter_paths:
+            assert scatter_path.exists()
 
         path_manager.clean()
 
         assert not offxml_path.exists()
-        assert not scatter_path.exists()
+        for scatter_path in scatter_paths:
+            assert not scatter_path.exists()
 
     def test_clean_preserves_workflow_settings(self, path_manager):
         """Test that clean preserves workflow settings."""
@@ -319,3 +369,251 @@ class TestDeletePath:
 
         delete_path(root, recursive=True)
         assert not root.exists()
+
+
+class TestWorkflowPathManagerMolPaths:
+    """Tests for WorkflowPathManager per-molecule path methods."""
+
+    @pytest.fixture
+    def path_manager(self, tmp_path: Path) -> WorkflowPathManager:
+        """Create a path manager for testing."""
+        return WorkflowPathManager(
+            output_dir=tmp_path,
+            n_iterations=2,
+            n_mols=3,
+        )
+
+    def test_get_output_path_for_mol_scatter(self, path_manager: WorkflowPathManager):
+        """Test getting per-molecule scatter paths."""
+        stage = OutputStage(StageKind.INITIAL_STATISTICS)
+
+        for mol_idx in range(3):
+            path = path_manager.get_output_path_for_mol(
+                stage, OutputType.SCATTER, mol_idx
+            )
+            expected = (
+                path_manager.output_dir
+                / "initial_statistics"
+                / f"energies_and_forces_mol{mol_idx}.hdf5"
+            )
+            assert path == expected
+
+    def test_get_output_path_for_mol_directory_type(
+        self, path_manager: WorkflowPathManager
+    ):
+        """Test getting per-molecule paths for directory-type outputs."""
+        stage = OutputStage(StageKind.TESTING)
+
+        for mol_idx in range(3):
+            path = path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, mol_idx
+            )
+            expected = (
+                path_manager.output_dir
+                / "test_data"
+                / f"energy_and_force_data_mol{mol_idx}"
+            )
+            assert path == expected
+
+    def test_get_output_path_for_mol_invalid_output_type(
+        self, path_manager: WorkflowPathManager
+    ):
+        """Test that non-per-molecule output types raise ValueError."""
+        stage = OutputStage(StageKind.BASE)
+
+        with pytest.raises(ValueError, match="not a per-molecule output type"):
+            path_manager.get_output_path_for_mol(stage, OutputType.WORKFLOW_SETTINGS, 0)
+
+    def test_get_output_path_for_mol_invalid_mol_idx(
+        self, path_manager: WorkflowPathManager
+    ):
+        """Test that invalid mol_idx raises ValueError."""
+        stage = OutputStage(StageKind.INITIAL_STATISTICS)
+
+        with pytest.raises(ValueError, match="mol_idx .* is out of range"):
+            path_manager.get_output_path_for_mol(stage, OutputType.SCATTER, 10)
+
+        with pytest.raises(ValueError, match="mol_idx .* is out of range"):
+            path_manager.get_output_path_for_mol(stage, OutputType.SCATTER, -1)
+
+    def test_get_all_output_paths_includes_per_mol_paths(
+        self, path_manager: WorkflowPathManager, tmp_path: Path
+    ):
+        """Test that get_all_output_paths includes per-molecule paths."""
+        # Create some files to be found
+        initial_stats_dir = tmp_path / "initial_statistics"
+        initial_stats_dir.mkdir(parents=True, exist_ok=True)
+
+        for mol_idx in range(3):
+            (initial_stats_dir / f"energies_and_forces_mol{mol_idx}.hdf5").touch()
+
+        all_paths = path_manager.get_all_output_paths(only_if_exists=True)
+
+        stage = OutputStage(StageKind.INITIAL_STATISTICS)
+        assert stage in all_paths
+        assert OutputType.SCATTER in all_paths[stage]
+        scatter_paths = all_paths[stage][OutputType.SCATTER]
+        assert isinstance(scatter_paths, list)
+        assert len(scatter_paths) == 3
+
+    def test_clean_removes_per_mol_files(
+        self, path_manager: WorkflowPathManager, tmp_path: Path
+    ):
+        """Test that clean removes per-molecule files."""
+        # Create stage directory and some per-molecule files
+        initial_stats_dir = tmp_path / "initial_statistics"
+        initial_stats_dir.mkdir(parents=True, exist_ok=True)
+
+        for mol_idx in range(3):
+            (initial_stats_dir / f"energies_and_forces_mol{mol_idx}.hdf5").touch()
+
+        # Verify files exist
+        for mol_idx in range(3):
+            assert (
+                initial_stats_dir / f"energies_and_forces_mol{mol_idx}.hdf5"
+            ).exists()
+
+        # Clean
+        path_manager.clean()
+
+        # Verify files are deleted
+        for mol_idx in range(3):
+            assert not (
+                initial_stats_dir / f"energies_and_forces_mol{mol_idx}.hdf5"
+            ).exists()
+
+
+class TestPerMoleculeOutputTypes:
+    """Tests for PER_MOLECULE_OUTPUT_TYPES constant."""
+
+    def test_per_molecule_types_defined(self):
+        """Test that expected output types are marked as per-molecule."""
+        expected_per_mol = {
+            OutputType.ENERGIES_AND_FORCES,
+            OutputType.SCATTER,
+            OutputType.PDB_TRAJECTORY,
+            OutputType.METADYNAMICS_BIAS,
+            OutputType.ERROR_PLOT,
+            OutputType.CORRELATION_PLOT,
+            OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
+            OutputType.PARAMETER_VALUES_PLOT,
+            OutputType.PARAMETER_DIFFERENCES_PLOT,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+        assert PER_MOLECULE_OUTPUT_TYPES == expected_per_mol
+
+    def test_non_per_molecule_types(self):
+        """Test that certain output types are NOT per-molecule."""
+        non_per_mol = {
+            OutputType.WORKFLOW_SETTINGS,
+            OutputType.TENSORBOARD,
+            OutputType.TRAINING_METRICS,
+            OutputType.OFFXML,
+            OutputType.LOSS_PLOT,
+        }
+        for output_type in non_per_mol:
+            assert output_type not in PER_MOLECULE_OUTPUT_TYPES
+
+
+class TestWorkflowPathManagerNMols:
+    """Tests for n_mols parameter in WorkflowPathManager."""
+
+    def test_n_mols_default(self, tmp_path: Path):
+        """Test that n_mols defaults to 1."""
+        pm = WorkflowPathManager(output_dir=tmp_path)
+        assert pm.n_mols == 1
+
+    def test_n_mols_custom(self, tmp_path: Path):
+        """Test that n_mols can be set."""
+        pm = WorkflowPathManager(output_dir=tmp_path, n_mols=5)
+        assert pm.n_mols == 5
+
+
+class TestGetAllOutputPathsByOutputTypeByMolecule:
+    """Tests for get_all_output_paths_by_output_type_by_molecule method."""
+
+    @pytest.fixture
+    def path_manager(self, tmp_path: Path) -> WorkflowPathManager:
+        """Create a path manager for testing."""
+        return WorkflowPathManager(
+            output_dir=tmp_path,
+            n_iterations=2,
+            n_mols=3,
+        )
+
+    def test_per_molecule_types_organized_by_mol_idx(
+        self, path_manager: WorkflowPathManager, tmp_path: Path
+    ):
+        """Test that per-molecule output types are organized by molecule index."""
+        # Create scatter files for multiple molecules and stages
+        initial_stats_dir = tmp_path / "initial_statistics"
+        initial_stats_dir.mkdir(parents=True, exist_ok=True)
+        training_1_dir = tmp_path / "training_iteration_1"
+        training_1_dir.mkdir(parents=True, exist_ok=True)
+        training_2_dir = tmp_path / "training_iteration_2"
+        training_2_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create scatter files for each molecule and stage
+        for mol_idx in range(3):
+            (initial_stats_dir / f"energies_and_forces_mol{mol_idx}.hdf5").touch()
+            (training_1_dir / f"energies_and_forces_mol{mol_idx}.hdf5").touch()
+            (training_2_dir / f"energies_and_forces_mol{mol_idx}.hdf5").touch()
+
+        result = path_manager.get_all_output_paths_by_output_type_by_molecule(
+            only_if_exists=True
+        )
+
+        # Check scatter paths are organized by molecule
+        assert OutputType.SCATTER in result
+        scatter_by_mol = result[OutputType.SCATTER]
+        assert isinstance(scatter_by_mol, dict)
+
+        # Each molecule should have 3 scatter files (initial + 2 training)
+        for mol_idx in range(3):
+            assert mol_idx in scatter_by_mol
+            assert len(scatter_by_mol[mol_idx]) == 3
+
+    def test_non_per_molecule_types_as_flat_list(
+        self, path_manager: WorkflowPathManager, tmp_path: Path
+    ):
+        """Test that non-per-molecule types are returned as flat lists."""
+        # Create OFFXML files (non-per-molecule type)
+        initial_stats_dir = tmp_path / "initial_statistics"
+        initial_stats_dir.mkdir(parents=True, exist_ok=True)
+        training_1_dir = tmp_path / "training_iteration_1"
+        training_1_dir.mkdir(parents=True, exist_ok=True)
+
+        (initial_stats_dir / "bespoke_ff.offxml").touch()
+        (training_1_dir / "bespoke_ff.offxml").touch()
+
+        result = path_manager.get_all_output_paths_by_output_type_by_molecule(
+            only_if_exists=True
+        )
+
+        # Check OFFXML paths are a flat list
+        assert OutputType.OFFXML in result
+        offxml_paths = result[OutputType.OFFXML]
+        assert isinstance(offxml_paths, list)
+        assert len(offxml_paths) == 2
+
+    def test_extract_mol_idx_from_path(self, path_manager: WorkflowPathManager):
+        """Test _extract_mol_idx_from_path helper method."""
+        # File with extension
+        path = Path("/output/scatter_mol2.hdf5")
+        assert path_manager._extract_mol_idx_from_path(path) == 2
+
+        # Directory (no extension)
+        path = Path("/output/energy_data_mol5")
+        assert path_manager._extract_mol_idx_from_path(path) == 5
+
+        # Path without _mol (backward compatibility)
+        path = Path("/output/scatter.hdf5")
+        assert path_manager._extract_mol_idx_from_path(path) == 0
+
+    def test_empty_result_when_no_files_exist(self, path_manager: WorkflowPathManager):
+        """Test that empty dict is returned when no files exist."""
+        result = path_manager.get_all_output_paths_by_output_type_by_molecule(
+            only_if_exists=True
+        )
+        assert result == {}

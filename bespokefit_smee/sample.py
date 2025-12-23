@@ -34,7 +34,7 @@ from .find_torsions import (
     get_rot_torsions_by_rot_bond,
 )
 from .metadynamics import Metadynamics
-from .outputs import OutputType
+from .outputs import OutputType, get_mol_path
 from .utils.register import get_registry_decorator
 
 logger = loguru.logger
@@ -308,9 +308,7 @@ def sample_mmmd(
         pdb_path = None
         if OutputType.PDB_TRAJECTORY in output_paths:
             base_path = output_paths[OutputType.PDB_TRAJECTORY]
-            pdb_path = str(
-                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-            )
+            pdb_path = str(get_mol_path(base_path, mol_idx))
 
         mm_dataset = _run_md(
             mol_with_conformers,
@@ -395,9 +393,7 @@ def sample_mlmd(
         pdb_path = None
         if OutputType.PDB_TRAJECTORY in output_paths:
             base_path = output_paths[OutputType.PDB_TRAJECTORY]
-            pdb_path = str(
-                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-            )
+            pdb_path = str(get_mol_path(base_path, mol_idx))
 
         ml_dataset = _run_md(
             mol_with_conformers,
@@ -528,10 +524,7 @@ def sample_mmmd_metadynamics(
             pdb_path = None
             if OutputType.PDB_TRAJECTORY in output_paths:
                 base_path = output_paths[OutputType.PDB_TRAJECTORY]
-                pdb_path = str(
-                    base_path.parent
-                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-                )
+                pdb_path = str(get_mol_path(base_path, mol_idx))
 
             mm_dataset = _run_md(
                 mol_with_conformers,
@@ -555,7 +548,7 @@ def sample_mmmd_metadynamics(
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
-            bias_dir = base_bias_dir.parent / f"{base_bias_dir.stem}_mol{mol_idx}"
+            bias_dir = get_mol_path(base_bias_dir, mol_idx)
             bias_dir.mkdir(parents=True, exist_ok=True)
 
             metad = Metadynamics(  # type: ignore[no-untyped-call]
@@ -582,10 +575,7 @@ def sample_mmmd_metadynamics(
             pdb_path = None
             if OutputType.PDB_TRAJECTORY in output_paths:
                 base_path = output_paths[OutputType.PDB_TRAJECTORY]
-                pdb_path = str(
-                    base_path.parent
-                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-                )
+                pdb_path = str(get_mol_path(base_path, mol_idx))
 
             mm_dataset = _run_md(
                 mol_with_conformers,
@@ -713,7 +703,9 @@ def _add_torsion_restraint_forces(
 
     force_indices = []
 
-    for torsion_atoms, target_angle in zip(torsion_atoms_list, initial_angles):
+    for torsion_atoms, target_angle in zip(
+        torsion_atoms_list, initial_angles, strict=True
+    ):
         restraint_force = openmm.CustomTorsionForce(
             "0.5*k*min(dtheta, 2*pi-dtheta)^2; "
             "dtheta = abs(theta-theta0); pi = 3.1415926535"
@@ -753,7 +745,7 @@ def _update_torsion_restraints(
     force_constant : float
         Force constant for torsion restraints (in kJ/mol/rad^2)
     """
-    for force_idx, target_angle in zip(force_indices, target_angles):
+    for force_idx, target_angle in zip(force_indices, target_angles, strict=True):
         force = simulation.system.getForce(force_idx)
         p1, p2, p3, p4, _ = force.getTorsionParameters(0)
         force.setTorsionParameters(0, p1, p2, p3, p4, [force_constant, target_angle])
@@ -777,7 +769,7 @@ def _remove_torsion_restraint_forces(
         List of force indices to remove
     """
     # Remove in reverse order to maintain correct indices
-    for force_idx in reversed(sorted(force_indices)):
+    for force_idx in sorted(force_indices, reverse=True):
         simulation.system.removeForce(force_idx)
 
     # Only reinitialize once after removing all forces
@@ -958,11 +950,11 @@ def generate_torsion_minimised_dataset(
         logger.warning(
             "No rotatable torsions found - returning empty torsion minimised dataset"
         )
-        # Return empty dataset with correct schema
+        # Return empty datasets with correct schema
         entry = mm_dataset[0]
         smiles = entry["smiles"]
         n_atoms = len(entry["coords"]) // (3 * len(entry["energy"]))
-        return create_dataset_with_uniform_weights(
+        empty_dataset = create_dataset_with_uniform_weights(
             smiles=smiles,
             coords=torch.empty(0, n_atoms, 3),
             energy=torch.empty(0),
@@ -970,6 +962,7 @@ def generate_torsion_minimised_dataset(
             energy_weight=1.0,
             forces_weight=0.0,
         )
+        return empty_dataset, empty_dataset
 
     # Extract coordinates from dataset
     assert len(mm_dataset) == 1, "Dataset should contain exactly one entry."
@@ -999,7 +992,7 @@ def generate_torsion_minimised_dataset(
     for i in tqdm(
         range(n_snapshots),
         leave=False,
-        colour="purple",
+        colour="magenta",
         desc="Generating torsion-minimised structures",
     ):
         # Step 1: Minimize with ML potential and frozen torsions
@@ -1158,10 +1151,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             pdb_path = None
             if OutputType.PDB_TRAJECTORY in output_paths:
                 base_path = output_paths[OutputType.PDB_TRAJECTORY]
-                pdb_path = str(
-                    base_path.parent
-                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-                )
+                pdb_path = str(get_mol_path(base_path, mol_idx))
 
             mm_dataset = _run_md(
                 mol_with_conformers,
@@ -1206,7 +1196,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
         # Create molecule-specific bias directory
         base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
-        bias_dir = base_bias_dir.parent / f"{base_bias_dir.stem}_mol{mol_idx}"
+        bias_dir = get_mol_path(base_bias_dir, mol_idx)
         bias_dir.mkdir(parents=True, exist_ok=True)
 
         metad = Metadynamics(  # type: ignore[no-untyped-call]
@@ -1233,9 +1223,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         pdb_path = None
         if OutputType.PDB_TRAJECTORY in output_paths:
             base_path = output_paths[OutputType.PDB_TRAJECTORY]
-            pdb_path = str(
-                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-            )
+            pdb_path = str(get_mol_path(base_path, mol_idx))
 
         # Step 1: Generate MM metadynamics samples
         mm_dataset = _run_md(
@@ -1293,14 +1281,10 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         mm_pdb_path = None
         if OutputType.ML_MINIMISED_PDB in output_paths:
             base_path = output_paths[OutputType.ML_MINIMISED_PDB]
-            ml_pdb_path = (
-                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-            )
+            ml_pdb_path = get_mol_path(base_path, mol_idx)
         if OutputType.MM_MINIMISED_PDB in output_paths:
             base_path = output_paths[OutputType.MM_MINIMISED_PDB]
-            mm_pdb_path = (
-                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
-            )
+            mm_pdb_path = get_mol_path(base_path, mol_idx)
 
         torsion_mm_min_dataset, torsion_ml_min_dataset = (
             generate_torsion_minimised_dataset(

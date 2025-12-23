@@ -114,10 +114,9 @@ def get_bespoke_force_field(
         },
     )
     for mol_idx, dataset_test in enumerate(datasets_test):
-        dataset_path = path_manager.get_output_path(
-            stage, OutputType.ENERGIES_AND_FORCES
+        dataset_path_mol = path_manager.get_output_path_for_mol(
+            stage, OutputType.ENERGIES_AND_FORCES, mol_idx
         )
-        dataset_path_mol = dataset_path.parent / f"{dataset_path.stem}_mol{mol_idx}"
         dataset_test.save_to_disk(str(dataset_path_mol))
 
     # Write out statistics on the initial force field
@@ -128,10 +127,8 @@ def get_bespoke_force_field(
     for mol_idx, (dataset_test, tensor_top) in enumerate(
         zip(datasets_test, tensor_tops, strict=True)
     ):
-        scatter_path = path_manager.get_output_path(stage, OutputType.SCATTER)
-        scatter_path_mol = (
-            scatter_path.parent
-            / f"{scatter_path.stem}_mol{mol_idx}{scatter_path.suffix}"
+        scatter_path_mol = path_manager.get_output_path_for_mol(
+            stage, OutputType.SCATTER, mol_idx
         )
         energy_mean, energy_sd, forces_mean, forces_sd = write_scatter(
             dataset_test,
@@ -176,8 +173,7 @@ def get_bespoke_force_field(
         )
 
         # Update training dataset: concatenate if memory is enabled and not the first iteration
-        should_concatenate = settings.memory and datasets_train is not None
-        if should_concatenate:
+        if settings.memory and datasets_train is not None:
             datasets_train = [
                 datasets.combine.concatenate_datasets([ds_old, ds_new])
                 for ds_old, ds_new in zip(
@@ -189,10 +185,9 @@ def get_bespoke_force_field(
 
         # Save each dataset
         for mol_idx, dataset_train in enumerate(datasets_train):
-            dataset_path = path_manager.get_output_path(
-                stage, OutputType.ENERGIES_AND_FORCES
+            dataset_path_mol = path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, mol_idx
             )
-            dataset_path_mol = dataset_path.parent / f"{dataset_path.stem}_mol{mol_idx}"
             dataset_train.save_to_disk(str(dataset_path_mol))
 
         train_output_paths = {
@@ -228,10 +223,8 @@ def get_bespoke_force_field(
         for mol_idx, (dataset_test, tensor_top) in enumerate(
             zip(datasets_test, tensor_tops, strict=True)
         ):
-            scatter_path = path_manager.get_output_path(stage, OutputType.SCATTER)
-            scatter_path_mol = (
-                scatter_path.parent
-                / f"{scatter_path.stem}_mol{mol_idx}{scatter_path.suffix}"
+            scatter_path_mol = path_manager.get_output_path_for_mol(
+                stage, OutputType.SCATTER, mol_idx
             )
             energy_mean_new, energy_sd_new, forces_mean_new, forces_sd_new = (
                 write_scatter(
@@ -247,6 +240,6 @@ def get_bespoke_force_field(
             )
 
     # Plot
-    analyse_workflow(settings, off_mols)
+    analyse_workflow(settings)
 
     return off_ff

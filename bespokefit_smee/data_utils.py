@@ -9,7 +9,6 @@ import typing
 
 import datasets
 import datasets.table
-import numpy as np
 import pyarrow
 import torch
 
@@ -192,7 +191,7 @@ def merge_weighted_datasets(datasets_list: list[datasets.Dataset]) -> datasets.D
                 }
             )
 
-    return create_weighted_dataset(all_entries)
+    return create_weighted_dataset(typing.cast(list[WeightedEntry], all_entries))
 
 
 def has_weights(dataset: datasets.Dataset) -> bool:
@@ -212,7 +211,9 @@ def has_weights(dataset: datasets.Dataset) -> bool:
 
 
 def get_weights_from_entry(
-    entry: dict, default_energy_weight: float = 1.0, default_forces_weight: float = 1.0
+    entry: WeightedEntry,
+    default_energy_weight: float = 1.0,
+    default_forces_weight: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Get energy and forces weights from a dataset entry.
 
