@@ -227,8 +227,6 @@ def train_adam(
                     trainable_parameters,
                     initial_parameters,
                     topologies,
-                    settings.loss_energy_weight,
-                    settings.loss_force_weight,
                     settings.regularisation_target,
                     str(device),
                 )
@@ -242,8 +240,6 @@ def train_adam(
                         trainable_parameters,
                         initial_parameters,
                         topologies,
-                        settings.loss_energy_weight,
-                        settings.loss_force_weight,
                         settings.regularisation_target,
                         str(device),
                     )
@@ -268,8 +264,6 @@ def train_adam(
             trainable_parameters,
             initial_parameters,
             topologies,
-            settings.loss_energy_weight,
-            settings.loss_force_weight,
             settings.regularisation_target,
             str(device),
         )

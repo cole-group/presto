@@ -653,29 +653,29 @@ def analyse_workflow(workflow_settings: WorkflowSettings, mols: list[Molecule]) 
             plt.close(fig)
 
         # Plot the force field changes for each molecule
-        ff_paths = load_force_fields(
-            dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
-        )
+        # ff_paths = load_force_fields(
+        #     dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
+        # )
 
-        for mol_idx, mol in enumerate(mols):
-            fig, axs = plot_all_ffs(ff_paths, mol, "values")
-            param_values_plot_path = path_manager.get_output_path(
-                stage, OutputType.PARAMETER_VALUES_PLOT
-            )
-            param_values_plot_path_mol = (
-                param_values_plot_path.parent
-                / f"{param_values_plot_path.stem}_mol{mol_idx}{param_values_plot_path.suffix}"
-            )
-            fig.savefig(str(param_values_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
+        # for mol_idx, mol in enumerate(mols):
+        #     fig, axs = plot_all_ffs(ff_paths, mol, "values")
+        #     param_values_plot_path = path_manager.get_output_path(
+        #         stage, OutputType.PARAMETER_VALUES_PLOT
+        #     )
+        #     param_values_plot_path_mol = (
+        #         param_values_plot_path.parent
+        #         / f"{param_values_plot_path.stem}_mol{mol_idx}{param_values_plot_path.suffix}"
+        #     )
+        #     fig.savefig(str(param_values_plot_path_mol), dpi=300, bbox_inches="tight")
+        #     plt.close(fig)
 
-            fig, axs = plot_all_ffs(ff_paths, mol, "differences")
-            param_diff_plot_path = path_manager.get_output_path(
-                stage, OutputType.PARAMETER_DIFFERENCES_PLOT
-            )
-            param_diff_plot_path_mol = (
-                param_diff_plot_path.parent
-                / f"{param_diff_plot_path.stem}_mol{mol_idx}{param_diff_plot_path.suffix}"
-            )
-            fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
+        #     fig, axs = plot_all_ffs(ff_paths, mol, "differences")
+        #     param_diff_plot_path = path_manager.get_output_path(
+        #         stage, OutputType.PARAMETER_DIFFERENCES_PLOT
+        #     )
+        #     param_diff_plot_path_mol = (
+        #         param_diff_plot_path.parent
+        #         / f"{param_diff_plot_path.stem}_mol{mol_idx}{param_diff_plot_path.suffix}"
+        #     )
+        #     fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
+        #     plt.close(fig)

@@ -19,11 +19,15 @@ import openmm
 import torch
 from openff.units import unit as off_unit
 from openmm import LangevinMiddleIntegrator
-from openmm.app import PDBReporter, Simulation
+from openmm.app import PDBFile, PDBReporter, Simulation
 from openmm.unit import Quantity, angstrom
 from tqdm import tqdm
 
 from . import mlp, settings
+from .data_utils import (
+    create_dataset_with_uniform_weights,
+    merge_weighted_datasets,
+)
 from .find_torsions import (
     _TORSIONS_TO_EXCLUDE_SMARTS,
     _TORSIONS_TO_INCLUDE_SMARTS,
@@ -42,6 +46,8 @@ _OMM_PS = openmm.unit.picosecond
 _OMM_ANGS = openmm.unit.angstrom
 _OMM_KCAL_PER_MOL = openmm.unit.kilocalorie_per_mole
 _OMM_KCAL_PER_MOL_ANGS = openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom
+_KJ_PER_MOL = openmm.unit.kilojoules_per_mole
+_RADIAN = openmm.unit.radian
 
 
 class SampleFnArgs(TypedDict):
@@ -325,7 +331,19 @@ def sample_mmmd(
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
-        all_datasets.append(ml_dataset)
+        # Convert to weighted dataset
+        entry = ml_dataset[0]
+        n_confs = len(entry["energy"])
+        weighted_dataset = create_dataset_with_uniform_weights(
+            smiles=entry["smiles"],
+            coords=entry["coords"].reshape(n_confs, -1, 3),
+            energy=entry["energy"],
+            forces=entry["forces"].reshape(n_confs, -1, 3),
+            energy_weight=settings.loss_energy_weight,
+            forces_weight=settings.loss_force_weight,
+        )
+
+        all_datasets.append(weighted_dataset)
 
     return all_datasets
 
@@ -391,7 +409,19 @@ def sample_mlmd(
             pdb_path,
         )
 
-        all_datasets.append(ml_dataset)
+        # Convert to weighted dataset
+        entry = ml_dataset[0]
+        n_confs = len(entry["energy"])
+        weighted_dataset = create_dataset_with_uniform_weights(
+            smiles=entry["smiles"],
+            coords=entry["coords"].reshape(n_confs, -1, 3),
+            energy=entry["energy"],
+            forces=entry["forces"].reshape(n_confs, -1, 3),
+            energy_weight=settings.loss_energy_weight,
+            forces_weight=settings.loss_force_weight,
+        )
+
+        all_datasets.append(weighted_dataset)
 
     return all_datasets
 
@@ -576,6 +606,727 @@ def sample_mmmd_metadynamics(
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
-        all_datasets.append(ml_dataset)
+        # Convert to weighted dataset
+        entry = ml_dataset[0]
+        n_confs = len(entry["energy"])
+        weighted_dataset = create_dataset_with_uniform_weights(
+            smiles=entry["smiles"],
+            coords=entry["coords"].reshape(n_confs, -1, 3),
+            energy=entry["energy"],
+            forces=entry["forces"].reshape(n_confs, -1, 3),
+            energy_weight=settings.loss_energy_weight,
+            forces_weight=settings.loss_force_weight,
+        )
+
+        all_datasets.append(weighted_dataset)
+
+    return all_datasets
+
+
+def _get_molecule_from_dataset(
+    dataset: datasets.Dataset,
+) -> openff.toolkit.Molecule:
+    """Extract molecule from dataset using SMILES.
+
+    Parameters
+    ----------
+    dataset : datasets.Dataset
+        Dataset containing SMILES string
+
+    Returns
+    -------
+    openff.toolkit.Molecule
+        Reconstructed molecule from SMILES
+    """
+    assert len(dataset) == 1, "Dataset should contain exactly one entry."
+    entry = dataset[0]
+    smiles = entry["smiles"]
+    return openff.toolkit.Molecule.from_smiles(smiles, allow_undefined_stereo=True)
+
+
+def _find_available_force_group(simulation: Simulation) -> int:
+    """Find an unused force group in the simulation system.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        OpenMM simulation object
+
+    Returns
+    -------
+    int
+        An available force group number (0-31)
+
+    Raises
+    ------
+    RuntimeError
+        If all force groups (0-31) are in use
+    """
+    used_groups = set()
+    for i in range(simulation.system.getNumForces()):
+        force = simulation.system.getForce(i)
+        used_groups.add(force.getForceGroup())
+
+    # Find first available group
+    for group in range(32):
+        if group not in used_groups:
+            return group
+
+    raise RuntimeError("All force groups (0-31) are in use")
+
+
+def _add_torsion_restraint_forces(
+    simulation: Simulation,
+    torsion_atoms_list: list[tuple[int, int, int, int]],
+    force_constant: float,
+    initial_angles: list[float] | None = None,
+) -> tuple[list[int], int]:
+    """Add torsion restraint forces to the simulation system.
+
+    This adds CustomTorsionForce objects that can be updated later
+    without reinitializing the context. All restraints are added to
+    a dedicated force group.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        OpenMM simulation object
+    torsion_atoms_list : list[tuple[int, int, int, int]]
+        List of torsion atom indices to freeze
+    force_constant : float
+        Force constant for torsion restraints (in kJ/mol/rad^2)
+    initial_angles : list[float] | None, optional
+        Initial target angles for each torsion (in radians).
+        If None, defaults to 0.0 for all torsions.
+
+    Returns
+    -------
+    tuple[list[int], int]
+        Tuple of (list of force indices that were added, force group number)
+    """
+    if initial_angles is None:
+        initial_angles = [0.0] * len(torsion_atoms_list)
+
+    # Find an available force group for the restraints
+    restraint_force_group = _find_available_force_group(simulation)
+    logger.debug(f"Adding torsion restraints to force group {restraint_force_group}")
+
+    force_indices = []
+
+    for torsion_atoms, target_angle in zip(torsion_atoms_list, initial_angles):
+        restraint_force = openmm.CustomTorsionForce(
+            "0.5*k*min(dtheta, 2*pi-dtheta)^2; "
+            "dtheta = abs(theta-theta0); pi = 3.1415926535"
+        )
+        restraint_force.addPerTorsionParameter("k")
+        restraint_force.addPerTorsionParameter("theta0")
+        restraint_force.addTorsion(*torsion_atoms, [force_constant, target_angle])
+
+        # Assign to dedicated force group
+        restraint_force.setForceGroup(restraint_force_group)
+
+        force_idx: int = simulation.system.addForce(restraint_force)
+        force_indices.append(force_idx)
+
+    # Only reinitialize once after adding all forces
+    simulation.context.reinitialize(preserveState=True)
+
+    return force_indices, restraint_force_group
+
+
+def _update_torsion_restraints(
+    simulation: Simulation,
+    force_indices: list[int],
+    target_angles: list[float],
+    force_constant: float,
+) -> None:
+    """Update the target angles for torsion restraints without reinitializing.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        OpenMM simulation object
+    force_indices : list[int]
+        List of force indices for the torsion restraints
+    target_angles : list[float]
+        New target angles (in radians) for each torsion
+    force_constant : float
+        Force constant for torsion restraints (in kJ/mol/rad^2)
+    """
+    for force_idx, target_angle in zip(force_indices, target_angles):
+        force = simulation.system.getForce(force_idx)
+        p1, p2, p3, p4, _ = force.getTorsionParameters(0)
+        force.setTorsionParameters(0, p1, p2, p3, p4, [force_constant, target_angle])
+
+    # Update parameters in context without full reinitialize
+    for force_idx in force_indices:
+        force = simulation.system.getForce(force_idx)
+        force.updateParametersInContext(simulation.context)
+
+
+def _remove_torsion_restraint_forces(
+    simulation: Simulation, force_indices: list[int]
+) -> None:
+    """Remove torsion restraint forces from the simulation.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        OpenMM simulation object
+    force_indices : list[int]
+        List of force indices to remove
+    """
+    # Remove in reverse order to maintain correct indices
+    for force_idx in reversed(sorted(force_indices)):
+        simulation.system.removeForce(force_idx)
+
+    # Only reinitialize once after removing all forces
+    simulation.context.reinitialize(preserveState=True)
+
+
+def _calculate_torsion_angles(
+    coords: torch.Tensor, torsion_atoms: tuple[int, int, int, int]
+) -> torch.Tensor:
+    """Calculate torsion angles for a given set of atom indices.
+
+    Parameters
+    ----------
+    coords : torch.Tensor
+        Coordinates tensor of shape (n_snapshots, n_atoms, 3)
+    torsion_atoms : tuple[int, int, int, int]
+        Indices of the four atoms defining the torsion
+
+    Returns
+    -------
+    torch.Tensor
+        Torsion angles in radians for each snapshot, shape (n_snapshots,)
+    """
+    i, j, k, m = torsion_atoms
+
+    # Extract coordinates for the four atoms
+    r1 = coords[:, i, :]
+    r2 = coords[:, j, :]
+    r3 = coords[:, k, :]
+    r4 = coords[:, m, :]
+
+    # Calculate vectors
+    b1 = r2 - r1
+    b2 = r3 - r2
+    b3 = r4 - r3
+
+    # Calculate normal vectors to the planes
+    n1 = torch.cross(b1, b2, dim=1)
+    n2 = torch.cross(b2, b3, dim=1)
+
+    # Calculate the torsion angle
+    m1 = torch.cross(n1, b2 / torch.norm(b2, dim=1, keepdim=True), dim=1)
+
+    x = torch.sum(n1 * n2, dim=1)
+    y = torch.sum(m1 * n2, dim=1)
+
+    return torch.atan2(y, x)
+
+
+def _minimize_with_frozen_torsions(
+    simulation: Simulation,
+    coords: numpy.ndarray,
+    torsion_atoms_list: list[tuple[int, int, int, int]],
+    force_indices: list[int],
+    torsion_force_constant: float,
+    restraint_force_group: int,
+    max_iterations: int = 0,
+) -> tuple[numpy.ndarray, float, numpy.ndarray]:
+    """Minimize a conformation with all torsions frozen.
+
+    Assumes torsion restraint forces have already been added to the system.
+    Only updates the target angles without reinitializing.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        OpenMM simulation object (with torsion forces already added)
+    coords : numpy.ndarray
+        Starting coordinates
+    torsion_atoms_list : list[tuple[int, int, int, int]]
+        List of torsion atom indices to freeze
+    force_indices : list[int]
+        Indices of the torsion restraint forces in the system
+    torsion_force_constant : float
+        Force constant for torsion restraints (in kJ/mol/rad^2)
+    restraint_force_group : int
+        Force group number for the torsion restraints
+    max_iterations : int, optional
+        Maximum minimization iterations (0 = until convergence)
+
+    Returns
+    -------
+    tuple[numpy.ndarray, float, numpy.ndarray]
+        Minimized coordinates, energy, and forces (excluding restraint forces)
+    """
+    # Set initial positions
+    simulation.context.setPositions(Quantity(coords, angstrom))
+
+    # Calculate current angles and update restraint targets
+    coords_tensor = torch.tensor(coords).unsqueeze(0)
+    current_angles = [
+        _calculate_torsion_angles(coords_tensor, torsion_atoms).item()
+        for torsion_atoms in torsion_atoms_list
+    ]
+
+    _update_torsion_restraints(
+        simulation, force_indices, current_angles, torsion_force_constant
+    )
+
+    # Minimize
+    simulation.minimizeEnergy(maxIterations=max_iterations)
+
+    # Get minimized state - exclude restraint force group from energy
+    # Create groups mask: all groups except the restraint group
+    groups_mask = sum(
+        1 << group for group in range(32) if group != restraint_force_group
+    )
+    state = simulation.context.getState(
+        getEnergy=True, getPositions=True, getForces=True, groups=groups_mask
+    )
+    minimized_coords = state.getPositions().value_in_unit(_OMM_ANGS)
+    energy = state.getPotentialEnergy().value_in_unit(_OMM_KCAL_PER_MOL)
+    forces = state.getForces(asNumpy=True).value_in_unit(_OMM_KCAL_PER_MOL_ANGS)
+
+    return minimized_coords, energy, forces
+
+
+def generate_torsion_minimised_dataset(
+    mm_dataset: datasets.Dataset,
+    ml_simulation: Simulation,
+    mm_simulation: Simulation,
+    torsion_restraint_force_constant: float = 1000.0,
+    ml_minimisation_steps: int = 10,
+    mm_minimisation_steps: int = 10,
+    ml_pdb_path: pathlib.Path | str | None = None,
+    mm_pdb_path: pathlib.Path | str | None = None,
+    mm_min_energy_weight: float = 1.0,
+    mm_min_forces_weight: float = 1.0,
+    ml_min_energy_weight: float = 1.0,
+    ml_min_forces_weight: float = 1.0,
+) -> tuple[datasets.Dataset, datasets.Dataset]:
+    """Generate a dataset of torsion-restrained minimised structures.
+
+    For each conformation in the input dataset:
+    1. Restrain all rotatable torsions to their current values
+    2. Perform a short MLP minimisation and save the energies
+    3. From those coordinates, perform a short MM minimisation and save the coordinates
+    4. Set forces to 0
+
+    Parameters
+    ----------
+    mm_dataset : datasets.Dataset
+        Input dataset with coordinates from MM MD sampling.
+    ml_simulation : Simulation
+        OpenMM simulation with ML potential.
+    mm_simulation : Simulation
+        OpenMM simulation with MM force field.
+    torsion_restraint_force_constant : float, optional
+        Force constant for torsion restraints in kJ/mol/rad^2.
+    ml_minimisation_steps : int, optional
+        Number of MLP minimisation steps (default: 10).
+    mm_minimisation_steps : int, optional
+        Number of MM minimisation steps (default: 10).
+    ml_pdb_path : pathlib.Path | str | None, optional
+        Path to save ML-minimised structures as a multi-model PDB file.
+    mm_pdb_path : pathlib.Path | str | None, optional
+        Path to save MM-minimised structures as a multi-model PDB file.
+    mm_min_energy_weight : float, optional
+        Energy weight for MM-minimised dataset.
+    mm_min_forces_weight : float, optional
+        Forces weight for MM-minimised dataset.
+    ml_min_energy_weight : float, optional
+        Energy weight for ML-minimised dataset.
+    ml_min_forces_weight : float, optional
+        Forces weight for ML-minimised dataset.
+
+    Returns
+    -------
+    tuple[datasets.Dataset, datasets.Dataset]
+        Tuple of (MM-minimised dataset, ML-minimised dataset).
+    """
+    # Extract molecule and find rotatable torsions
+    mol = _get_molecule_from_dataset(mm_dataset)
+    torsions_dict = get_rot_torsions_by_rot_bond(mol)
+    torsion_atoms_list = list(torsions_dict.values())
+
+    if not torsion_atoms_list:
+        logger.warning(
+            "No rotatable torsions found - returning empty torsion minimised dataset"
+        )
+        # Return empty dataset with correct schema
+        entry = mm_dataset[0]
+        smiles = entry["smiles"]
+        n_atoms = len(entry["coords"]) // (3 * len(entry["energy"]))
+        return create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=torch.empty(0, n_atoms, 3),
+            energy=torch.empty(0),
+            forces=torch.full((0, n_atoms, 3), 0.0),
+            energy_weight=1.0,
+            forces_weight=0.0,
+        )
+
+    # Extract coordinates from dataset
+    assert len(mm_dataset) == 1, "Dataset should contain exactly one entry."
+    entry = mm_dataset[0]
+    n_snapshots = len(entry["energy"])
+    n_atoms = len(entry["coords"]) // (3 * n_snapshots)
+    coords = entry["coords"].reshape(n_snapshots, n_atoms, 3).numpy()
+    smiles = entry["smiles"]
+
+    # Add torsion restraint forces once to both simulations
+    logger.debug(f"Adding {len(torsion_atoms_list)} torsion restraint forces")
+    mm_force_indices, mm_restraint_group = _add_torsion_restraint_forces(
+        mm_simulation, torsion_atoms_list, torsion_restraint_force_constant
+    )
+    ml_force_indices, ml_restraint_group = _add_torsion_restraint_forces(
+        ml_simulation, torsion_atoms_list, torsion_restraint_force_constant
+    )
+
+    mm_minimised_coords = []
+    mm_coords_ml_energies = []
+    mm_coords_ml_forces = []
+
+    ml_minimised_coords = []
+    ml_coords_ml_energies = []
+    ml_coords_ml_forces = []
+
+    for i in tqdm(
+        range(n_snapshots),
+        leave=False,
+        colour="purple",
+        desc="Generating torsion-minimised structures",
+    ):
+        # Step 1: Minimize with ML potential and frozen torsions
+        ml_coords, ml_energy, ml_forces = _minimize_with_frozen_torsions(
+            ml_simulation,
+            coords[i],
+            torsion_atoms_list,
+            ml_force_indices,
+            torsion_restraint_force_constant,
+            ml_restraint_group,
+            ml_minimisation_steps,
+        )
+        ml_coords_ml_energies.append(ml_energy)
+        ml_coords_ml_forces.append(ml_forces)
+        ml_minimised_coords.append(ml_coords)
+
+        # Step 2: Minimize with MM potential and frozen torsions from ML coords
+        mm_coords, _, _ = _minimize_with_frozen_torsions(
+            mm_simulation,
+            ml_coords,
+            torsion_atoms_list,
+            mm_force_indices,
+            torsion_restraint_force_constant,
+            mm_restraint_group,
+            mm_minimisation_steps,
+        )
+        mm_minimised_coords.append(mm_coords)
+
+        # Step 3: Now recalculate ML energy/forces at MM-minimised coords
+        groups_mask = sum(
+            1 << group for group in range(32) if group != ml_restraint_group
+        )
+        ml_simulation.context.setPositions(Quantity(mm_coords, angstrom))
+        state = ml_simulation.context.getState(
+            getEnergy=True, getForces=True, groups=groups_mask
+        )
+        ml_energy = state.getPotentialEnergy().value_in_unit(_OMM_KCAL_PER_MOL)
+        ml_forces = state.getForces(asNumpy=True).value_in_unit(_OMM_KCAL_PER_MOL_ANGS)
+        mm_coords_ml_energies.append(ml_energy)
+        mm_coords_ml_forces.append(ml_forces)
+
+    # Remove torsion restraint forces
+    logger.debug("Removing torsion restraint forces")
+    _remove_torsion_restraint_forces(mm_simulation, mm_force_indices)
+    _remove_torsion_restraint_forces(ml_simulation, ml_force_indices)
+
+    # Save ML-minimised structures to PDB if path is provided
+    if ml_pdb_path is not None:
+        logger.debug(f"Saving ML-minimised structures to {ml_pdb_path}")
+        topology = ml_simulation.topology
+        with open(ml_pdb_path, "w") as f:
+            for i, ml_coords_frame in enumerate(ml_minimised_coords):
+                positions = Quantity(ml_coords_frame, angstrom)
+                PDBFile.writeModel(topology, positions, f, modelIndex=i)
+            PDBFile.writeFooter(topology, f)
+
+    # Save MM-minimised structures to PDB if path is provided
+    if mm_pdb_path is not None:
+        logger.debug(f"Saving MM-minimised structures to {mm_pdb_path}")
+        topology = mm_simulation.topology
+        with open(mm_pdb_path, "w") as f:
+            for i, mm_coords_frame in enumerate(mm_minimised_coords):
+                positions = Quantity(mm_coords_frame, angstrom)
+                PDBFile.writeModel(topology, positions, f, modelIndex=i)
+            PDBFile.writeFooter(topology, f)
+
+    # Return two datasets: one for ML-minimised, one for MM-minimised
+    mm_min_dataset = create_dataset_with_uniform_weights(
+        smiles=smiles,
+        coords=torch.tensor(np.array(mm_minimised_coords)),
+        # energy=torch.tensor(
+        #     np.array(mm_coords_ml_energies) - np.min(mm_coords_ml_energies)
+        # ),
+        energy=torch.tensor(
+            np.array(ml_coords_ml_energies) - np.min(ml_coords_ml_energies)
+        ),
+        forces=torch.tensor(np.array(mm_coords_ml_forces)),
+        energy_weight=mm_min_energy_weight,
+        forces_weight=mm_min_forces_weight,
+    )
+
+    ml_min_dataset = create_dataset_with_uniform_weights(
+        smiles=smiles,
+        coords=torch.tensor(np.array(ml_minimised_coords)),
+        energy=torch.tensor(
+            np.array(ml_coords_ml_energies) - np.min(ml_coords_ml_energies)
+        ),
+        forces=torch.tensor(np.array(ml_coords_ml_forces)),
+        energy_weight=ml_min_energy_weight,
+        forces_weight=ml_min_forces_weight,
+    )
+
+    return mm_min_dataset, ml_min_dataset
+
+
+@_register_sampling_fn(settings.MMMDMetadynamicsTorsionMinimisationSamplingSettings)
+def sample_mmmd_metadynamics_with_torsion_minimisation(
+    mols: list[openff.toolkit.Molecule],
+    off_ff: openff.toolkit.ForceField,
+    device: torch.device,
+    settings: settings.MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    output_paths: dict[OutputType, pathlib.Path],
+) -> list[datasets.Dataset]:
+    """Generate datasets using metadynamics with additional torsion-minimised structures.
+
+    This function extends sample_mmmd_metadynamics by:
+    1. Running metadynamics to generate samples (same as sample_mmmd_metadynamics)
+    2. For each sample, generating additional torsion-restrained minimised structures
+    3. Concatenating both datasets with appropriate weights
+
+    Parameters
+    ----------
+    mols : list[openff.toolkit.Molecule]
+        The molecules to sample.
+    off_ff : openff.toolkit.ForceField
+        The MM force field to use.
+    device : torch.device
+        The device to use for any MD or ML calculations.
+    settings : MMMDMetadynamicsTorsionMinimisationSamplingSettings
+        The sampling settings to use.
+    output_paths: dict[OutputType, PathLike]
+        A mapping of output types to filesystem paths.
+
+    Returns
+    -------
+    list[datasets.Dataset]
+        The generated datasets with combined metadynamics and torsion-minimised samples.
+    """
+    if set(output_paths.keys()) != settings.output_types:
+        raise ValueError(
+            f"Output paths must contain exactly the keys {settings.output_types}"
+        )
+
+    all_datasets = []
+
+    for mol_idx, mol in enumerate(mols):
+        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
+        )
+
+        torsions = get_rot_torsions_by_rot_bond(mol_with_conformers)
+        system = interchange.to_openmm_system()
+
+        if not torsions:
+            logger.warning(
+                f"No rotatable bonds found in molecule {mol_idx}. "
+                "Falling back to regular MD without torsion minimisation."
+            )
+            # Fall back to regular MD for this molecule
+            integrator = _get_integrator(settings.temperature, settings.timestep)
+            simulation = Simulation(
+                interchange.topology.to_openmm(), system, integrator
+            )
+
+            pdb_path = None
+            if OutputType.PDB_TRAJECTORY in output_paths:
+                base_path = output_paths[OutputType.PDB_TRAJECTORY]
+                pdb_path = str(
+                    base_path.parent
+                    / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+                )
+
+            mm_dataset = _run_md(
+                mol_with_conformers,
+                simulation,
+                simulation.step,
+                settings.equilibration_n_steps_per_conformer,
+                settings.production_n_snapshots_per_conformer,
+                settings.production_n_steps_per_snapshot_per_conformer,
+                pdb_path,
+            )
+
+            # Recalculate with ML potential
+            ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+            ml_simulation = Simulation(
+                interchange.topology.to_openmm(),
+                ml_system,
+                _get_integrator(settings.temperature, settings.timestep),
+            )
+            ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+            # Convert to weighted dataset
+            entry = ml_dataset[0]
+            n_confs = len(entry["energy"])
+            weighted_dataset = create_dataset_with_uniform_weights(
+                smiles=entry["smiles"],
+                coords=entry["coords"].reshape(n_confs, -1, 3),
+                energy=entry["energy"],
+                forces=entry["forces"].reshape(n_confs, -1, 3),
+                energy_weight=settings.loss_energy_weight_mmmd,
+                forces_weight=settings.loss_force_weight_mmmd,
+            )
+            all_datasets.append(weighted_dataset)
+            continue
+
+        # Setup metadynamics
+        bias_variables = _get_torsion_bias_forces(
+            mol_with_conformers,
+            torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
+            torsions_to_exclude=_TORSIONS_TO_EXCLUDE_SMARTS,
+            bias_width=settings.bias_width,
+        )
+
+        # Create molecule-specific bias directory
+        base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
+        bias_dir = base_bias_dir.parent / f"{base_bias_dir.stem}_mol{mol_idx}"
+        bias_dir.mkdir(parents=True, exist_ok=True)
+
+        metad = Metadynamics(  # type: ignore[no-untyped-call]
+            system=system,
+            variables=bias_variables,
+            temperature=settings.temperature,
+            biasFactor=settings.bias_factor,
+            height=settings.bias_height,
+            frequency=settings.n_steps_per_bias,
+            saveFrequency=settings.n_steps_per_bias_save,
+            biasDir=bias_dir,
+            independentCVs=True,
+        )
+
+        simulation = Simulation(
+            interchange.topology.to_openmm(),
+            system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+
+        step_fn = functools.partial(metad.step, simulation)
+
+        # Create molecule-specific PDB path
+        pdb_path = None
+        if OutputType.PDB_TRAJECTORY in output_paths:
+            base_path = output_paths[OutputType.PDB_TRAJECTORY]
+            pdb_path = str(
+                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+            )
+
+        # Step 1: Generate MM metadynamics samples
+        mm_dataset = _run_md(
+            mol_with_conformers,
+            simulation,
+            step_fn,
+            settings.equilibration_n_steps_per_conformer,
+            settings.production_n_snapshots_per_conformer,
+            settings.production_n_steps_per_snapshot_per_conformer,
+            pdb_path,
+        )
+
+        # Create ML simulation for energy/force recalculation
+        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_simulation = Simulation(
+            interchange.topology.to_openmm(),
+            ml_system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+
+        # Step 2: Recalculate energies and forces with ML potential
+        ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        # Convert to weighted dataset with MMMD weights
+        entry = ml_dataset[0]
+        n_confs = len(entry["energy"])
+        mmmd_weighted_dataset = create_dataset_with_uniform_weights(
+            smiles=entry["smiles"],
+            coords=entry["coords"].reshape(n_confs, -1, 3),
+            energy=entry["energy"],
+            forces=entry["forces"].reshape(n_confs, -1, 3),
+            energy_weight=settings.loss_energy_weight_mmmd,
+            forces_weight=settings.loss_force_weight_mmmd,
+        )
+
+        # Step 3: Generate torsion-minimised structures
+        # Create a fresh MM simulation for minimisation (without metadynamics biases)
+        mm_min_system = interchange.to_openmm_system()
+        mm_min_simulation = Simulation(
+            interchange.topology.to_openmm(),
+            mm_min_system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+
+        # Create a fresh ML simulation for minimisation
+        ml_min_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_min_simulation = Simulation(
+            interchange.topology.to_openmm(),
+            ml_min_system,
+            _get_integrator(settings.temperature, settings.timestep),
+        )
+
+        # Create molecule-specific PDB paths for minimised structures
+        ml_pdb_path = None
+        mm_pdb_path = None
+        if OutputType.ML_MINIMISED_PDB in output_paths:
+            base_path = output_paths[OutputType.ML_MINIMISED_PDB]
+            ml_pdb_path = (
+                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+            )
+        if OutputType.MM_MINIMISED_PDB in output_paths:
+            base_path = output_paths[OutputType.MM_MINIMISED_PDB]
+            mm_pdb_path = (
+                base_path.parent / f"{base_path.stem}_mol{mol_idx}{base_path.suffix}"
+            )
+
+        torsion_mm_min_dataset, torsion_ml_min_dataset = (
+            generate_torsion_minimised_dataset(
+                mm_dataset,
+                ml_min_simulation,
+                mm_min_simulation,
+                torsion_restraint_force_constant=settings.torsion_restraint_force_constant.value_in_unit(
+                    _KJ_PER_MOL / _RADIAN**2
+                ),
+                ml_minimisation_steps=settings.ml_minimisation_steps,
+                mm_minimisation_steps=settings.mm_minimisation_steps,
+                ml_pdb_path=ml_pdb_path,
+                mm_pdb_path=mm_pdb_path,
+                mm_min_energy_weight=settings.loss_energy_weight_torsion_min,
+                mm_min_forces_weight=settings.loss_force_weight_torsion_min,
+                ml_min_energy_weight=settings.loss_energy_weight_torsion_min,
+                ml_min_forces_weight=settings.loss_force_weight_torsion_min,
+            )
+        )
+
+        # Merge all datasets
+        combined_dataset = merge_weighted_datasets(
+            [mmmd_weighted_dataset, torsion_ml_min_dataset, torsion_mm_min_dataset]
+            # [torsion_ml_min_dataset]
+        )
+
+        all_datasets.append(combined_dataset)
 
     return all_datasets

@@ -140,6 +140,16 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         "will be this plus the equilibration_sampling_time_per_conformer.",
     )
 
+    loss_energy_weight: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for samples from this protocol.",
+    )
+
+    loss_force_weight: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for samples from this protocol.",
+    )
+
     @property
     def equilibration_n_steps_per_conformer(self) -> int:
         return int(self.equilibration_sampling_time_per_conformer / self.timestep)
@@ -274,10 +284,72 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
+class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+    MMMDMetadynamicsSamplingSettings
+):
+    """Settings for MM MD metadynamics sampling with additional torsion-restrained
+    minimisation structures. This extends MMMDMetadynamicsSamplingSettings by generating
+    additional training data from torsion-restrained minimisations."""
+
+    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(
+        "mm_md_metadynamics_torsion_minimisation",
+        description="Sampling protocol to use.",
+    )
+
+    # Settings for torsion-restrained minimisation
+    ml_minimisation_steps: int = Field(
+        10,
+        description="Number of MLP minimisation steps with restrained torsions.",
+    )
+
+    mm_minimisation_steps: int = Field(
+        10,
+        description="Number of MM minimisation steps with restrained torsions.",
+    )
+
+    torsion_restraint_force_constant: OpenMMQuantity[unit.kilojoules_per_mole / unit.radian**2] = Field(  # type: ignore[type-arg]
+        1000.0 * unit.kilojoules_per_mole / unit.radian**2,
+        description="Force constant for torsion restraints.",
+    )
+
+    # Loss weights for the MMMD metadynamics samples
+    loss_energy_weight_mmmd: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for MMMD metadynamics samples.",
+    )
+
+    loss_force_weight_mmmd: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for MMMD metadynamics samples.",
+    )
+
+    # Loss weights for the torsion-minimised samples
+    loss_energy_weight_torsion_min: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for torsion-minimised samples.",
+    )
+
+    loss_force_weight_torsion_min: float = Field(
+        0.0,
+        description="Scaling factor for the force loss term for torsion-minimised samples. "
+        "Default is 0.0 since forces are set to NaN for these samples.",
+    )
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        return {
+            OutputType.METADYNAMICS_BIAS,
+            OutputType.PDB_TRAJECTORY,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+
+
 SamplingSettings = Union[
     MMMDSamplingSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
+    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
 ]
 
 
@@ -352,12 +424,6 @@ class TrainingSettings(_DefaultSettings):
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
     )
     learning_rate_decay_step: int = Field(10, description="Learning Rate Decay Step")
-    loss_energy_weight: float = Field(
-        1000.0, description="Scaling Factor for the Energy loss term"
-    )
-    loss_force_weight: float = Field(
-        0.1, description="Scaling Factor for the Force loss term"
-    )
     regularisation_target: Literal["initial", "zero"] = Field(
         "initial",
         description="Target value to regularise parameters towards. 'initial' is the initial parameter value, "
@@ -506,7 +572,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     training_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDMetadynamicsSamplingSettings(),
+        default_factory=lambda: MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         description="Settings for sampling for generating the training data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )

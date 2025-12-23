@@ -27,6 +27,9 @@ class OutputType(Enum):
     FORCE_ERROR_BY_ATOM_INDEX_PLOT = "force_error_by_atom_index.png"
     PARAMETER_VALUES_PLOT = "parameter_values.png"
     PARAMETER_DIFFERENCES_PLOT = "parameter_differences.png"
+    # PDB outputs for torsion-minimised structures
+    ML_MINIMISED_PDB = "ml_minimised.pdb"
+    MM_MINIMISED_PDB = "mm_minimised.pdb"
 
 
 class StageKind(str, Enum):
