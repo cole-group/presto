@@ -487,7 +487,20 @@ def plot_ff_values(
             )
 
         # Get the differences for each key id
-        vals = {param_id: potentials[param_id][parameter_key] for param_id in param_ids}
+        for param_id in param_ids:
+            if potentials[param_id]["smirks"] == "[*:1]~[*:2]-[*:3]#[*:4]":
+                breakpoint()
+            if parameter_key not in potentials[param_id]:
+                breakpoint()
+                raise ValueError(
+                    f"Parameter key {parameter_key} not found in potential {param_id} at iteration {i}"
+                )
+        try:
+            vals = {
+                param_id: potentials[param_id][parameter_key] for param_id in param_ids
+            }
+        except KeyError:
+            breakpoint()
         vals_first_key = list(vals.keys())[0]
 
         # Plot the differences

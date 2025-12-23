@@ -119,7 +119,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
-        default=100 * unit.femtoseconds,
+        default=400 * unit.femtoseconds,
         description="Interval between saving snapshots during production sampling",
     )
 
@@ -136,7 +136,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     production_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        default=10 * unit.picoseconds,
+        default=20 * unit.picoseconds,
         description="Production sampling time per conformer. The total sampling time per conformer "
         "will be this plus the equilibration_sampling_time_per_conformer.",
     )
@@ -311,7 +311,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     torsion_restraint_force_constant: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
         unit.kilojoules_per_mole / unit.radian**2
     ] = Field(
-        1000.0 * unit.kilojoules_per_mole / unit.radian**2,
+        0.0 * unit.kilojoules_per_mole / unit.radian**2,
         description="Force constant for torsion restraints.",
     )
 
@@ -327,15 +327,32 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     )
 
     # Loss weights for the torsion-minimised samples
-    loss_energy_weight_torsion_min: float = Field(
-        1000.0,
-        description="Scaling factor for the energy loss term for torsion-minimised samples.",
+    map_ml_coords_energy_to_mm_coords_energy: bool = Field(
+        True,
+        description="Whether to substitute the MLP energy for the MM-minimised coordinates with the "
+        "MLP energy for the corresponding MLP-minimised coordinates.",
     )
 
-    loss_force_weight_torsion_min: float = Field(
-        0.0,
-        description="Scaling factor for the force loss term for torsion-minimised samples. "
-        "Default is 0.0 since forces are set to NaN for these samples.",
+    loss_energy_weight_mm_torsion_min: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
+        "MM minimisation.",
+    )
+
+    loss_force_weight_mm_torsion_min: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for torsion-minimised samples. ",
+    )
+
+    loss_energy_weight_ml_torsion_min: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
+        "MLP minimisation.",
+    )
+
+    loss_force_weight_ml_torsion_min: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for torsion-minimised samples. ",
     )
 
     @property
@@ -393,7 +410,7 @@ class TrainingSettings(_DefaultSettings):
                 cols=["k"],
                 scales={"k": 1.3},
                 limits={"k": (None, None)},
-                regularize={"k": 1000.0},
+                regularize={"k": 1.0},
                 include=None,
                 # Exclude linear torsions to avoid non-zero force constants which can
                 # cause instabilities. Taken from https://github.com/openforcefield/openff-forcefields/blob/05f7ad0daad1ccdefdf931846fd13df863ab5c7d/openforcefields/offxml/openff-2.2.1.offxml#L326-L328
@@ -407,7 +424,7 @@ class TrainingSettings(_DefaultSettings):
                 cols=["k"],
                 scales={"k": 0.12},
                 limits={"k": (0, None)},
-                regularize={"k": 1000.0},
+                regularize={"k": 1.0},
                 include=None,
                 exclude=None,
             ),

@@ -160,6 +160,7 @@ pytest-cov = "*"
 codecov = "*"
 mypy = "*"
 hypothesis = "*"
+ipdb = "*"
 
 # -----------------------------
 # Documentation

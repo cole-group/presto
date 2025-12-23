@@ -896,10 +896,11 @@ def generate_torsion_minimised_dataset(
     mm_minimisation_steps: int = 10,
     ml_pdb_path: pathlib.Path | str | None = None,
     mm_pdb_path: pathlib.Path | str | None = None,
-    mm_min_energy_weight: float = 1.0,
-    mm_min_forces_weight: float = 1.0,
-    ml_min_energy_weight: float = 1.0,
-    ml_min_forces_weight: float = 1.0,
+    map_ml_coords_energy_to_mm_coords_energy: bool = True,
+    mm_min_energy_weight: float = 1000.0,
+    mm_min_forces_weight: float = 0.1,
+    ml_min_energy_weight: float = 1000.0,
+    ml_min_forces_weight: float = 0.1,
 ) -> tuple[datasets.Dataset, datasets.Dataset]:
     """Generate a dataset of torsion-restrained minimised structures.
 
@@ -927,6 +928,9 @@ def generate_torsion_minimised_dataset(
         Path to save ML-minimised structures as a multi-model PDB file.
     mm_pdb_path : pathlib.Path | str | None, optional
         Path to save MM-minimised structures as a multi-model PDB file.
+    map_ml_coords_energy_to_mm_coords_energy: bool = True,
+        Whether to substitute the MLP energy for the MM-minimised coordinates with the
+        MLP energy for the corresponding MLP-minimised coordinates.
     mm_min_energy_weight : float, optional
         Energy weight for MM-minimised dataset.
     mm_min_forces_weight : float, optional
@@ -1060,15 +1064,15 @@ def generate_torsion_minimised_dataset(
             PDBFile.writeFooter(topology, f)
 
     # Return two datasets: one for ML-minimised, one for MM-minimised
+    mm_mapped_energies = (
+        ml_coords_ml_energies
+        if map_ml_coords_energy_to_mm_coords_energy
+        else mm_coords_ml_energies
+    )
     mm_min_dataset = create_dataset_with_uniform_weights(
         smiles=smiles,
         coords=torch.tensor(np.array(mm_minimised_coords)),
-        # energy=torch.tensor(
-        #     np.array(mm_coords_ml_energies) - np.min(mm_coords_ml_energies)
-        # ),
-        energy=torch.tensor(
-            np.array(ml_coords_ml_energies) - np.min(ml_coords_ml_energies)
-        ),
+        energy=torch.tensor(np.array(mm_mapped_energies) - np.min(mm_mapped_energies)),
         forces=torch.tensor(np.array(mm_coords_ml_forces)),
         energy_weight=mm_min_energy_weight,
         forces_weight=mm_min_forces_weight,
@@ -1100,8 +1104,9 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
     This function extends sample_mmmd_metadynamics by:
     1. Running metadynamics to generate samples (same as sample_mmmd_metadynamics)
-    2. For each sample, generating additional torsion-restrained minimised structures
-    3. Concatenating both datasets with appropriate weights
+    2. For each sample, generating additional torsion-restrained minimised structures using both
+       the ML and MM potentials.
+    3. Returning all datasets with requested weights.
 
     Parameters
     ----------
@@ -1298,10 +1303,11 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 mm_minimisation_steps=settings.mm_minimisation_steps,
                 ml_pdb_path=ml_pdb_path,
                 mm_pdb_path=mm_pdb_path,
-                mm_min_energy_weight=settings.loss_energy_weight_torsion_min,
-                mm_min_forces_weight=settings.loss_force_weight_torsion_min,
-                ml_min_energy_weight=settings.loss_energy_weight_torsion_min,
-                ml_min_forces_weight=settings.loss_force_weight_torsion_min,
+                map_ml_coords_energy_to_mm_coords_energy=settings.map_ml_coords_energy_to_mm_coords_energy,
+                mm_min_energy_weight=settings.loss_energy_weight_mm_torsion_min,
+                mm_min_forces_weight=settings.loss_force_weight_mm_torsion_min,
+                ml_min_energy_weight=settings.loss_energy_weight_ml_torsion_min,
+                ml_min_forces_weight=settings.loss_force_weight_ml_torsion_min,
             )
         )
 
