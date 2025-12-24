@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import yaml
 from descent.train import AttributeConfig, ParameterConfig
+from loguru import logger
 from openff.toolkit import Molecule
 from openmm import unit
 from packaging.version import Version
@@ -415,9 +416,21 @@ class TrainingSettings(_DefaultSettings):
                 # Exclude linear torsions to avoid non-zero force constants which can
                 # cause instabilities. Taken from https://github.com/openforcefield/openff-forcefields/blob/05f7ad0daad1ccdefdf931846fd13df863ab5c7d/openforcefields/offxml/openff-2.2.1.offxml#L326-L328
                 exclude=[
-                    {"id": "[*:1]-[*:2]#[*:3]-[*:4]"},
-                    {"id": "[*:1]~[*:2]-[*:3]#[*:4]"},
-                    {"id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]"},
+                    {
+                        "id": "[*:1]-[*:2]#[*:3]-[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
+                    {
+                        "id": "[*:1]~[*:2]-[*:3]#[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
+                    {
+                        "id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
                 ],
             ),
             "ImproperTorsions": ParameterConfig(
@@ -499,7 +512,7 @@ class ParameterisationSettings(_DefaultSettings):
     )
 
     initial_force_field: str = Field(
-        "openff_unconstrained-2.2.1.offxml",
+        "openff_unconstrained-2.3.0-rc2.offxml",
         description="The force field from which to start. This can be any"
         " OpenFF force field, or your own .offxml file.",
     )
@@ -629,12 +642,10 @@ class WorkflowSettings(_DefaultSettings):
 
         actual_version = Version(__version__)
 
-        # Raise an error if the major and minor versions do not match
+        # Warn the user if major or minor versions do not match
         if parsed.major != actual_version.major or parsed.minor != actual_version.minor:
-            raise ValueError(
-                f"Incompatible settings version: {value}. The current bespokefit_smee version is {__version__}. "
-                f"Expected {actual_version.major}.{actual_version.minor}.x, got {parsed.major}.{parsed.minor}.x"
-                "Please install the correct version of bespokefit_smee or regenerate the settings file.",
+            logger.warning(
+                f"Version mismatch: settings version {value} may not be compatible with current version {__version__}."
             )
 
         return value

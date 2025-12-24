@@ -252,8 +252,8 @@ def recalculate_energies_and_forces(
             {
                 "smiles": entry["smiles"],
                 "coords": entry["coords"],
-                "energy": torch.tensor(recalc_energies),
-                "forces": torch.tensor(recalc_forces),
+                "energy": torch.tensor(np.array(recalc_energies)),
+                "forces": torch.tensor(np.array(recalc_forces)),
             }
         ]
     )

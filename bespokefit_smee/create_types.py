@@ -47,11 +47,10 @@ def _add_parameter_with_overwrite(
     if old_parameter:
         assert len(old_parameter) == 1
         old_parameter = old_parameter[0]
-        # If no ID provided in parameter_dict, keep the old ID
-        if "id" not in parameter_dict:
-            new_parameter.id = old_parameter.id
+        # Keep the old ID if overwriting
+        new_parameter.id = old_parameter.id
         logger.info(
-            f"Overwriting existing parameter with smirks {parameter_dict['smirks']}."
+            f"Overwriting existing parameter with id {new_parameter.id} with smirks {parameter_dict['smirks']}."
         )
         idx = handler._index_of_parameter(old_parameter)
         handler._parameters[idx] = new_parameter

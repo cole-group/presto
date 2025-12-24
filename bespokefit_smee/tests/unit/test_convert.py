@@ -37,12 +37,11 @@ def test_params_equivalent(linearise_harmonics: bool, smiles: str):
     molecule-specific TensorForceField while still assigning the same\
     parameters.
     """
-    # base_ff = ForceField("openff_unconstrained-2.2.1.offxml")
-    base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+    base_ff = ForceField("openff_unconstrained-2.3.0-rc2.offxml")
     settings = ParameterisationSettings(
         linearise_harmonics=linearise_harmonics,
         smiles=smiles,
-        initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
+        initial_force_field="openff_unconstrained-2.3.0-rc2.offxml",
         expand_torsions=False,
     )
     mols, _, _, tff = parameterise(settings=settings, device="cpu")

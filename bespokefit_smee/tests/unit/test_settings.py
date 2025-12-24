@@ -413,7 +413,7 @@ class TestParameterisationSettings:
     def test_default_initial_force_field(self):
         """Test default initial force field."""
         settings = ParameterisationSettings(smiles="CCO")
-        assert settings.initial_force_field == "openff_unconstrained-2.2.1.offxml"
+        assert settings.initial_force_field == "openff_unconstrained-2.3.0-rc2.offxml"
 
     def test_default_type_generation_settings(self):
         """Test that default type generation settings are set."""
@@ -468,32 +468,6 @@ class TestWorkflowSettings:
             parameterisation_settings=ParameterisationSettings(smiles="CCO"),
         )
         assert settings.version == __version__
-
-    def test_version_validation_incompatible_major(self):
-        """Test that incompatible major version raises error."""
-        from packaging.version import Version
-
-        current = Version(__version__)
-        incompatible = f"{current.major + 1}.0.0"
-
-        with pytest.raises(ValueError, match="Incompatible settings version"):
-            WorkflowSettings(
-                version=incompatible,
-                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
-            )
-
-    def test_version_validation_incompatible_minor(self):
-        """Test that incompatible minor version raises error."""
-        from packaging.version import Version
-
-        current = Version(__version__)
-        incompatible = f"{current.major}.{current.minor + 1}.0"
-
-        with pytest.raises(ValueError, match="Incompatible settings version"):
-            WorkflowSettings(
-                version=incompatible,
-                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
-            )
 
     def test_device_type_cpu(self):
         """Test that CPU device type is accepted."""

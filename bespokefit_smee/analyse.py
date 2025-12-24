@@ -26,6 +26,14 @@ logger = loguru.logger
 
 PLT_STYLE = "ggplot"
 
+
+def _add_legend_if_labels(ax: Axes, **kwargs: Any) -> None:
+    """Add a legend to the axes only if there are labeled artists."""
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(**kwargs)
+
+
 POTENTIAL_KEYS = Literal[
     "Bonds", "Angles", "ProperTorsions", "ImproperTorsions", "vdW", "Electrostatics"
 ]
@@ -91,7 +99,9 @@ def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
 
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
     # Colour by iteration - full line for train, dotted for test
-    for i in losses["iteration"].unique():
+    iterations = losses["iteration"].unique()
+    first_iteration = iterations[0]
+    for i in iterations:
         loss_names = [name for name in losses.columns if name.startswith("loss_")]
         for loss_name in loss_names:
             if loss_name == "loss_test_regularisation":
@@ -105,14 +115,14 @@ def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
                 losses[losses["iteration"] == i].index,
                 losses[losses["iteration"] == i][loss_name],
                 label=(
-                    label if i == 0 else None
+                    label if i == first_iteration else None
                 ),  # Don't repeat labels for new iterations
                 color=f"C{color_idx}",
                 linestyle=linestyle,
             )
 
         # If this isn't the last iteration, add a vertical line to separate iterations # and label it
-        if i != losses["iteration"].unique()[-1]:
+        if i != iterations[-1]:
             ax.axvline(
                 x=losses[losses["iteration"] == i].index[-1] + 0.5,
                 color="black",
@@ -130,7 +140,7 @@ def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
 
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
-    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    _add_legend_if_labels(ax, bbox_to_anchor=(1.05, 1), loc="upper left")
 
 
 def plot_energy_correlation(
@@ -249,7 +259,7 @@ def plot_distributions_of_errors(
     # Colour by iteration
     # Use continuous colourmap for the iterations
     iterations = errors.keys()
-    colours = plt.cm.get_cmap("viridis")(np.linspace(0, 1, len(iterations) + 1))
+    colours = plt.colormaps["viridis"](np.linspace(0, 1, len(iterations) + 1))
 
     for i in iterations:
         ax.hist(
@@ -300,29 +310,6 @@ def plot_mean_errors(
     )
 
 
-def plot_sd_of_errors(
-    fig: Figure,
-    ax: Axes,
-    errors: dict[int, npt.NDArray[np.float64]],
-    error_type: Literal["energy", "force"],
-) -> None:
-    sd_errors = {i: np.std(errors[i]) for i in errors.keys()}
-
-    ax.plot(
-        list(sd_errors.keys()),
-        list(sd_errors.values()),
-        marker="o",
-        color="black",
-    )
-
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel(
-        "Standard Deviation of Relative Energy Error / kcal mol$^{-1}$"
-        if error_type == "energy"
-        else "Standard Deviation of Relative Force Error / kcal mol$^{-1}$ Å$^{-1}$"
-    )
-
-
 def plot_rmse_of_errors(
     fig: Figure,
     ax: Axes,
@@ -370,10 +357,6 @@ def plot_error_statistics(
     # plot_mean_errors(fig, axs[4], errors, "energy")
     # plot_mean_errors(fig, axs[5], errors, "force")
 
-    # # Plot the standard deviation of the errors
-    plot_sd_of_errors(fig, axs[4], errors["energy_differences"], "energy")
-    plot_sd_of_errors(fig, axs[5], errors["forces_differences"], "force")
-
 
 def plot_ff_differences(
     fig: Figure,
@@ -406,20 +389,18 @@ def plot_ff_differences(
         )
     param_ids = sorted(potentials_start.keys())
 
-    parameter_keys = [
-        k
-        for k in potentials_start[list(potentials_start.keys())[0]].keys()
-        if k not in ["smirks", "id"]
-    ]
-    if parameter_key not in parameter_keys:
-        raise ValueError(f"Parameter key {parameter_key} not found in {parameter_keys}")
-
     # Get the differences for each key id
     differences = {
         param_id: potentials_end[param_id][parameter_key]
         - potentials_start[param_id][parameter_key]
         for param_id in param_ids
+        if parameter_key
+        in potentials_start[param_id]  # Skip missing keys, e.g. periodicity in torsions
     }
+
+    if not differences:
+        return {}
+
     differences_first_key = list(differences.keys())[0]
 
     # Plot the differences
@@ -428,8 +409,10 @@ def plot_ff_differences(
         if potential_type == "Angles" and parameter_key == "angle"
         else differences[differences_first_key].units
     )
+    # Use numeric x positions to avoid matplotlib categorical warning
+    x_positions = list(range(len(differences)))
     ax.bar(
-        list(differences.keys()),
+        x_positions,
         [float(differences[k] / q_units) for k in differences.keys()],
     )
 
@@ -437,8 +420,9 @@ def plot_ff_differences(
     ax.set_xlabel("Key ID")
     ax.set_title(f"{potential_type} {parameter_key} differences")
 
-    # Rotate tick labels 90
-    ax.set_xticklabels(differences.keys(), rotation=90)
+    # Rotate tick labels 90 - set ticks first to avoid warning
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(list(differences.keys()), rotation=90)
 
     return differences
 
@@ -452,7 +436,7 @@ def plot_ff_values(
     parameter_key: str,
 ) -> None:
     # nice colour map for the iterations
-    colours = plt.cm.get_cmap("viridis")(np.linspace(0, 1, len(force_fields) + 1))
+    colours = plt.colormaps["viridis"](np.linspace(0, 1, len(force_fields) + 1))
 
     # Get the desired ids
     first_ff = force_fields[list(force_fields.keys())[0]]
@@ -476,31 +460,16 @@ def plot_ff_values(
                 f"Force field at iteration {i} has different {potential_type} ids: {set(potentials.keys())} vs {set(param_ids)}"
             )
 
-        parameter_keys = [
-            k
-            for k in potentials[list(potentials.keys())[0]].keys()
-            if k not in ["smirks", "id"]
-        ]
-        if parameter_key not in parameter_keys:
-            raise ValueError(
-                f"Parameter key {parameter_key} not found in {parameter_keys}"
-            )
+        vals = {
+            param_id: potentials[param_id][parameter_key]
+            for param_id in param_ids
+            if parameter_key
+            in potentials[param_id]  # Skip missing keys, e.g. periodicity in torsions
+        }
 
-        # Get the differences for each key id
-        for param_id in param_ids:
-            if potentials[param_id]["smirks"] == "[*:1]~[*:2]-[*:3]#[*:4]":
-                breakpoint()
-            if parameter_key not in potentials[param_id]:
-                breakpoint()
-                raise ValueError(
-                    f"Parameter key {parameter_key} not found in potential {param_id} at iteration {i}"
-                )
-        try:
-            vals = {
-                param_id: potentials[param_id][parameter_key] for param_id in param_ids
-            }
-        except KeyError:
-            breakpoint()
+        if not vals:
+            return
+
         vals_first_key = list(vals.keys())[0]
 
         # Plot the differences
@@ -531,8 +500,13 @@ def plot_ff_values(
 pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
     "Bonds": ["length", "k"],
     "Angles": ["angle", "k"],
-    "ProperTorsions": ["k1", "k2", "k3", "k4", "phase1", "phase2", "phase3", "phase4"],
-    "ImproperTorsions": ["k1", "phase1"],
+    "ProperTorsions": [
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+    ],  # "phase1", "phase2", "phase3", "phase4"],
+    "ImproperTorsions": ["k1"],  # "phase1"],
 }
 
 
@@ -560,13 +534,13 @@ def plot_all_ffs(
 
         # If this is the last potential type, add legend
         if i == ncols - 1:
-            axs[j, i].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+            _add_legend_if_labels(axs[j, i], bbox_to_anchor=(1.05, 1), loc="upper left")
 
         # Hide the remaining axes
         for k in range(j + 1, nrows):
             axs[k, i].axis("off")
 
-    axs[2, 3].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    _add_legend_if_labels(axs[2, 3], bbox_to_anchor=(1.05, 1), loc="upper left")
 
     fig.tight_layout()
 
@@ -617,7 +591,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             errors = read_errors(scatter_paths_for_mol)
 
             # Plot the errors
-            fig, axs = plt.subplots(3, 2, figsize=(13, 18))
+            fig, axs = plt.subplots(2, 2, figsize=(13, 12))
             plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
             error_plot_path = path_manager.get_output_path(stage, OutputType.ERROR_PLOT)
             error_plot_path_mol = get_mol_path(error_plot_path, mol_idx)

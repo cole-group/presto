@@ -58,6 +58,7 @@ class TestAddParameterWithOverwrite:
         original_param = bond_handler.parameters[0]
         original_smirks = original_param.smirks
         original_count = len(bond_handler.parameters)
+        original_id = original_param.id
 
         # Create a new parameter with the same SMIRKS but different values
         param_dict = {
@@ -77,7 +78,7 @@ class TestAddParameterWithOverwrite:
         # Check that the parameter was overwritten
         overwritten_param = bond_handler.get_parameter({"smirks": original_smirks})[0]
         assert overwritten_param.smirks == original_smirks
-        assert overwritten_param.id == "b-overwrite"
+        assert overwritten_param.id == original_id  # ID should remain unchanged
         assert overwritten_param.length.m_as("angstrom") == pytest.approx(9.99)
         assert overwritten_param.k.m_as(
             "kilocalorie_per_mole / angstrom**2"
@@ -92,6 +93,7 @@ class TestAddParameterWithOverwrite:
         target_index = 4
         original_param = bond_handler.parameters[target_index]
         original_smirks = original_param.smirks
+        original_id = original_param.id
 
         # Save the parameters before and after for comparison
         param_before = bond_handler.parameters[target_index - 1]
@@ -110,7 +112,7 @@ class TestAddParameterWithOverwrite:
 
         # Check that the parameter at the same index has been updated
         updated_param = bond_handler.parameters[target_index]
-        assert updated_param.id == "b-test-position"
+        assert updated_param.id == original_id  # ID should remain unchanged
         assert updated_param.smirks == original_smirks
 
         # Check that surrounding parameters are unchanged
@@ -167,6 +169,7 @@ class TestAddParameterWithOverwrite:
 
         original_count = len(bond_handler.parameters)
         original_first_smirks = bond_handler.parameters[0].smirks
+        original_first_id = bond_handler.parameters[0].id
 
         # Overwrite the first parameter
         overwrite_dict = {
@@ -195,7 +198,7 @@ class TestAddParameterWithOverwrite:
 
         # Check overwritten parameter
         overwritten_param = bond_handler.parameters[0]
-        assert overwritten_param.id == "b-overwrite"
+        assert overwritten_param.id == original_first_id  # ID should remain unchanged
 
         # Check new parameter is at the end
         new_param = bond_handler.parameters[-1]
