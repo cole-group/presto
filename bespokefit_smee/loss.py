@@ -138,7 +138,6 @@ def prediction_loss(
         trainable_parameters,
         initial_parameters,
         regularisation_target,
-        n_atoms=total_n_atoms,
     )
 
     logger.info(
@@ -157,7 +156,6 @@ def compute_regularisation_loss(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     regularisation_target: typing.Literal["initial", "zero"],
-    n_atoms: int,
 ) -> torch.Tensor:
     """Compute regularisation penalty"""
     reg_loss = torch.tensor(0.0, device=trainable_parameters.device)
@@ -180,11 +178,15 @@ def compute_regularisation_loss(
             f"regularisation value {regularisation_target} not implemented"
         )
 
+    effective_sample_size = torch.sum(regularisation_weights) ** 2 / torch.sum(
+        regularisation_weights**2
+    )
+
     # L2 regularisation on all parameters
     reg_loss += (
         ((trainable_parameters[regularised_idxs] - target) ** 2)
         * regularisation_weights
-    ).sum() / n_atoms
+    ).sum() / effective_sample_size
 
     return reg_loss
 
@@ -233,7 +235,6 @@ def get_loss_closure_fn(
             ff = trainable.to_force_field(_x)
 
             total_loss = torch.tensor(0.0, device=x.device)
-            total_n_atoms = sum(topology.n_atoms for topology in topologies)
 
             # Compute loss across all molecules
             for dataset, topology in zip(datasets, topologies, strict=True):
@@ -251,7 +252,6 @@ def get_loss_closure_fn(
                 _x,
                 initial_parameters,
                 regularisation_target=regularisation_target,
-                n_atoms=total_n_atoms,
             )
             total_loss += regularisation_penalty
 

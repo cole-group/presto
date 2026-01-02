@@ -619,7 +619,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     testing_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDSamplingSettings(),
+        default_factory=lambda: MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         description="Settings for sampling for generating the testing data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )

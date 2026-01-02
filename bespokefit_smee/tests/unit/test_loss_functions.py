@@ -64,7 +64,7 @@ class TestComputeRegularisationPenalty:
         initial_params = params.clone()
 
         result = compute_regularisation_loss(
-            trainable, params, initial_params, "initial", n_atoms
+            trainable, params, initial_params, "initial"
         )
         assert isinstance(result, torch.Tensor)
 
@@ -74,7 +74,7 @@ class TestComputeRegularisationPenalty:
         initial_params = params.clone()
 
         result = compute_regularisation_loss(
-            trainable, params, initial_params, "initial", n_atoms
+            trainable, params, initial_params, "initial"
         )
         # Should be very small (zero or near-zero)
         assert result.item() < 1e-6
@@ -89,10 +89,10 @@ class TestComputeRegularisationPenalty:
         modified_params = modified_params + 0.1
 
         penalty_original = compute_regularisation_loss(
-            trainable, params, initial_params, "initial", n_atoms
+            trainable, params, initial_params, "initial"
         )
         penalty_modified = compute_regularisation_loss(
-            trainable, modified_params, initial_params, "initial", n_atoms
+            trainable, modified_params, initial_params, "initial"
         )
 
         assert penalty_modified > penalty_original
@@ -126,14 +126,13 @@ class TestComputeRegularisationPenalty:
         )
 
         penalty_weak = compute_regularisation_loss(
-            trainable_weak, modified_params, initial_params, "initial", n_atoms
+            trainable_weak, modified_params, initial_params, "initial"
         )
         penalty_strong = compute_regularisation_loss(
             trainable_strong,
             modified_params,
             initial_params,
             "initial",
-            n_atoms,
         )
 
         assert penalty_strong > penalty_weak
@@ -143,9 +142,7 @@ class TestComputeRegularisationPenalty:
         trainable, params, n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
-        result = compute_regularisation_loss(
-            trainable, params, initial_params, "zero", n_atoms
-        )
+        result = compute_regularisation_loss(trainable, params, initial_params, "zero")
         assert isinstance(result, torch.Tensor)
 
     def test_invalid_regularisation_target_raises_error(
@@ -156,9 +153,7 @@ class TestComputeRegularisationPenalty:
         initial_params = params.clone()
 
         with pytest.raises(NotImplementedError):
-            compute_regularisation_loss(
-                trainable, params, initial_params, "invalid", n_atoms
-            )
+            compute_regularisation_loss(trainable, params, initial_params, "invalid")
 
     def test_regularisation_with_zero_strength(self, simple_trainable_and_params):
         """Test that regularisation with zero strength returns zero loss."""
@@ -183,7 +178,6 @@ class TestComputeRegularisationPenalty:
             modified_params,
             initial_params,
             "initial",
-            n_atoms,
         )
         # Should be zero when regularisation strength is zero
         assert result.item() == 0.0
