@@ -71,9 +71,9 @@ def train_levenberg_marquardt(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
-    topology: smee.TensorTopology,
-    dataset: datasets.Dataset,
-    dataset_test: datasets.Dataset,
+    topologies: list[smee.TensorTopology],
+    datasets: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -89,16 +89,14 @@ def train_levenberg_marquardt(
             The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
-        topology: smee.TensorTopology
-            The topology of the system.
-        dataset: datasets.Dataset
-            The dataset to be used for training.
-        dataset_test: datasets.Dataset
-            The dataset to be used for testing.
+        topologies: list[smee.TensorTopology]
+            The topologies of the systems.
+        datasets: list[datasets.Dataset]
+            The datasets to be used for training.
+        datasets_test: list[datasets.Dataset]
+            The datasets to be used for testing.
         settings: TrainingSettings
             The settings object containing training parameters.
-        output_dir: PathLike
-            The directory to write output files to.
         output_paths: dict[OutputType, PathLike]
             A mapping of output types to filesystem paths. The following keys are
             expected:
@@ -112,8 +110,6 @@ def train_levenberg_marquardt(
         tuple[torch.Tensor, descent.train.Trainable]
             The updated parameters and the trainable object.
     """
-    raise NotImplementedError("LM optimiser is not currently supported.")
-
     # Make sure we have all the required output paths and no others
     if set(output_paths.keys()) != settings.output_types:
         raise ValueError(
@@ -122,24 +118,36 @@ def train_levenberg_marquardt(
 
     # Run the training with the LM optimiser
     lm_config = descent.optim.LevenbergMarquardtConfig(
-        mode="adaptive", n_convergence_criteria=2, max_steps=100
+        mode="adaptive", n_convergence_criteria=2, max_steps=settings.n_epochs
     )
 
+    # Get loss weights - using default values
+    # TODO: Support getting these from protocol settings when available
+    loss_energy_weight = 1000.0
+    loss_force_weight = 0.1
+
     closure_fn = get_loss_closure_fn(
+        datasets,
         trainable,
+        trainable_parameters,
         initial_parameters,
-        topology,
-        dataset,
-        settings.regularisation_settings,
+        topologies,
+        loss_energy_weight,
+        loss_force_weight,
+        settings.regularisation_target,
     )
 
     correct_fn = trainable.clamp
 
+    # Create report function that computes metrics consistently with train_adam
     report_fn = functools.partial(
         report,
         trainable=trainable,
-        topology=topology,
-        dataset_test=dataset_test,
+        topologies=topologies,
+        datasets_train=datasets,
+        datasets_test=datasets_test,
+        initial_parameters=initial_parameters,
+        regularisation_target=settings.regularisation_target,
         metrics_file=output_paths[OutputType.TRAINING_METRICS],
         experiment_dir=Path(output_paths[OutputType.TENSORBOARD]),
     )
@@ -258,6 +266,15 @@ def train_adam(
                 if i % settings.learning_rate_decay_step == 0:
                     scheduler.step()
         # some book-keeping and outputting
+        losses_train = prediction_loss(
+            datasets,
+            trainable,
+            trainable_parameters,
+            initial_parameters,
+            topologies,
+            settings.regularisation_target,
+            str(device),
+        )
         losses_test = prediction_loss(
             datasets_test,
             trainable,

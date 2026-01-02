@@ -27,8 +27,123 @@ class LossRecord(typing.NamedTuple):
     regularisation: torch.Tensor
 
 
+def _compute_molecule_energy_force_loss(
+    energy_ref: torch.Tensor,
+    energy_pred: torch.Tensor,
+    forces_ref: torch.Tensor,
+    forces_pred: torch.Tensor,
+    energy_weights: torch.Tensor,
+    forces_weights: torch.Tensor,
+    n_atoms: int,
+    device: torch.device | str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute weighted energy and force loss for a single molecule.
+
+    Args:
+        energy_ref: Reference energies with shape (n_confs,).
+        energy_pred: Predicted energies with shape (n_confs,).
+        forces_ref: Reference forces with shape (n_confs * n_atoms, 3).
+        forces_pred: Predicted forces with shape (n_confs * n_atoms, 3).
+        energy_weights: Per-conformation energy weights with shape (n_confs,).
+        forces_weights: Per-conformation force weights with shape (n_confs,).
+        n_atoms: Number of atoms in the molecule.
+        device: Device for tensor creation.
+
+    Returns:
+        Tuple of (energy_loss, force_loss) for this molecule.
+    """
+    n_confs = energy_ref.shape[0]
+
+    # Energy loss (weighted per conformation, then averaged)
+    energy_diff_sq = ((energy_ref - energy_pred) / n_atoms) ** 2
+    weighted_energy_loss = (energy_diff_sq * energy_weights).sum()
+
+    # Effective sample size for weighted average
+    effective_energy_sample_size = torch.sum(energy_weights) ** 2 / torch.sum(
+        energy_weights**2
+    )
+    if effective_energy_sample_size > 0:
+        energy_loss = weighted_energy_loss / effective_energy_sample_size
+    else:
+        energy_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
+
+    # Force loss (weighted per conformation, then averaged)
+    forces_ref_reshaped = forces_ref.reshape(n_confs, n_atoms, 3)
+    forces_pred_reshaped = forces_pred.reshape(n_confs, n_atoms, 3)
+    forces_diff_sq = (forces_ref_reshaped - forces_pred_reshaped) ** 2
+
+    # Sum over atoms and dimensions for each conformation
+    forces_loss_per_conf = forces_diff_sq.sum(dim=[1, 2]) / (3 * n_atoms)
+    weighted_force_loss = (forces_loss_per_conf * forces_weights).sum()
+
+    effective_force_sample_size = torch.sum(forces_weights) ** 2 / torch.sum(
+        forces_weights**2
+    )
+    if effective_force_sample_size > 0:
+        force_loss = weighted_force_loss / effective_force_sample_size
+    else:
+        force_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
+
+    return energy_loss, force_loss
+
+
+def _compute_total_loss(
+    force_field: smee.TensorForceField,
+    datasets_list: list[datasets.Dataset],
+    topologies: list[smee.TensorTopology],
+    device_type: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute total energy and force loss across all molecules.
+
+    Args:
+        force_field: The force field to use for predictions.
+        datasets_list: List of datasets for each molecule.
+        topologies: List of topologies for each molecule.
+        device_type: Device type for computations.
+
+    Returns:
+        Tuple of (avg_energy_loss, avg_force_loss) averaged across molecules.
+    """
+    total_energy_loss = torch.tensor(0.0, dtype=torch.float64, device=device_type)
+    total_force_loss = torch.tensor(0.0, dtype=torch.float64, device=device_type)
+
+    for dataset, topology in zip(datasets_list, topologies, strict=True):
+        (
+            energy_ref,
+            energy_pred,
+            forces_ref,
+            forces_pred,
+            energy_weights,
+            forces_weights,
+        ) = predict_with_weights(
+            dataset,
+            force_field,
+            {dataset[0]["smiles"]: topology},
+            device_type=device_type,
+            normalize=False,
+        )
+
+        energy_loss, force_loss = _compute_molecule_energy_force_loss(
+            energy_ref,
+            energy_pred,
+            forces_ref,
+            forces_pred,
+            energy_weights,
+            forces_weights,
+            topology.n_atoms,
+            device_type,
+        )
+
+        total_energy_loss = total_energy_loss + energy_loss
+        total_force_loss = total_force_loss + force_loss
+
+    # Average across molecules
+    n_molecules = len(datasets_list)
+    return total_energy_loss / n_molecules, total_force_loss / n_molecules
+
+
 def prediction_loss(
-    datasets: list[datasets.Dataset],
+    datasets_list: list[datasets.Dataset],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
@@ -43,7 +158,7 @@ def prediction_loss(
     are used.
 
     Args:
-        datasets: List of datasets to predict the energies and forces of.
+        datasets_list: List of datasets to predict the energies and forces of.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
@@ -56,81 +171,12 @@ def prediction_loss(
     """
     force_field = trainable.to_force_field(trainable_parameters)
 
-    total_energy_loss = torch.tensor(
-        0.0, dtype=torch.float64, device=trainable_parameters.device
+    avg_energy_loss, avg_force_loss = _compute_total_loss(
+        force_field,
+        datasets_list,
+        topologies,
+        device_type,
     )
-    total_force_loss = torch.tensor(
-        0.0, dtype=torch.float64, device=trainable_parameters.device
-    )
-    total_n_confs = 0
-    total_n_atoms = 0
-
-    # Compute prediction loss for each molecule
-    for dataset, topology in zip(datasets, topologies, strict=True):
-        (
-            energy_ref_all,
-            energy_pred_all,
-            forces_ref_all,
-            forces_pred_all,
-            energy_weights,
-            forces_weights,
-        ) = predict_with_weights(
-            dataset,
-            force_field,
-            {dataset[0]["smiles"]: topology},
-            device_type=device_type,
-            normalize=False,
-        )
-
-        n_confs = energy_ref_all.shape[0]
-        n_atoms = topology.n_atoms
-
-        # Energy loss (weighted per conformation, then averaged)
-        energy_diff_sq = ((energy_ref_all - energy_pred_all) / n_atoms) ** 2
-        # Apply per-conformation weights
-        weighted_energy_loss = (energy_diff_sq * energy_weights).sum()
-        # Normalize by sum of weights (if non-zero) to get weighted average
-        effective_energy_sample_size = torch.sum(energy_weights) ** 2 / torch.sum(
-            energy_weights**2
-        )
-        if effective_energy_sample_size > 0:
-            energy_loss_mol = weighted_energy_loss / effective_energy_sample_size
-        else:
-            energy_loss_mol = torch.tensor(
-                0.0, dtype=torch.float64, device=trainable_parameters.device
-            )
-        total_energy_loss = total_energy_loss + energy_loss_mol
-
-        # Force loss (weighted per conformation, then averaged)
-        # Forces shape is (n_confs * n_atoms, 3), need to reshape for per-conf weighting
-        forces_ref_reshaped = forces_ref_all.reshape(n_confs, n_atoms, 3)
-        forces_pred_reshaped = forces_pred_all.reshape(n_confs, n_atoms, 3)
-        forces_diff_sq = (forces_ref_reshaped - forces_pred_reshaped) ** 2
-
-        # Sum over atoms and dimensions for each conformation
-        forces_loss_per_conf = forces_diff_sq.sum(dim=[1, 2]) / (3 * n_atoms)
-
-        weighted_force_loss = (forces_loss_per_conf * forces_weights).sum()
-
-        effective_force_sample_size = torch.sum(forces_weights) ** 2 / torch.sum(
-            forces_weights**2
-        )
-
-        if effective_force_sample_size > 0:
-            force_loss_mol = weighted_force_loss / effective_force_sample_size
-        else:
-            force_loss_mol = torch.tensor(
-                0.0, dtype=torch.float64, device=trainable_parameters.device
-            )
-        total_force_loss = total_force_loss + force_loss_mol
-
-        total_n_confs += n_confs
-        total_n_atoms += n_atoms
-
-    # Average losses across molecules
-    n_molecules = len(datasets)
-    avg_energy_loss = total_energy_loss / n_molecules
-    avg_force_loss = total_force_loss / n_molecules
 
     # Compute regularization once for all molecules
     regularisation_loss = compute_regularisation_loss(
@@ -192,7 +238,7 @@ def compute_regularisation_loss(
 
 
 def get_loss_closure_fn(
-    datasets: list[datasets.Dataset],
+    datasets_list: list[datasets.Dataset],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
@@ -200,13 +246,15 @@ def get_loss_closure_fn(
     loss_energy_weight: float,
     loss_force_weight: float,
     regularisation_target: typing.Literal["initial", "zero"],
-    # regularisation_settings: RegularisationSettings,
 ) -> descent.optim.ClosureFn:
-    """
-    Return a default closure function
+    """Return a closure function for use with Levenberg-Marquardt optimizer.
+
+    This closure reuses the same loss computation as `prediction_loss` but wraps it
+    in a format suitable for the LM optimizer, which requires computing gradients
+    and Hessians.
 
     Args:
-        datasets: List of datasets to predict the energies and forces of.
+        datasets_list: List of datasets to predict the energies and forces of.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
@@ -216,7 +264,8 @@ def get_loss_closure_fn(
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
 
     Returns:
-        A closure function that takes a tensor and returns the loss, gradient (if requested), and hessian (if requested).
+        A closure function that takes a tensor and returns the loss, gradient
+        (if requested), and Hessian (if requested).
     """
 
     def closure_fn(
@@ -224,40 +273,37 @@ def get_loss_closure_fn(
         compute_gradient: bool,
         compute_hessian: bool,
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-        loss, gradient, hessian = (
-            torch.zeros(size=(1,), device=x.device.type),
-            None,
-            None,
-        )
+        gradient, hessian = None, None
 
         def loss_fn(_x: torch.Tensor) -> torch.Tensor:
-            """Compute the loss function for the given trainable parameters."""
+            """Compute the total loss for the given trainable parameters."""
             ff = trainable.to_force_field(_x)
 
-            total_loss = torch.tensor(0.0, device=x.device)
+            avg_energy_loss, avg_force_loss = _compute_total_loss(
+                ff,
+                datasets_list,
+                topologies,
+                _x.device.type,
+            )
 
-            # Compute loss across all molecules
-            for dataset, topology in zip(datasets, topologies, strict=True):
-                y_ref, y_pred = predict(
-                    dataset,
-                    ff,
-                    {dataset[0]["smiles"]: topology},
-                    device_type=x.device.type,
-                    normalize=False,
-                )[:2]
-                total_loss += ((y_pred - y_ref) ** 2).mean()
+            # Apply loss weights
+            total_loss = (
+                loss_energy_weight * avg_energy_loss
+                + loss_force_weight * avg_force_loss
+            )
 
+            # Add regularisation
             regularisation_penalty = compute_regularisation_loss(
                 trainable,
                 _x,
                 initial_parameters,
                 regularisation_target=regularisation_target,
             )
-            total_loss += regularisation_penalty
+            total_loss = total_loss + regularisation_penalty
 
             return total_loss
 
-        loss += loss_fn(x)
+        loss = loss_fn(x)
 
         if compute_hessian:
             hessian = torch.autograd.functional.hessian(  # type: ignore[no-untyped-call]

@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import LossRecord, predict
+from .loss import LossRecord, predict, prediction_loss
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -173,37 +173,63 @@ def report(
     step_quality: float,
     accept_step: bool,
     trainable: descent.train.Trainable,
-    topology: smee.TensorTopology,
-    dataset_test: datasets.Dataset,
+    topologies: list[smee.TensorTopology],
+    datasets_train: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
+    initial_parameters: torch.Tensor,
+    regularisation_target: typing.Literal["initial", "zero"],
     metrics_file: PathLike,
     experiment_dir: pathlib.Path,
 ) -> None:
-    if step % 1 == 0:
-        with torch.enable_grad():  # type: ignore[no-untyped-call]
-            y_ref, y_pred = predict(
-                dataset_test,
-                trainable.to_force_field(x),
-                {dataset_test[0]["smiles"]: topology},
-                device_type=x.device.type,
-                normalize=False,
-            )[:2]
-            loss_tst = ((y_pred - y_ref) ** 2).mean()
+    """Report training progress for Levenberg-Marquardt optimizer.
 
-            loss_train = LossRecord(
-                energy=loss,
-                forces=torch.tensor(float("nan"), device=x.device),
-                regularisation=torch.tensor(float("nan"), device=x.device),
-            )
+    This function computes training and test losses using the same loss
+    computation as train_adam (via prediction_loss) to ensure consistent
+    metrics reporting.
 
-            loss_test = LossRecord(
-                energy=loss_tst,
-                forces=torch.tensor(float("nan"), device=x.device),
-                regularisation=torch.tensor(float("nan"), device=x.device),
-            )
+    Args:
+        step: Current optimization step.
+        x: Current trainable parameters.
+        loss: Loss value from the optimizer (not used, we recompute for consistency).
+        gradient: Gradient tensor (not used in reporting).
+        hessian: Hessian tensor (not used in reporting).
+        step_quality: Quality measure of the step (not used in reporting).
+        accept_step: Whether the step was accepted (not used in reporting).
+        trainable: The trainable object containing the force field.
+        topologies: List of topologies for all molecules.
+        datasets_train: List of training datasets for all molecules.
+        datasets_test: List of test datasets for all molecules.
+        initial_parameters: Initial parameters for regularization.
+        regularisation_target: Regularization target ('initial' or 'zero').
+        metrics_file: Path to the metrics output file.
+        experiment_dir: Path to the TensorBoard experiment directory.
+    """
+    with torch.enable_grad():  # type: ignore[no-untyped-call]
+        # Compute training loss using the same function as train_adam
+        loss_train = prediction_loss(
+            datasets_train,
+            trainable,
+            x,
+            initial_parameters,
+            topologies,
+            regularisation_target,
+            x.device.type,
+        )
 
-            with open_writer(experiment_dir) as writer:
-                with open(metrics_file, "a") as f:
-                    write_metrics(step, loss_train, loss_test, writer, f)
+        # Compute test loss using the same function as train_adam
+        loss_test = prediction_loss(
+            datasets_test,
+            trainable,
+            x,
+            initial_parameters,
+            topologies,
+            regularisation_target,
+            x.device.type,
+        )
+
+        with open_writer(experiment_dir) as writer:
+            with open(metrics_file, "a") as f:
+                write_metrics(step, loss_train, loss_test, writer, f)
 
 
 def write_metrics(

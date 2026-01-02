@@ -1,14 +1,18 @@
 """Unit tests for writers module."""
 
 import h5py
+import openff.interchange
 import pytest
 import smee
 import smee.converters
 import torch
+from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
+from openff.units import unit
 
+from bespokefit_smee.data_utils import create_dataset_with_uniform_weights
 from bespokefit_smee.loss import LossRecord
-from bespokefit_smee.writers import write_scatter
+from bespokefit_smee.writers import report, write_scatter
 
 
 class TestWriteScatter:
@@ -289,3 +293,188 @@ class TestPotentialSummary:
 
         result = get_potential_summary(potential)
         assert potential.type in result
+
+
+class TestReport:
+    """Tests for report function."""
+
+    @pytest.fixture
+    def training_setup(self):
+        """Create a complete training setup for report testing."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=3, rms_cutoff=0.0 * unit.angstrom)
+
+        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ff, mol.to_topology()
+        )
+
+        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+
+        # Convert assignment matrices from sparse to dense
+        for potential in tensor_ff.potentials:
+            param_map = tensor_top.parameters.get(potential.type)
+            if param_map is not None and hasattr(param_map, "assignment_matrix"):
+                if param_map.assignment_matrix.is_sparse:
+                    param_map.assignment_matrix = param_map.assignment_matrix.to_dense()
+
+        parameter_configs = {
+            "Bonds": ParameterConfig(
+                cols=["k", "length"],
+                scales={"k": 1.0, "length": 1.0},
+                limits={"k": (1e-8, None), "length": (None, None)},
+                regularize={"k": 1.0, "length": 1.0},
+            ),
+        }
+
+        trainable = Trainable(tensor_ff, parameter_configs, {})
+        trainable_parameters = trainable.to_values()
+        initial_parameters = trainable_parameters.clone()
+
+        n_confs = mol.n_conformers
+        coords_list = [
+            torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
+            for i in range(n_confs)
+        ]
+        coords_all = torch.cat(coords_list, dim=0).requires_grad_(True)
+
+        energy_all = smee.compute_energy(tensor_top, tensor_ff, coords_all)
+        forces_all = -torch.autograd.grad(
+            energy_all.sum(), coords_all, create_graph=True, retain_graph=True
+        )[0]
+
+        smiles = mol.to_smiles(mapped=True)
+
+        dataset_train = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords_all[:2].detach(),
+            energy=energy_all[:2].detach(),
+            forces=forces_all[:2].detach(),
+            energy_weight=1000.0,
+            forces_weight=0.1,
+        )
+
+        dataset_test = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords_all[2:3].detach(),
+            energy=energy_all[2:3].detach(),
+            forces=forces_all[2:3].detach(),
+            energy_weight=1000.0,
+            forces_weight=0.1,
+        )
+
+        return {
+            "trainable": trainable,
+            "trainable_parameters": trainable_parameters,
+            "initial_parameters": initial_parameters,
+            "topologies": [tensor_top],
+            "datasets_train": [dataset_train],
+            "datasets_test": [dataset_test],
+        }
+
+    def test_report_creates_metrics_file(self, training_setup, tmp_path):
+        """Test that report creates metrics file with correct format."""
+        setup = training_setup
+        metrics_file = tmp_path / "metrics.txt"
+        experiment_dir = tmp_path / "tensorboard"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        # Call report function
+        report(
+            step=0,
+            x=setup["trainable_parameters"],
+            loss=torch.tensor(1.0),
+            gradient=torch.zeros_like(setup["trainable_parameters"]),
+            hessian=torch.zeros(
+                len(setup["trainable_parameters"]),
+                len(setup["trainable_parameters"]),
+            ),
+            step_quality=1.0,
+            accept_step=True,
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets_train=setup["datasets_train"],
+            datasets_test=setup["datasets_test"],
+            initial_parameters=setup["initial_parameters"],
+            regularisation_target="initial",
+            metrics_file=metrics_file,
+            experiment_dir=experiment_dir,
+        )
+
+        # Verify metrics file was created and has correct format
+        assert metrics_file.exists()
+        content = metrics_file.read_text()
+        lines = content.strip().split("\n")
+        assert len(lines) >= 1
+
+        # Each line should have 6 values (3 train + 3 test)
+        parts = lines[0].strip().split()
+        assert len(parts) == 6, f"Expected 6 values per line, got {len(parts)}"
+
+    def test_report_writes_valid_loss_values(self, training_setup, tmp_path):
+        """Test that report writes valid (non-NaN, non-Inf) loss values."""
+        setup = training_setup
+        metrics_file = tmp_path / "metrics.txt"
+        experiment_dir = tmp_path / "tensorboard"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        report(
+            step=0,
+            x=setup["trainable_parameters"],
+            loss=torch.tensor(1.0),
+            gradient=torch.zeros_like(setup["trainable_parameters"]),
+            hessian=torch.zeros(
+                len(setup["trainable_parameters"]),
+                len(setup["trainable_parameters"]),
+            ),
+            step_quality=1.0,
+            accept_step=True,
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets_train=setup["datasets_train"],
+            datasets_test=setup["datasets_test"],
+            initial_parameters=setup["initial_parameters"],
+            regularisation_target="initial",
+            metrics_file=metrics_file,
+            experiment_dir=experiment_dir,
+        )
+
+        content = metrics_file.read_text()
+        parts = content.strip().split()
+
+        for i, part in enumerate(parts):
+            value = float(part)
+            assert value == value, f"Value {i} is NaN"  # NaN check
+            assert abs(value) < 1e10, f"Value {i} is too large: {value}"
+
+    def test_report_creates_tensorboard_output(self, training_setup, tmp_path):
+        """Test that report creates TensorBoard output."""
+        setup = training_setup
+        metrics_file = tmp_path / "metrics.txt"
+        experiment_dir = tmp_path / "tensorboard"
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        report(
+            step=0,
+            x=setup["trainable_parameters"],
+            loss=torch.tensor(1.0),
+            gradient=torch.zeros_like(setup["trainable_parameters"]),
+            hessian=torch.zeros(
+                len(setup["trainable_parameters"]),
+                len(setup["trainable_parameters"]),
+            ),
+            step_quality=1.0,
+            accept_step=True,
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets_train=setup["datasets_train"],
+            datasets_test=setup["datasets_test"],
+            initial_parameters=setup["initial_parameters"],
+            regularisation_target="initial",
+            metrics_file=metrics_file,
+            experiment_dir=experiment_dir,
+        )
+
+        # Check TensorBoard directory has content
+        assert experiment_dir.exists()
+        assert any(experiment_dir.iterdir())
