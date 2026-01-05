@@ -318,7 +318,7 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
         dataset,
         tensor_ff,
         {indexed_smiles: tensor_top},
-        reference="mean",
+        reference="median",
         normalize=False,
         device_type="cpu",
     )

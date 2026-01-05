@@ -13,6 +13,7 @@ from bespokefit_smee.convert import convert_to_smirnoff
 
 from .analyse import analyse_workflow
 from .convert import parameterise
+from .data_utils import filter_dataset_outliers
 from .outputs import OutputStage, OutputType, StageKind
 from .sample import _SAMPLING_FNS_REGISTRY, SampleFn, load_precomputed_dataset
 from .settings import WorkflowSettings
@@ -173,6 +174,20 @@ def get_bespoke_force_field(
                 for output_type in settings.training_sampling_settings.output_types
             },
         )
+
+        # Apply outlier filtering if configured
+        if settings.outlier_filter_settings is not None:
+            logger.info("Applying outlier filtering to training data")
+            datasets_train_new = [
+                filter_dataset_outliers(
+                    dataset=ds,
+                    force_field=tensor_ff,
+                    topology=tensor_top,
+                    settings=settings.outlier_filter_settings,
+                    device=str(settings.device),
+                )
+                for ds, tensor_top in zip(datasets_train_new, tensor_tops, strict=True)
+            ]
 
         # Update training dataset: concatenate if memory is enabled and not the first iteration
         if settings.memory and datasets_train is not None:

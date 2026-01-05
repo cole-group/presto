@@ -1360,7 +1360,7 @@ def load_precomputed_dataset(
 
     logger.info(f"Loading pre-computed dataset from {settings.dataset_path}")
     loaded_dataset = datasets.load_from_disk(str(settings.dataset_path))
-    loaded_dataset.set_format("torch")
+    loaded_dataset.set_format("torch", device=device)
 
     # Return as a list (one dataset containing all entries)
     return [loaded_dataset]

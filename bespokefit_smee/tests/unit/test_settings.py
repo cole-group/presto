@@ -18,6 +18,7 @@ from bespokefit_smee.settings import (
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    OutlierFilterSettings,
     ParameterisationSettings,
     TrainingSettings,
     TypeGenerationSettings,
@@ -349,6 +350,64 @@ class TestTrainingSettings:
         assert settings.learning_rate == learning_rate
 
 
+class TestOutlierFilterSettings:
+    """Tests for outlier filter settings."""
+
+    def test_default_values(self):
+        """Test default values."""
+        settings = OutlierFilterSettings()
+        assert settings.energy_outlier_threshold == 10.0
+        assert settings.force_outlier_threshold == 50.0
+        assert settings.min_conformations == 1
+
+    def test_custom_thresholds(self):
+        """Test custom threshold values."""
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=5.0,
+            force_outlier_threshold=25.0,
+            min_conformations=5,
+        )
+        assert settings.energy_outlier_threshold == 5.0
+        assert settings.force_outlier_threshold == 25.0
+        assert settings.min_conformations == 5
+
+    def test_disable_energy_filtering(self):
+        """Test that energy filtering can be disabled."""
+        settings = OutlierFilterSettings(energy_outlier_threshold=None)
+        assert settings.energy_outlier_threshold is None
+        assert settings.force_outlier_threshold == 50.0
+
+    def test_disable_forces_filtering(self):
+        """Test that forces filtering can be disabled."""
+        settings = OutlierFilterSettings(force_outlier_threshold=None)
+        assert settings.energy_outlier_threshold == 10.0
+        assert settings.force_outlier_threshold is None
+
+    def test_disable_all_filtering(self):
+        """Test that all filtering can be disabled."""
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=None,
+            force_outlier_threshold=None,
+        )
+        assert settings.energy_outlier_threshold is None
+        assert settings.force_outlier_threshold is None
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Test YAML serialization round-trip."""
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=7.5,
+            force_outlier_threshold=40.0,
+            min_conformations=3,
+        )
+        yaml_path = tmp_path / "outlier_settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = OutlierFilterSettings.from_yaml(yaml_path)
+        assert loaded.energy_outlier_threshold == 7.5
+        assert loaded.force_outlier_threshold == 40.0
+        assert loaded.min_conformations == 3
+
+
 class TestTypeGenerationSettings:
     """Tests for type generation settings."""
 
@@ -579,3 +638,49 @@ class TestWorkflowSettings:
         )
         assert settings.n_iterations == n_iterations
         assert settings.memory == memory
+
+    def test_outlier_filter_settings_has_default(self, valid_workflow_settings):
+        """Test that outlier_filter_settings has default values."""
+        assert valid_workflow_settings.outlier_filter_settings is not None
+        assert (
+            valid_workflow_settings.outlier_filter_settings.energy_outlier_threshold
+            == 10.0
+        )
+        assert (
+            valid_workflow_settings.outlier_filter_settings.force_outlier_threshold
+            == 50.0
+        )
+
+    def test_outlier_filter_settings_can_be_set(self):
+        """Test that outlier_filter_settings can be configured."""
+        settings = WorkflowSettings(
+            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            device_type="cpu",
+            outlier_filter_settings=OutlierFilterSettings(
+                energy_outlier_threshold=5.0,  # kcal/mol/atom
+                force_outlier_threshold=25.0,
+            ),
+        )
+        assert settings.outlier_filter_settings is not None
+        assert settings.outlier_filter_settings.energy_outlier_threshold == 5.0
+        assert settings.outlier_filter_settings.force_outlier_threshold == 25.0
+
+    def test_outlier_filter_settings_yaml_round_trip(self, tmp_path):
+        """Test that outlier_filter_settings survives YAML round-trip."""
+        settings = WorkflowSettings(
+            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            device_type="cpu",
+            outlier_filter_settings=OutlierFilterSettings(
+                energy_outlier_threshold=7.5,  # kcal/mol/atom
+                force_outlier_threshold=30.0,
+                min_conformations=2,
+            ),
+        )
+        yaml_path = tmp_path / "workflow_with_outlier.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+        assert loaded.outlier_filter_settings is not None
+        assert loaded.outlier_filter_settings.energy_outlier_threshold == 7.5
+        assert loaded.outlier_filter_settings.force_outlier_threshold == 30.0
+        assert loaded.outlier_filter_settings.min_conformations == 2

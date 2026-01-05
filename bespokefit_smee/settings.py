@@ -490,6 +490,36 @@ class TrainingSettings(_DefaultSettings):
         }
 
 
+class OutlierFilterSettings(_DefaultSettings):
+    """Settings for filtering outliers from datasets based on MM vs MLP differences.
+
+    Outliers are identified by comparing MM and reference (typically MLP) energies
+    and forces. Conformations where the absolute difference exceeds a threshold
+    are removed.
+    """
+
+    energy_outlier_threshold: float | None = Field(
+        2.0,
+        description="Absolute threshold in kcal/mol/atom for energy outlier detection. "
+        "Conformations where |energy_mm - energy_ref| / n_atoms (relative to minimum) "
+        "exceeds this threshold will be removed. Set to None to disable energy-based filtering.",
+    )
+
+    force_outlier_threshold: float | None = Field(
+        500.0,
+        description="Absolute threshold in kcal/mol/Å for force outlier detection. "
+        "Conformations where max |force_mm - force_ref| exceeds this threshold "
+        "will be removed. Set to None to disable force-based filtering.",
+    )
+
+    min_conformations: int = Field(
+        1,
+        description="Minimum number of conformations to keep per molecule. "
+        "If filtering would remove too many conformations, all conformations "
+        "will be kept for that molecule.",
+    )
+
+
 class TypeGenerationSettings(_DefaultSettings):
     """Settings for generating tagged SMARTS types for a given potential type."""
 
@@ -646,6 +676,12 @@ class WorkflowSettings(_DefaultSettings):
     training_settings: TrainingSettings = Field(
         default_factory=lambda: TrainingSettings(),
         description="Settings for the training process",
+    )
+
+    outlier_filter_settings: OutlierFilterSettings | None = Field(
+        default_factory=lambda: OutlierFilterSettings(),
+        description="Settings for filtering outliers from training data. "
+        "Set to None to disable outlier filtering.",
     )
 
     # Raise an error if the major and minor versions do not match

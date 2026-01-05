@@ -1,17 +1,23 @@
 """Unit tests for data_utils module."""
 
+import openff.interchange
 import pytest
+import smee
+import smee.converters
 import torch
+from openff.toolkit import ForceField, Molecule
 
 from bespokefit_smee.data_utils import (
     WEIGHTED_DATA_SCHEMA,
     WeightedEntry,
     create_dataset_with_uniform_weights,
     create_weighted_dataset,
+    filter_dataset_outliers,
     get_weights_from_entry,
     has_weights,
     merge_weighted_datasets,
 )
+from bespokefit_smee.settings import OutlierFilterSettings
 
 
 class TestWeightedDataSchema:
@@ -436,3 +442,232 @@ class TestGetWeightsFromEntry:
         assert torch.allclose(energy_weights, torch.tensor([5.0, 5.0, 5.0]))
         expected_forces = torch.full((3,), 1.0, dtype=torch.float64)
         assert torch.allclose(forces_weights, expected_forces)
+
+
+class TestFilterDatasetOutliers:
+    """Tests for filter_dataset_outliers function."""
+
+    @pytest.fixture
+    def ethanol_ff_and_topology(self):
+        """Create ethanol force field and topology for testing."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=5)
+        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ff, mol.to_topology()
+        )
+
+        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+        return tensor_ff, tensor_top, mol
+
+    @pytest.fixture
+    def dataset_with_outlier(self, ethanol_ff_and_topology):
+        """Create a dataset with one clear energy outlier."""
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+
+        n_confs = 5
+
+        # Use real conformer coordinates
+        coords_list = []
+        for i in range(min(n_confs, mol.n_conformers)):
+            coords_list.append(
+                torch.tensor(mol.conformers[i].m_as("angstrom"), dtype=torch.float64)
+            )
+        # Pad with copies if needed
+        while len(coords_list) < n_confs:
+            coords_list.append(coords_list[0].clone())
+
+        coords = torch.stack(coords_list)
+
+        # Compute MM energies and forces
+        coords_grad = coords.clone().requires_grad_(True)
+        energy_mm = smee.compute_energy(tensor_top, tensor_ff, coords_grad)
+        forces_mm = -torch.autograd.grad(energy_mm.sum(), coords_grad)[0]
+
+        # Use MM values as reference, but add an outlier
+        energy_ref = energy_mm.detach().clone()
+        forces_ref = forces_mm.detach().clone()
+
+        # Make the last conformation a clear energy outlier
+        energy_ref[-1] += 100.0  # Add 100 kcal/mol to make it an outlier
+
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords.detach(),
+            energy=energy_ref,
+            forces=forces_ref,
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        return dataset, tensor_ff, tensor_top
+
+    @pytest.fixture
+    def dataset_with_force_outlier(self, ethanol_ff_and_topology):
+        """Create a dataset with one clear force outlier."""
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+
+        n_confs = 5
+
+        # Use real conformer coordinates
+        coords_list = []
+        for i in range(min(n_confs, mol.n_conformers)):
+            coords_list.append(
+                torch.tensor(mol.conformers[i].m_as("angstrom"), dtype=torch.float64)
+            )
+        while len(coords_list) < n_confs:
+            coords_list.append(coords_list[0].clone())
+
+        coords = torch.stack(coords_list)
+
+        # Compute MM energies and forces
+        coords_grad = coords.clone().requires_grad_(True)
+        energy_mm = smee.compute_energy(tensor_top, tensor_ff, coords_grad)
+        forces_mm = -torch.autograd.grad(energy_mm.sum(), coords_grad)[0]
+
+        energy_ref = energy_mm.detach().clone()
+        forces_ref = forces_mm.detach().clone()
+
+        # Make the last conformation a clear force outlier
+        forces_ref[-1, 0, :] += 500.0  # Add huge force to first atom
+
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords.detach(),
+            energy=energy_ref,
+            forces=forces_ref,
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        return dataset, tensor_ff, tensor_top
+
+    def test_removes_energy_outlier(self, dataset_with_outlier):
+        """Test that energy outliers are removed."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+
+        original_n_confs = len(dataset[0]["energy"])
+
+        # Ethanol has 9 atoms, outlier is 100 kcal/mol = ~11 kcal/mol/atom
+        # Use threshold of 5 kcal/mol/atom to catch it
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=5.0,  # 5 kcal/mol/atom threshold
+            force_outlier_threshold=None,  # Disable force filtering
+        )
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+        )
+
+        new_n_confs = len(filtered[0]["energy"])
+
+        # Should have removed at least the outlier (100 kcal/mol added = ~11 kcal/mol/atom)
+        assert new_n_confs < original_n_confs
+
+    def test_removes_force_outlier(self, dataset_with_force_outlier):
+        """Test that force outliers are removed."""
+        dataset, tensor_ff, tensor_top = dataset_with_force_outlier
+
+        original_n_confs = len(dataset[0]["energy"])
+
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=None,  # Disable energy filtering
+            force_outlier_threshold=100.0,  # 100 kcal/mol/A threshold
+        )
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+        )
+
+        new_n_confs = len(filtered[0]["energy"])
+
+        # Should have removed at least the outlier (500 kcal/mol/A added)
+        assert new_n_confs < original_n_confs
+
+    def test_preserves_weights(self, dataset_with_outlier):
+        """Test that weights are preserved after filtering."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=5.0,  # 5 kcal/mol/atom
+            force_outlier_threshold=None,
+        )
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+        )
+
+        assert has_weights(filtered)
+        assert "energy_weights" in filtered[0]
+        assert "forces_weights" in filtered[0]
+
+    def test_respects_min_conformations(self, dataset_with_outlier):
+        """Test that min_conformations is respected."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+
+        original_n_confs = len(dataset[0]["energy"])
+
+        # Use very aggressive threshold but high min_conformations
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=0.001,  # Very aggressive
+            force_outlier_threshold=0.001,
+            min_conformations=original_n_confs,  # Keep all
+        )
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+        )
+
+        new_n_confs = len(filtered[0]["energy"])
+
+        # Should keep all conformations
+        assert new_n_confs == original_n_confs
+
+    def test_no_filtering_when_disabled(self, dataset_with_outlier):
+        """Test that no filtering occurs when both thresholds are None."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+
+        original_n_confs = len(dataset[0]["energy"])
+
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=None,
+            force_outlier_threshold=None,
+        )
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+        )
+
+        new_n_confs = len(filtered[0]["energy"])
+
+        # Should keep all conformations
+        assert new_n_confs == original_n_confs
+
+    def test_raises_on_empty_dataset(self, ethanol_ff_and_topology):
+        """Test that empty dataset raises ValueError."""
+        import datasets as hf_datasets
+
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+
+        empty_dataset = hf_datasets.Dataset.from_dict(
+            {"smiles": [], "coords": [], "energy": [], "forces": []}
+        )
+
+        settings = OutlierFilterSettings()
+        with pytest.raises(ValueError, match="Cannot filter empty dataset"):
+            filter_dataset_outliers(
+                empty_dataset, tensor_ff, tensor_top, settings=settings
+            )

@@ -434,9 +434,10 @@ def predict_with_weights(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
     topologies: dict[str, smee.TensorTopology],
-    reference: typing.Literal["mean", "min"] = "mean",
+    reference: typing.Literal["mean", "min", "median"] = "mean",
     normalize: bool = True,
     device_type: str = "cpu",
+    create_graph: bool = True,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]:
@@ -452,6 +453,8 @@ def predict_with_weights(
         reference: The reference energy to compute the relative energies with respect to.
         normalize: Whether to scale the relative energies and forces.
         device_type: The device type (e.g., 'cpu' or 'cuda').
+        create_graph: Whether to create a computation graph for gradients.
+            Set to False for filtering/evaluation where backprop is not needed.
 
     Returns:
         Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
@@ -487,8 +490,8 @@ def predict_with_weights(
         forces_pred = -torch.autograd.grad(
             energy_pred.sum(),
             coords,
-            create_graph=True,
-            retain_graph=True,
+            create_graph=create_graph,
+            retain_graph=create_graph,
             allow_unused=True,
         )[0]
 
@@ -499,6 +502,9 @@ def predict_with_weights(
             min_idx = energy_ref.argmin()
             energy_ref_0 = energy_ref[min_idx]
             energy_pred_0 = energy_pred[min_idx]
+        elif reference.lower() == "median":
+            energy_ref_0 = energy_ref.median()
+            energy_pred_0 = energy_pred.median()
         else:
             raise NotImplementedError(f"invalid reference energy {reference}")
 
