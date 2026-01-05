@@ -303,15 +303,26 @@ def get_loss_closure_fn(
 
             return total_loss
 
-        loss = loss_fn(x)
-
+        # Compute Hessian first (needs fresh graph each time it's called internally)
         if compute_hessian:
             hessian = torch.autograd.functional.hessian(  # type: ignore[no-untyped-call]
                 loss_fn, x, vectorize=True, create_graph=False
             ).detach()
+
+        # Compute loss and gradient together
         if compute_gradient:
+            loss = loss_fn(x)
             (gradient,) = torch.autograd.grad(loss, x, create_graph=False)
             gradient = gradient.detach()
+            loss = loss.detach()
+        else:
+            # If no gradient needed, just compute loss without graph
+            with torch.no_grad():
+                loss = loss_fn(x)
+
+        # Free GPU memory explicitly
+        if x.device.type == "cuda":
+            torch.cuda.empty_cache()
 
         return loss, gradient, hessian
 
