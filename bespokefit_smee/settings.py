@@ -366,11 +366,30 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
         }
 
 
+class PreComputedDatasetSettings(_DefaultSettings):
+    """Settings for loading pre-computed datasets from disk."""
+
+    sampling_protocol: Literal["pre_computed"] = Field(
+        "pre_computed", description="Sampling protocol identifier."
+    )
+
+    dataset_path: Path = Field(
+        ...,
+        description="Path to the pre-computed dataset saved with dataset.save_to_disk().",
+    )
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        """Pre-computed datasets don't produce any output files."""
+        return set()
+
+
 SamplingSettings = Union[
     MMMDSamplingSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    PreComputedDatasetSettings,
 ]
 
 

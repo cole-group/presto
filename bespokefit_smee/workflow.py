@@ -14,7 +14,7 @@ from bespokefit_smee.convert import convert_to_smirnoff
 from .analyse import analyse_workflow
 from .convert import parameterise
 from .outputs import OutputStage, OutputType, StageKind
-from .sample import _SAMPLING_FNS_REGISTRY, SampleFn
+from .sample import _SAMPLING_FNS_REGISTRY, SampleFn, load_precomputed_dataset
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
 from .utils._suppress_output import suppress_unwanted_output
@@ -113,11 +113,13 @@ def get_bespoke_force_field(
             for output_type in settings.testing_sampling_settings.output_types
         },
     )
-    for mol_idx, dataset_test in enumerate(datasets_test):
-        dataset_path_mol = path_manager.get_output_path_for_mol(
-            stage, OutputType.ENERGIES_AND_FORCES, mol_idx
-        )
-        dataset_test.save_to_disk(str(dataset_path_mol))
+
+    if test_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
+        for mol_idx, dataset_test in enumerate(datasets_test):
+            dataset_path_mol = path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, mol_idx
+            )
+            dataset_test.save_to_disk(str(dataset_path_mol))
 
     # Write out statistics on the initial force field
     stage = OutputStage(StageKind.INITIAL_STATISTICS)
@@ -184,11 +186,12 @@ def get_bespoke_force_field(
             datasets_train = datasets_train_new
 
         # Save each dataset
-        for mol_idx, dataset_train in enumerate(datasets_train):
-            dataset_path_mol = path_manager.get_output_path_for_mol(
-                stage, OutputType.ENERGIES_AND_FORCES, mol_idx
-            )
-            dataset_train.save_to_disk(str(dataset_path_mol))
+        if train_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
+            for mol_idx, dataset_train in enumerate(datasets_train):
+                dataset_path_mol = path_manager.get_output_path_for_mol(
+                    stage, OutputType.ENERGIES_AND_FORCES, mol_idx
+                )
+                dataset_train.save_to_disk(str(dataset_path_mol))
 
         train_output_paths = {
             output_type: path_manager.get_output_path(stage, output_type)

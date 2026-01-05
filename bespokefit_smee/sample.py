@@ -1320,3 +1320,47 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         all_datasets.append(combined_dataset)
 
     return all_datasets
+
+
+@_register_sampling_fn(settings.PreComputedDatasetSettings)
+def load_precomputed_dataset(
+    mols: list[openff.toolkit.Molecule],
+    off_ff: openff.toolkit.ForceField,
+    device: torch.device,
+    settings: settings.PreComputedDatasetSettings,
+    output_paths: dict[OutputType, pathlib.Path],
+) -> list[datasets.Dataset]:
+    """Load a pre-computed dataset from disk.
+
+    Parameters
+    ----------
+    mols : list[openff.toolkit.Molecule]
+        The molecules (not used, kept for API consistency).
+    off_ff : openff.toolkit.ForceField
+        The force field (not used, kept for API consistency).
+    device : torch.device
+        The device (not used, kept for API consistency).
+    settings : PreComputedDatasetSettings
+        Settings containing the path to the pre-computed dataset.
+    output_paths : dict[OutputType, pathlib.Path]
+        Output paths (should be empty for this protocol).
+
+    Returns
+    -------
+    list[datasets.Dataset]
+        The loaded datasets.
+    """
+    if set(output_paths.keys()) != settings.output_types:
+        raise ValueError(
+            f"Output paths must contain exactly the keys {settings.output_types}"
+        )
+
+    if not settings.dataset_path.exists():
+        raise FileNotFoundError(f"Dataset not found at {settings.dataset_path}")
+
+    logger.info(f"Loading pre-computed dataset from {settings.dataset_path}")
+    loaded_dataset = datasets.load_from_disk(str(settings.dataset_path))
+    loaded_dataset.set_format("torch")
+
+    # Return as a list (one dataset containing all entries)
+    return [loaded_dataset]
