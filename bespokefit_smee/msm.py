@@ -12,6 +12,7 @@ import copy
 from collections import defaultdict
 from dataclasses import dataclass
 from operator import itemgetter
+from typing import Any
 
 import loguru
 import numpy as np
@@ -73,8 +74,8 @@ class BondParams:
     Both are stored as OpenFF Quantity objects with explicit units.
     """
 
-    force_constant: off_unit.Quantity  # kcal/mol/nm²
-    length: off_unit.Quantity  # nm
+    force_constant: Any  # off_unit.Quantity, kcal/mol/nm²
+    length: Any  # off_unit.Quantity, nm
 
     @classmethod
     def from_values(cls, force_constant: float, length: float) -> "BondParams":
@@ -93,8 +94,8 @@ class AngleParams:
     Both are stored as OpenFF Quantity objects with explicit units.
     """
 
-    force_constant: off_unit.Quantity  # kcal/mol/rad²
-    angle: off_unit.Quantity  # radians
+    force_constant: Any  # off_unit.Quantity, kcal/mol/rad²
+    angle: Any  # off_unit.Quantity, radians
 
     @classmethod
     def from_values(cls, force_constant: float, angle: float) -> "AngleParams":
@@ -122,7 +123,8 @@ def unit_vector_along_bond(
         Unit vector from atom_a to atom_b.
     """
     diff_ab = coords[atom_b] - coords[atom_a]
-    return diff_ab / np.linalg.norm(diff_ab)
+    result: npt.NDArray[np.floating[Any]] = diff_ab / np.linalg.norm(diff_ab)
+    return result
 
 
 def unit_vector_normal_to_plane(
@@ -142,7 +144,8 @@ def unit_vector_normal_to_plane(
     if norm < 1e-10:
         # Vectors are nearly parallel; return arbitrary perpendicular vector
         return _get_arbitrary_perpendicular(u_ab)
-    return cross / norm
+    result: npt.NDArray[np.floating[Any]] = cross / norm
+    return result
 
 
 def _get_arbitrary_perpendicular(
@@ -164,7 +167,8 @@ def _get_arbitrary_perpendicular(
 
     # Use Gram-Schmidt
     perp = v - np.dot(v, u) * u
-    return perp / np.linalg.norm(perp)
+    result: npt.NDArray[np.floating[Any]] = perp / np.linalg.norm(perp)
+    return result
 
 
 def compute_perpendicular_vector_in_plane(
@@ -373,10 +377,11 @@ def _calculate_linear_angle_force_constant(
 
 
 def _dot_product(
-    u_pa: npt.NDArray[np.floating], eig_vec: npt.NDArray[np.complexfloating]
+    u_pa: npt.NDArray[np.floating[Any]],
+    eig_vec: npt.NDArray[np.complexfloating[Any, Any]],
 ) -> complex:
     """Compute dot product handling complex eigenvectors."""
-    return sum(u_pa[i] * eig_vec[i].conjugate() for i in range(3))
+    return complex(sum(u_pa[i] * eig_vec[i].conjugate() for i in range(3)))
 
 
 # --- Scaling Factor Calculation ---
@@ -801,18 +806,18 @@ def apply_msm_to_molecules(
         )
 
         # Collect parameters by SMIRKS
-        for bond_idx, params in mol_bond_params.items():
+        for bond_idx, bond_params in mol_bond_params.items():
             smirks = bond_indices_to_smirks[bond_idx]
-            bond_params_by_smirks[smirks].append(params)
+            bond_params_by_smirks[smirks].append(bond_params)
 
-        for angle_idx, params in mol_angle_params.items():
+        for angle_idx, angle_params in mol_angle_params.items():
             smirks = angle_indices_to_smirks[angle_idx]
-            angle_params_by_smirks[smirks].append(params)
+            angle_params_by_smirks[smirks].append(angle_params)
 
     # Average parameters and update force field
     bond_handler: BondHandler = off_ff.get_parameter_handler("Bonds")
-    for smirks, params_list in bond_params_by_smirks.items():
-        mean_params = _mean_bond_params(params_list)
+    for smirks, bond_params_list in bond_params_by_smirks.items():
+        mean_bond_params = _mean_bond_params(bond_params_list)
         bond_param = bond_handler.get_parameter({"smirks": smirks})[0]
 
         # Get the original units from the force field parameter
@@ -820,16 +825,16 @@ def apply_msm_to_molecules(
         original_length_units = bond_param.length.units
 
         # Params already have units, just convert to original force field units
-        bond_param.k = mean_params.force_constant.to(original_k_units)
-        bond_param.length = mean_params.length.to(original_length_units)
+        bond_param.k = mean_bond_params.force_constant.to(original_k_units)
+        bond_param.length = mean_bond_params.length.to(original_length_units)
 
         logger.debug(
             f"Updated bond {smirks}: k={bond_param.k}, length={bond_param.length}"
         )
 
     angle_handler: AngleHandler = off_ff.get_parameter_handler("Angles")
-    for smirks, params_list in angle_params_by_smirks.items():
-        mean_params = _mean_angle_params(params_list)
+    for smirks, angle_params_list in angle_params_by_smirks.items():
+        mean_angle_params = _mean_angle_params(angle_params_list)
         angle_param = angle_handler.get_parameter({"smirks": smirks})[0]
 
         # Get the original units from the force field parameter
@@ -837,8 +842,8 @@ def apply_msm_to_molecules(
         original_angle_units = angle_param.angle.units
 
         # Params already have units, just convert to original force field units
-        angle_param.k = mean_params.force_constant.to(original_k_units)
-        angle_param.angle = mean_params.angle.to(original_angle_units)
+        angle_param.k = mean_angle_params.force_constant.to(original_k_units)
+        angle_param.angle = mean_angle_params.angle.to(original_angle_units)
 
         logger.debug(
             f"Updated angle {smirks}: k={angle_param.k}, angle={angle_param.angle}"

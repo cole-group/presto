@@ -53,7 +53,9 @@ except ImportError:
     sys.exit(1)
 
 
-def create_mock_hessian_angstrom(n_atoms: int, k_diagonal: float = 500.0) -> np.ndarray:
+def create_mock_hessian_angstrom(
+    n_atoms: int, k_diagonal: float = 500.0
+) -> "np.ndarray[tuple[int, int], np.dtype[np.float64]]":
     """Create a mock Hessian matrix in kcal/mol/Å² units.
 
     This creates a simple diagonal-dominated Hessian that represents
@@ -94,7 +96,7 @@ def create_mock_hessian_angstrom(n_atoms: int, k_diagonal: float = 500.0) -> np.
 
 def create_mock_hessian_atomic_units(
     n_atoms: int, k_diagonal: float = 500.0
-) -> np.ndarray:
+) -> "np.ndarray[tuple[int, int], np.dtype[np.float64]]":
     """Create a mock Hessian matrix in atomic units (Hartree/Bohr²).
 
     QUBEKit expects the Hessian in atomic units and converts internally.
@@ -113,12 +115,14 @@ def create_mock_hessian_atomic_units(
     # QUBEKit does: hessian *= constants.HA_TO_KCAL_P_MOL / (constants.BOHR_TO_ANGS**2)
     # So to go backwards: hessian_au = hessian_kcal_A2 / (HA_TO_KCAL_P_MOL / BOHR_TO_ANGS**2)
     conversion = constants.HA_TO_KCAL_P_MOL / (constants.BOHR_TO_ANGS**2)
-    hessian_au = hessian_kcal_angstrom / conversion
+    hessian_au: np.ndarray[tuple[int, int], np.dtype[np.float64]] = (
+        hessian_kcal_angstrom / conversion
+    )
 
     return hessian_au
 
 
-def main():
+def main() -> None:
     """Generate reference values using QUBEKit's ModSeminario."""
     print("=" * 70)
     print("QUBEKit Modified Seminario Method - Reference Value Generator")

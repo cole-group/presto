@@ -17,11 +17,12 @@ def _get_forces(simulation: Simulation, positions: np.ndarray) -> np.ndarray:
     Compute the forces on the system at the given positions
     """
     simulation.context.setPositions(positions * _LENGTH_UNIT)
-    return (
+    forces: np.ndarray = (
         simulation.context.getState(getForces=True)
         .getForces(asNumpy=True)
         .value_in_unit(_FORCE_UNIT)
     )
+    return forces
 
 
 def calculate_hessian(
