@@ -4,7 +4,6 @@ import numpy as np
 from openmm import unit
 from openmm.app import Simulation
 
-
 _LENGTH_UNIT = unit.nanometers
 _ENERGY_UNIT = unit.kilocalorie_per_mole
 _FORCE_UNIT = _ENERGY_UNIT / _LENGTH_UNIT

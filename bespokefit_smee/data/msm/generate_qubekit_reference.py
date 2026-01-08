@@ -7,7 +7,7 @@ the Modified Seminario Method, which can then be used as reference values
 for testing our implementation.
 
 Usage:
-    conda run -n qubekit python bespokefit_smee/tests/unit/generate_qubekit_reference.py
+    conda run -n qubekit python bespokefit_smee/data/msm/generate_qubekit_reference.py
 
 Requirements:
     - QUBEKit must be installed (available in the 'qubekit' conda environment)
@@ -20,8 +20,17 @@ The script will:
 
 These values can be compared against our implementation to verify correctness.
 
-Note: We use an asymmetric molecule (2-bromo-2-chloroethanol, BrClCH-CH2-OH) to avoid
-symmetry averaging issues when comparing against our implementation.
+Note on mock Hessian:
+    This script contains its own mock Hessian generation functions because it must
+    run in a separate QUBEKit environment where bespokefit_smee is not installed.
+    The create_mock_hessian function in tests/unit/test_msm.py uses the same
+    algorithm and parameters (k_diagonal=500.0 kcal/mol/Å²).
+
+Note on test molecule:
+    We use fluorochlorobromomethanol (OC(F)(Cl)Br), a fully asymmetric molecule,
+    to avoid QUBEKit's internal symmetry averaging when comparing against our
+    implementation (in our workflow, symmetry averaging is handled by having
+    symmetric atoms share the same SMIRKS types).
 """
 
 import json
@@ -39,7 +48,7 @@ except ImportError:
     print("ERROR: QUBEKit is not installed in this environment.")
     print("Please run this script using:")
     print(
-        "    conda run -n qubekit python bespokefit_smee/tests/unit/generate_qubekit_reference.py"
+        "    conda run -n qubekit python bespokefit_smee/data/msm/generate_qubekit_reference.py"
     )
     sys.exit(1)
 
@@ -129,7 +138,7 @@ def main():
 
     # Print coordinates
     print("Coordinates (Angstroms):")
-    for i, (atom, coord) in enumerate(zip(mol.atoms, mol.coordinates)):
+    for i, (atom, coord) in enumerate(zip(mol.atoms, mol.coordinates, strict=True)):
         print(
             f"  {i}: {atom.atomic_symbol:2s} [{coord[0]:10.6f}, {coord[1]:10.6f}, {coord[2]:10.6f}]"
         )

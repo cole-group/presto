@@ -27,36 +27,82 @@ from openff.units import unit as off_unit
 from openmm.app import Simulation
 from tqdm import tqdm
 
-from .hessian import _HESSIAN_UNIT, calculate_hessian
+from .hessian import calculate_hessian
 from .sample import _copy_mol_and_add_conformers, _get_integrator, _get_ml_omm_system
 from .settings import MSMSettings
 
 logger = loguru.logger
 
-# OpenMM unit constants
+# =============================================================================
+# Unit Definitions
+# =============================================================================
+# We define standard units for internal calculations. The MSM algorithm works
+# with unitless numpy arrays internally, so we strip units at boundaries and
+# re-attach them when creating output objects.
+#
+# Internal units (used in numpy calculations):
+#   - Length: nm
+#   - Energy: kcal/mol (consistent throughout the codebase)
+#   - Hessian: kcal/mol/nm² (for bonds) and kcal/mol/rad² (for angles)
+#
+# OpenMM uses kcal/mol internally, which matches our internal convention.
+# =============================================================================
+
+# OpenMM unit constants (for simulation setup)
 _OMM_KELVIN = openmm.unit.kelvin
 _OMM_FEMTOSECOND = openmm.unit.femtoseconds
 _OMM_NM = openmm.unit.nanometer
-_OMM_ANGS = openmm.unit.angstrom
 
-# Conversion factors
-_KCAL_TO_KJ = 4.184  # kcal/mol to kJ/mol
+# Internal calculation units (unitless floats in these dimensions)
+_INTERNAL_LENGTH_UNIT = openmm.unit.nanometer
+_INTERNAL_ENERGY_UNIT = openmm.unit.kilocalorie_per_mole
+_INTERNAL_HESSIAN_UNIT = _INTERNAL_ENERGY_UNIT / (_INTERNAL_LENGTH_UNIT**2)
+
+# OpenFF unit constants for MSM outputs (with explicit units attached)
+_BOND_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.nanometer**2
+_BOND_LENGTH_UNIT = off_unit.nanometer
+_ANGLE_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.radian**2
+_ANGLE_UNIT = off_unit.radian
 
 
 @dataclass
 class BondParams:
-    """Parameters for a harmonic bond potential."""
+    """Parameters for a harmonic bond potential with explicit units.
 
-    force_constant: float  # kJ/mol/nm^2
-    length: float  # nm
+    Force constant is in kcal/mol/nm² and length is in nm.
+    Both are stored as OpenFF Quantity objects with explicit units.
+    """
+
+    force_constant: off_unit.Quantity  # kcal/mol/nm²
+    length: off_unit.Quantity  # nm
+
+    @classmethod
+    def from_values(cls, force_constant: float, length: float) -> "BondParams":
+        """Create BondParams from raw float values (assumed kcal/mol/nm² and nm)."""
+        return cls(
+            force_constant=force_constant * _BOND_K_UNIT,
+            length=length * _BOND_LENGTH_UNIT,
+        )
 
 
 @dataclass
 class AngleParams:
-    """Parameters for a harmonic angle potential."""
+    """Parameters for a harmonic angle potential with explicit units.
 
-    force_constant: float  # kJ/mol/rad^2
-    angle: float  # radians
+    Force constant is in kcal/mol/rad² and angle is in radians.
+    Both are stored as OpenFF Quantity objects with explicit units.
+    """
+
+    force_constant: off_unit.Quantity  # kcal/mol/rad²
+    angle: off_unit.Quantity  # radians
+
+    @classmethod
+    def from_values(cls, force_constant: float, angle: float) -> "AngleParams":
+        """Create AngleParams from raw float values (assumed kcal/mol/rad² and radians)."""
+        return cls(
+            force_constant=force_constant * _ANGLE_K_UNIT,
+            angle=angle * _ANGLE_UNIT,
+        )
 
 
 # --- Vector Calculation Functions ---
@@ -524,17 +570,13 @@ def calculate_bond_params(
 
     Args:
         bond_indices: List of bond tuples (atom_i, atom_j).
-        hessian_decomposer: Decomposed Hessian data.
+        hessian_decomposer: Decomposed Hessian data (in internal units: kcal/mol/nm²).
         vib_scaling: Vibrational scaling factor.
 
     Returns:
         Dictionary mapping bond indices to BondParams.
     """
     bond_params: dict[tuple[int, int], BondParams] = {}
-
-    # Conversion: kcal/mol/nm^2 -> kJ/mol/nm^2
-    # Hessian eigenvalues are in kcal/mol/nm^2, just convert energy units
-    k_conversion = _KCAL_TO_KJ
 
     for bond in bond_indices:
         # Calculate force constant in both directions and average
@@ -552,15 +594,15 @@ def calculate_bond_params(
         )
 
         # Average and apply vibrational scaling
+        # Force constant is in kcal/mol/nm² (from internal units)
         k_bond = ((k_ab + k_ba) / 2.0) * (vib_scaling**2)
 
-        # Get equilibrium length in nm (bond_lengths is in same units as coords, which is nm)
+        # Get equilibrium length in nm (from internal units)
         bond_length_nm = hessian_decomposer.bond_lengths[bond[0], bond[1]]
 
-        # Convert force constant to kJ/mol/nm^2
-        k_bond_kj = k_bond * k_conversion
-
-        bond_params[bond] = BondParams(force_constant=k_bond_kj, length=bond_length_nm)
+        bond_params[bond] = BondParams.from_values(
+            force_constant=k_bond, length=bond_length_nm
+        )
 
     return bond_params
 
@@ -574,7 +616,7 @@ def calculate_angle_params(
 
     Args:
         angle_indices: List of angle tuples (atom_i, atom_j, atom_k).
-        hessian_decomposer: Decomposed Hessian data.
+        hessian_decomposer: Decomposed Hessian data (in internal units: kcal/mol/nm²).
         vib_scaling: Vibrational scaling factor.
 
     Returns:
@@ -590,9 +632,6 @@ def calculate_angle_params(
     all_scaling_factors = scaling_calculator.compute_scaling_factors()
 
     angle_params: dict[tuple[int, int, int], AngleParams] = {}
-
-    # Conversion: kcal/mol/rad^2 -> kJ/mol/rad^2
-    k_conversion = _KCAL_TO_KJ
 
     for angle_idx, angle in enumerate(angle_indices):
         scalings = all_scaling_factors[angle_idx]
@@ -616,14 +655,14 @@ def calculate_angle_params(
         )
 
         # Average and apply vibrational scaling
+        # Force constant is in kcal/mol/rad² (derived from internal units)
         k_theta = ((k_theta_ab + k_theta_ba) / 2.0) * (vib_scaling**2)
-        theta_0 = (theta_0_ab + theta_0_ba) / 2.0
+        # Angle is returned in degrees, convert to radians
+        theta_0_rad = np.radians((theta_0_ab + theta_0_ba) / 2.0)
 
-        # Convert force constant to kJ/mol/rad^2 and angle to radians
-        k_theta_kj = k_theta * k_conversion
-        theta_0_rad = np.radians(theta_0)
-
-        angle_params[angle] = AngleParams(force_constant=k_theta_kj, angle=theta_0_rad)
+        angle_params[angle] = AngleParams.from_values(
+            force_constant=k_theta, angle=theta_0_rad
+        )
 
     return angle_params
 
@@ -663,17 +702,20 @@ def apply_msm_to_molecule(
         asNumpy=True
     )
 
-    # Convert positions to nanometers to match Hessian units (kcal/mol/nm^2)
-    coords = positions.value_in_unit(_OMM_NM)
+    # Convert positions to internal units (nm)
+    coords = positions.value_in_unit(_INTERNAL_LENGTH_UNIT)
 
-    # Compute Hessian at the minimum
-    hessian = calculate_hessian(
+    # Compute Hessian at the minimum and convert to internal units (kcal/mol/nm²)
+    # The hessian is returned with OpenMM units attached, so we use automatic
+    # unit conversion to our internal standard units
+    hessian_with_units = calculate_hessian(
         simulation,
         positions,
         finite_step=settings.finite_step,
-    ).value_in_unit(_HESSIAN_UNIT)
+    )
+    hessian = hessian_with_units.value_in_unit(_INTERNAL_HESSIAN_UNIT)
 
-    # Decompose Hessian
+    # Decompose Hessian (works with unitless numpy arrays in internal units)
     hessian_decomposer = HessianDecomposer(hessian, coords)
 
     # Calculate bond and angle parameters
@@ -777,17 +819,9 @@ def apply_msm_to_molecules(
         original_k_units = bond_param.k.units
         original_length_units = bond_param.length.units
 
-        # Create quantities with standard units and convert to original units
-        new_k = (
-            mean_params.force_constant
-            * off_unit.kilojoule_per_mole
-            / off_unit.nanometer**2
-        )
-        new_length = mean_params.length * off_unit.nanometer
-
-        # Assign with conversion to original units
-        bond_param.k = new_k.to(original_k_units)
-        bond_param.length = new_length.to(original_length_units)
+        # Params already have units, just convert to original force field units
+        bond_param.k = mean_params.force_constant.to(original_k_units)
+        bond_param.length = mean_params.length.to(original_length_units)
 
         logger.debug(
             f"Updated bond {smirks}: k={bond_param.k}, length={bond_param.length}"
@@ -802,17 +836,9 @@ def apply_msm_to_molecules(
         original_k_units = angle_param.k.units
         original_angle_units = angle_param.angle.units
 
-        # Create quantities with standard units and convert to original units
-        new_k = (
-            mean_params.force_constant
-            * off_unit.kilojoule_per_mole
-            / off_unit.radian**2
-        )
-        new_angle = mean_params.angle * off_unit.radian
-
-        # Assign with conversion to original units
-        angle_param.k = new_k.to(original_k_units)
-        angle_param.angle = new_angle.to(original_angle_units)
+        # Params already have units, just convert to original force field units
+        angle_param.k = mean_params.force_constant.to(original_k_units)
+        angle_param.angle = mean_params.angle.to(original_angle_units)
 
         logger.debug(
             f"Updated angle {smirks}: k={angle_param.k}, angle={angle_param.angle}"

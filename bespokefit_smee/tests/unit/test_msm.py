@@ -3,9 +3,14 @@ Unit tests for msm.py (for computing bond and angle parameters
 using the modified Seminario method -- see https://doi.org/10.1021/acs.jctc.7b00785).
 """
 
+import json
+import math
+from pathlib import Path
+
 import numpy as np
 import pytest
 from openff.toolkit import ForceField, Molecule
+from openff.units import unit as off_unit
 
 from bespokefit_smee.msm import (
     AngleParams,
@@ -28,6 +33,12 @@ from bespokefit_smee.msm import (
     unit_vector_normal_to_plane,
 )
 from bespokefit_smee.settings import MSMSettings
+
+# Unit constants for testing (kcal/mol is the standard energy unit throughout)
+_BOND_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.nanometer**2
+_BOND_LENGTH_UNIT = off_unit.nanometer
+_ANGLE_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.radian**2
+_ANGLE_UNIT = off_unit.radian
 
 # --- Fixtures ---
 
@@ -502,23 +513,79 @@ class TestCalculateBondParams:
         result = calculate_bond_params(bond_indices, decomposer, vib_scaling=1.0)
 
         # Bond length is 1.0 Å = 0.1 nm
-        np.testing.assert_allclose(result[(0, 1)].length, 0.1, rtol=0.01)
+        np.testing.assert_allclose(
+            result[(0, 1)].length.m_as(_BOND_LENGTH_UNIT), 0.1, rtol=0.01
+        )
 
 
-def _create_realistic_hessian(n_atoms: int, k_val: float = -500.0) -> np.ndarray:
-    """Create a realistic mock Hessian for testing."""
-    hessian = np.zeros((3 * n_atoms, 3 * n_atoms))
+def create_mock_hessian(
+    n_atoms: int,
+    k_diagonal: float = 500.0,
+    units: str = "kcal_mol_nm2",
+) -> np.ndarray:
+    """Create a mock Hessian matrix for testing.
+
+    Creates a diagonal-dominated Hessian that represents harmonic restoring forces.
+    This is the canonical mock Hessian generator used across all MSM tests.
+
+    The base k_diagonal is specified in kcal/mol/Å² units (a common QM output unit),
+    then converted to the requested output units.
+
+    Args:
+        n_atoms: Number of atoms
+        k_diagonal: Force constant for diagonal elements in kcal/mol/Å²
+        units: Output unit system. Options:
+            - "kcal_mol_nm2": kcal/mol/nm² (default, for MSM functions - internal units)
+            - "kj_mol_nm2": kJ/mol/nm²
+            - "kcal_mol_A2": kcal/mol/Å² (raw QM-like units)
+            - "hartree_bohr2": Hartree/Bohr² (atomic units, for QUBEKit)
+
+    Returns:
+        Hessian matrix of shape (3*n_atoms, 3*n_atoms) in requested units
+    """
+    KCAL_TO_KJ = 4.184
+
+    size = 3 * n_atoms
+    hessian = np.zeros((size, size))
+
+    # Set diagonal blocks (self-interaction)
+    for i in range(n_atoms):
+        block = np.diag([k_diagonal, k_diagonal, k_diagonal])
+        hessian[i * 3 : (i + 1) * 3, i * 3 : (i + 1) * 3] = block
+
+    # Set off-diagonal blocks (interactions between atoms)
+    k_coupling = -k_diagonal / (n_atoms - 1)
     for i in range(n_atoms):
         for j in range(n_atoms):
             if i != j:
                 hessian[i * 3 : (i + 1) * 3, j * 3 : (j + 1) * 3] = np.diag(
-                    [k_val, k_val, k_val]
+                    [k_coupling, k_coupling, k_coupling]
                 )
-            else:
-                hessian[i * 3 : (i + 1) * 3, j * 3 : (j + 1) * 3] = np.diag(
-                    [-k_val * 2, -k_val * 2, -k_val * 2]
-                )
-    return hessian
+
+    # Ensure symmetry
+    hessian = 0.5 * (hessian + hessian.T)
+
+    # Convert to requested units (base is kcal/mol/Å²)
+    if units == "kcal_mol_A2":
+        # Already in kcal/mol/Å²
+        return hessian
+    elif units == "kcal_mol_nm2":
+        # 1 nm = 10 Å, so 1/nm² = 1/100 Å²
+        # k [kcal/mol/nm²] = k [kcal/mol/Å²] * 100
+        return hessian * 100.0
+    elif units == "kj_mol_nm2":
+        # Convert kcal→kJ and Å²→nm²
+        # k [kJ/mol/nm²] = k [kcal/mol/Å²] * 100 * 4.184
+        return hessian * 100.0 * KCAL_TO_KJ
+    elif units == "hartree_bohr2":
+        # QUBEKit conversion: hessian *= HA_TO_KCAL_P_MOL / BOHR_TO_ANGS²
+        # So reverse: hessian_au = hessian_kcal_A2 / (HA_TO_KCAL_P_MOL / BOHR_TO_ANGS²)
+        HA_TO_KCAL_P_MOL = 627.509474  # From QUBEKit constants
+        BOHR_TO_ANGS = 0.529177249
+        conversion = HA_TO_KCAL_P_MOL / (BOHR_TO_ANGS**2)
+        return hessian / conversion
+    else:
+        raise ValueError(f"Unknown units: {units}")
 
 
 class TestCalculateAngleParams:
@@ -526,7 +593,7 @@ class TestCalculateAngleParams:
 
     def test_returns_dict_of_angle_params(self, water_coords):
         """Test that function returns dictionary of AngleParams."""
-        hessian = _create_realistic_hessian(3)
+        hessian = create_mock_hessian(3)  # Uses default kcal_mol_nm2
         decomposer = HessianDecomposer(hessian, water_coords)
         angle_indices = [(1, 0, 2)]
         vib_scaling = 1.0
@@ -539,7 +606,7 @@ class TestCalculateAngleParams:
 
     def test_empty_angles_returns_empty_dict(self, water_coords):
         """Test that empty angle list returns empty dict."""
-        hessian = _create_realistic_hessian(3)
+        hessian = create_mock_hessian(3)  # Uses default kcal_mol_nm2
         decomposer = HessianDecomposer(hessian, water_coords)
 
         result = calculate_angle_params([], decomposer, vib_scaling=1.0)
@@ -548,14 +615,15 @@ class TestCalculateAngleParams:
 
     def test_angle_in_radians(self, water_coords):
         """Test that angle is returned in radians."""
-        hessian = _create_realistic_hessian(3)
+        hessian = create_mock_hessian(3)  # Uses default kcal_mol_nm2
         decomposer = HessianDecomposer(hessian, water_coords)
         angle_indices = [(1, 0, 2)]
 
         result = calculate_angle_params(angle_indices, decomposer, vib_scaling=1.0)
 
         # Angle should be in radians (water angle ~104 deg = ~1.8 rad)
-        assert 1.5 < result[(1, 0, 2)].angle < 2.1
+        angle_rad = result[(1, 0, 2)].angle.m_as(_ANGLE_UNIT)
+        assert 1.5 < angle_rad < 2.1
 
 
 # --- Mean Parameter Tests ---
@@ -566,20 +634,28 @@ class TestMeanBondParams:
 
     def test_single_param(self):
         """Test mean of single parameter."""
-        params = [BondParams(force_constant=1000.0, length=0.15)]
+        params = [BondParams.from_values(force_constant=1000.0, length=0.15)]
         result = _mean_bond_params(params)
-        assert result.force_constant == 1000.0
-        assert result.length == 0.15
+        np.testing.assert_allclose(
+            result.force_constant.m_as(_BOND_K_UNIT), 1000.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(
+            result.length.m_as(_BOND_LENGTH_UNIT), 0.15, rtol=1e-10
+        )
 
     def test_multiple_params(self):
         """Test mean of multiple parameters."""
         params = [
-            BondParams(force_constant=1000.0, length=0.14),
-            BondParams(force_constant=2000.0, length=0.16),
+            BondParams.from_values(force_constant=1000.0, length=0.14),
+            BondParams.from_values(force_constant=2000.0, length=0.16),
         ]
         result = _mean_bond_params(params)
-        np.testing.assert_allclose(result.force_constant, 1500.0, rtol=1e-10)
-        np.testing.assert_allclose(result.length, 0.15, rtol=1e-10)
+        np.testing.assert_allclose(
+            result.force_constant.m_as(_BOND_K_UNIT), 1500.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(
+            result.length.m_as(_BOND_LENGTH_UNIT), 0.15, rtol=1e-10
+        )
 
     def test_empty_raises_error(self):
         """Test that empty list raises ValueError."""
@@ -592,20 +668,24 @@ class TestMeanAngleParams:
 
     def test_single_param(self):
         """Test mean of single parameter."""
-        params = [AngleParams(force_constant=500.0, angle=1.9)]
+        params = [AngleParams.from_values(force_constant=500.0, angle=1.9)]
         result = _mean_angle_params(params)
-        assert result.force_constant == 500.0
-        assert result.angle == 1.9
+        np.testing.assert_allclose(
+            result.force_constant.m_as(_ANGLE_K_UNIT), 500.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(result.angle.m_as(_ANGLE_UNIT), 1.9, rtol=1e-10)
 
     def test_multiple_params(self):
         """Test mean of multiple parameters."""
         params = [
-            AngleParams(force_constant=400.0, angle=1.8),
-            AngleParams(force_constant=600.0, angle=2.0),
+            AngleParams.from_values(force_constant=400.0, angle=1.8),
+            AngleParams.from_values(force_constant=600.0, angle=2.0),
         ]
         result = _mean_angle_params(params)
-        assert result.force_constant == 500.0
-        assert result.angle == 1.9
+        np.testing.assert_allclose(
+            result.force_constant.m_as(_ANGLE_K_UNIT), 500.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(result.angle.m_as(_ANGLE_UNIT), 1.9, rtol=1e-10)
 
     def test_empty_raises_error(self):
         """Test that empty list raises ValueError."""
@@ -619,32 +699,52 @@ class TestMeanAngleParams:
 class TestBondParams:
     """Tests for BondParams dataclass."""
 
-    def test_creation(self):
-        """Test BondParams creation."""
-        params = BondParams(force_constant=1000.0, length=0.15)
-        assert params.force_constant == 1000.0
-        assert params.length == 0.15
+    def test_creation_from_values(self):
+        """Test BondParams creation using from_values factory method."""
+        params = BondParams.from_values(force_constant=1000.0, length=0.15)
+        np.testing.assert_allclose(
+            params.force_constant.m_as(_BOND_K_UNIT), 1000.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(
+            params.length.m_as(_BOND_LENGTH_UNIT), 0.15, rtol=1e-10
+        )
+
+    def test_has_units(self):
+        """Test that BondParams has proper units."""
+        params = BondParams.from_values(force_constant=1000.0, length=0.15)
+        # Check that values are Quantity objects with correct units
+        assert params.force_constant.is_compatible_with(_BOND_K_UNIT)
+        assert params.length.is_compatible_with(_BOND_LENGTH_UNIT)
 
     def test_equality(self):
         """Test BondParams equality."""
-        p1 = BondParams(force_constant=1000.0, length=0.15)
-        p2 = BondParams(force_constant=1000.0, length=0.15)
+        p1 = BondParams.from_values(force_constant=1000.0, length=0.15)
+        p2 = BondParams.from_values(force_constant=1000.0, length=0.15)
         assert p1 == p2
 
 
 class TestAngleParams:
     """Tests for AngleParams dataclass."""
 
-    def test_creation(self):
-        """Test AngleParams creation."""
-        params = AngleParams(force_constant=500.0, angle=1.9)
-        assert params.force_constant == 500.0
-        assert params.angle == 1.9
+    def test_creation_from_values(self):
+        """Test AngleParams creation using from_values factory method."""
+        params = AngleParams.from_values(force_constant=500.0, angle=1.9)
+        np.testing.assert_allclose(
+            params.force_constant.m_as(_ANGLE_K_UNIT), 500.0, rtol=1e-10
+        )
+        np.testing.assert_allclose(params.angle.m_as(_ANGLE_UNIT), 1.9, rtol=1e-10)
+
+    def test_has_units(self):
+        """Test that AngleParams has proper units."""
+        params = AngleParams.from_values(force_constant=500.0, angle=1.9)
+        # Check that values are Quantity objects with correct units
+        assert params.force_constant.is_compatible_with(_ANGLE_K_UNIT)
+        assert params.angle.is_compatible_with(_ANGLE_UNIT)
 
     def test_equality(self):
         """Test AngleParams equality."""
-        p1 = AngleParams(force_constant=500.0, angle=1.9)
-        p2 = AngleParams(force_constant=500.0, angle=1.9)
+        p1 = AngleParams.from_values(force_constant=500.0, angle=1.9)
+        p2 = AngleParams.from_values(force_constant=500.0, angle=1.9)
         assert p1 == p2
 
 
@@ -673,14 +773,14 @@ class TestApplyMSMToMolecule:
         assert len(bond_params) == len(bond_indices)
         assert len(angle_params) == len(angle_indices)
 
-        # Check all force constants are positive
+        # Check all force constants are positive (Quantity objects support > comparison)
         for bp in bond_params.values():
-            assert bp.force_constant > 0
-            assert bp.length > 0
+            assert bp.force_constant.magnitude > 0
+            assert bp.length.magnitude > 0
 
         for ap in angle_params.values():
-            assert ap.force_constant > 0
-            assert 0 < ap.angle < np.pi
+            assert ap.force_constant.magnitude > 0
+            assert 0 < ap.angle.m_as(_ANGLE_UNIT) < np.pi
 
     def test_returns_correct_types(self, msm_settings):
         """Test that return types are correct."""
@@ -735,7 +835,7 @@ class TestApplyMSMToMolecules:
         bond_handler = ff.get_parameter_handler("Bonds")
         original_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        _modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
 
         # Check original is unchanged
         new_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
@@ -802,20 +902,20 @@ class TestApplyMSMToMolecules:
 
         for param in mod_bond_handler.parameters:
             # Check dimensional compatibility by attempting conversion
-            assert param.k.is_compatible_with(
-                original_bond_k_units
-            ), f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
-            assert param.length.is_compatible_with(
-                original_bond_length_units
-            ), f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
+            assert param.k.is_compatible_with(original_bond_k_units), (
+                f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
+            )
+            assert param.length.is_compatible_with(original_bond_length_units), (
+                f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
+            )
 
         for param in mod_angle_handler.parameters:
-            assert param.k.is_compatible_with(
-                original_angle_k_units
-            ), f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
-            assert param.angle.is_compatible_with(
-                original_angle_angle_units
-            ), f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
+            assert param.k.is_compatible_with(original_angle_k_units), (
+                f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
+            )
+            assert param.angle.is_compatible_with(original_angle_angle_units), (
+                f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
+            )
 
 
 # --- MSMSettings Tests ---
@@ -839,3 +939,253 @@ class TestMSMSettings:
         """Test custom ML potential."""
         settings = MSMSettings(ml_potential="mace-off23-medium")
         assert settings.ml_potential == "mace-off23-medium"
+
+
+# =============================================================================
+# QUBEKit Reference Comparison Tests
+# =============================================================================
+#
+# These tests compare the MSM implementation against QUBEKit's reference
+# implementation.
+#
+# Reference values were generated using QUBEKit installed at:
+# /home/campus.ncl.ac.uk/nfc78/miniforge3/envs/qubekit
+#
+# Test Molecule: Fluorochlorobromomethanol (OC(F)(Cl)Br)
+# - 6 atoms: O, C, F, Cl, Br, H
+# - 5 bonds (all unique): C-O, C-F, C-Cl, C-Br, O-H
+# - 7 angles (all unique)
+# - Fully asymmetric to avoid QUBEKit's internal symmetry averaging
+#
+# Convention: Both QUBEKit and our implementation output force constants
+# in the OpenMM convention: U = k * (r - r0)^2 (no 1/2 factor)
+# =============================================================================
+
+# Load reference data from QUBEKit JSON file
+_QUBEKIT_REFERENCE_FILE = (
+    Path(__file__).parent.parent.parent
+    / "data"
+    / "msm"
+    / "qubekit_reference_values.json"
+)
+
+
+def _load_qubekit_reference_data():
+    """Load QUBEKit reference data, returning None if file not found."""
+    if not _QUBEKIT_REFERENCE_FILE.exists():
+        return None
+    with open(_QUBEKIT_REFERENCE_FILE) as f:
+        return json.load(f)
+
+
+# Load reference data at module level
+_QUBEKIT_REFERENCE_DATA = _load_qubekit_reference_data()
+
+
+def _parse_reference_data():
+    """Parse the reference JSON data into usable format."""
+    if _QUBEKIT_REFERENCE_DATA is None:
+        return None, None, None, None, None
+
+    # Conversion factor from kJ/mol to kcal/mol
+    KJ_TO_KCAL = 1.0 / 4.184
+
+    # Coordinates in Angstroms (from QUBEKit/RDKit), converted to nm
+    coords_angstrom = np.array(_QUBEKIT_REFERENCE_DATA["coordinates_angstrom"])
+    coords_nm = coords_angstrom / 10.0
+
+    # Bond and angle lists
+    bonds = [tuple(b) for b in _QUBEKIT_REFERENCE_DATA["bonds"]]
+    angles = [tuple(a) for a in _QUBEKIT_REFERENCE_DATA["angles"]]
+
+    # QUBEKit bond parameters (OpenMM convention: U = k*x^2)
+    # Reference data is in kJ/mol/nm², convert to kcal/mol/nm²
+    bond_params = {
+        tuple(map(int, k.strip("()").split(", "))): (
+            v["length_nm"],
+            v["k_kj_mol_nm2"] * KJ_TO_KCAL,
+        )
+        for k, v in _QUBEKIT_REFERENCE_DATA["bond_params"].items()
+    }
+
+    # QUBEKit angle parameters (OpenMM convention: U = k*x^2)
+    # Reference data is in kJ/mol/rad², convert to kcal/mol/rad²
+    angle_params = {
+        tuple(map(int, k.strip("()").split(", "))): (
+            v["angle_deg"],
+            v["k_kj_mol_rad2"] * KJ_TO_KCAL,
+        )
+        for k, v in _QUBEKIT_REFERENCE_DATA["angle_params"].items()
+    }
+
+    return coords_nm, bonds, angles, bond_params, angle_params
+
+
+# Parse reference data at module level
+(
+    _QUBEKIT_COORDS_NM,
+    _QUBEKIT_BONDS,
+    _QUBEKIT_ANGLES,
+    _QUBEKIT_BOND_PARAMS,
+    _QUBEKIT_ANGLE_PARAMS,
+) = _parse_reference_data()
+
+
+# Skip all QUBEKit comparison tests if reference file is not found
+_skip_qubekit_tests = _QUBEKIT_REFERENCE_DATA is None
+
+
+@pytest.mark.skipif(
+    _skip_qubekit_tests,
+    reason=f"QUBEKit reference file not found at {_QUBEKIT_REFERENCE_FILE}",
+)
+class TestMSMQubekitComparison:
+    """Test MSM implementation against QUBEKit reference values.
+
+    These tests verify that our MSM implementation produces the same results
+    as QUBEKit's ModSeminario method for the same input Hessian and geometry.
+
+    The reference values were generated using generate_qubekit_reference.py
+    located in bespokefit_smee/data/msm/.
+    """
+
+    @pytest.fixture
+    def decomposer(self):
+        """Create HessianDecomposer for the test molecule."""
+        # Create the same mock Hessian structure as QUBEKit uses (kcal/mol/nm² - default)
+        hessian = create_mock_hessian(len(_QUBEKIT_COORDS_NM), k_diagonal=500.0)
+        return HessianDecomposer(hessian, _QUBEKIT_COORDS_NM)
+
+    @pytest.fixture
+    def bond_list(self):
+        """Bond connectivity."""
+        return _QUBEKIT_BONDS
+
+    @pytest.fixture
+    def angle_list(self):
+        """Angle connectivity."""
+        return _QUBEKIT_ANGLES
+
+    def test_bond_lengths(self, decomposer, bond_list):
+        """Test that calculated bond lengths match QUBEKit within tolerance."""
+        bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
+
+        for bond in bond_list:
+            expected_length = _QUBEKIT_BOND_PARAMS[bond][0]
+            calculated_length = bond_params[bond].length.m_as(_BOND_LENGTH_UNIT)
+
+            # Bond lengths should match very closely (geometry is the same)
+            np.testing.assert_allclose(
+                calculated_length,
+                expected_length,
+                rtol=1e-4,
+                err_msg=f"Bond length mismatch for bond {bond}",
+            )
+
+    def test_bond_force_constants(self, decomposer, bond_list):
+        """Test that calculated bond force constants match QUBEKit within tolerance."""
+        bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
+
+        for bond in bond_list:
+            expected_k = _QUBEKIT_BOND_PARAMS[bond][1]
+            calculated_k = bond_params[bond].force_constant.m_as(_BOND_K_UNIT)
+
+            # Force constants should match within ~5%
+            np.testing.assert_allclose(
+                calculated_k,
+                expected_k,
+                rtol=0.05,
+                err_msg=f"Bond force constant mismatch for bond {bond}: "
+                f"calculated={calculated_k:.2f}, expected={expected_k:.2f}",
+            )
+
+    def test_angle_values(self, decomposer, angle_list):
+        """Test that calculated angle values match QUBEKit within tolerance."""
+        angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
+
+        for angle in angle_list:
+            expected_angle_deg = _QUBEKIT_ANGLE_PARAMS[angle][0]
+            calculated_angle_rad = angle_params[angle].angle.m_as(_ANGLE_UNIT)
+            calculated_angle_deg = math.degrees(calculated_angle_rad)
+
+            # Angles should match very closely (geometry is the same)
+            np.testing.assert_allclose(
+                calculated_angle_deg,
+                expected_angle_deg,
+                rtol=1e-3,
+                err_msg=f"Angle mismatch for angle {angle}",
+            )
+
+    def test_angle_force_constants(self, decomposer, angle_list):
+        """Test that calculated angle force constants match QUBEKit within tolerance."""
+        angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
+
+        for angle in angle_list:
+            expected_k = _QUBEKIT_ANGLE_PARAMS[angle][1]
+            calculated_k = angle_params[angle].force_constant.m_as(_ANGLE_K_UNIT)
+
+            # Force constants should match within ~10%
+            np.testing.assert_allclose(
+                calculated_k,
+                expected_k,
+                rtol=0.10,
+                err_msg=f"Angle force constant mismatch for angle {angle}: "
+                f"calculated={calculated_k:.2f}, expected={expected_k:.2f}",
+            )
+
+    def test_all_bonds_have_reference(self, bond_list):
+        """Verify all test bonds have reference values."""
+        for bond in bond_list:
+            assert bond in _QUBEKIT_BOND_PARAMS, f"Missing reference for bond {bond}"
+
+    def test_all_angles_have_reference(self, angle_list):
+        """Verify all test angles have reference values."""
+        for angle in angle_list:
+            assert angle in _QUBEKIT_ANGLE_PARAMS, (
+                f"Missing reference for angle {angle}"
+            )
+
+    def test_print_comparison_summary(self, decomposer, bond_list, angle_list):
+        """Print a summary comparing calculated vs QUBEKit values."""
+        bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
+        angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
+
+        print("\n" + "=" * 70)
+        print("MSM vs QUBEKit Comparison for Fluorochlorobromomethanol")
+        print("=" * 70)
+
+        print("\nBOND PARAMETERS:")
+        print("-" * 70)
+        print(f"{'Bond':<10} {'Length (nm)':<18} {'Force Const (kJ/mol/nm²)':<30}")
+        print(f"{'':10} {'Calc':<9}{'Ref':<9} {'Calc':<14}{'Ref':<14}{'Diff %':<8}")
+        print("-" * 70)
+
+        for bond in bond_list:
+            calc_length = bond_params[bond].length.m_as(_BOND_LENGTH_UNIT)
+            calc_k = bond_params[bond].force_constant.m_as(_BOND_K_UNIT)
+            ref_length, ref_k = _QUBEKIT_BOND_PARAMS[bond]
+            k_diff_pct = 100 * (calc_k - ref_k) / ref_k
+
+            print(
+                f"{str(bond):<10} {calc_length:<9.5f}{ref_length:<9.5f} "
+                f"{calc_k:<14.2f}{ref_k:<14.2f}{k_diff_pct:+.2f}%"
+            )
+
+        print("\nANGLE PARAMETERS:")
+        print("-" * 70)
+        print(f"{'Angle':<12} {'Value (deg)':<18} {'Force Const (kJ/mol/rad²)':<28}")
+        print(f"{'':12} {'Calc':<9}{'Ref':<9} {'Calc':<13}{'Ref':<13}{'Diff %':<8}")
+        print("-" * 70)
+
+        for angle in angle_list:
+            calc_angle = math.degrees(angle_params[angle].angle.m_as(_ANGLE_UNIT))
+            calc_k = angle_params[angle].force_constant.m_as(_ANGLE_K_UNIT)
+            ref_angle, ref_k = _QUBEKIT_ANGLE_PARAMS[angle]
+            k_diff_pct = 100 * (calc_k - ref_k) / ref_k
+
+            print(
+                f"{str(angle):<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
+                f"{calc_k:<13.2f}{ref_k:<13.2f}{k_diff_pct:+.2f}%"
+            )
+
+        print("=" * 70)
