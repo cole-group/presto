@@ -552,6 +552,30 @@ class TypeGenerationSettings(_DefaultSettings):
         return self
 
 
+class MSMSettings(_DefaultSettings):
+    """Settings for the modified Seminario method."""
+
+    ml_potential: Literal[mlp.AvailableModels] = Field(
+        "egret-1",
+        description="The machine learning potential to use for calculating the Hessian matrix",
+    )
+
+    finite_step: OpenMMQuantity[unit.nanometers] = Field(  # type: ignore[type-arg]
+        default=0.0005291772 * unit.nanometers,
+        description="Finite step to calculate Hessian (Angstrom)",
+    )
+
+    tolerance: OpenMMQuantity[unit.kilocalories_per_mole / unit.angstrom] = Field(  # type: ignore[type-arg, valid-type]
+        default=0.005291772 * unit.kilocalories_per_mole / unit.angstrom,
+        description="Tolerance for the geometry optimizer",
+    )
+
+    vib_scaling: float = Field(
+        0.957,
+        description="Vibrational scaling factor",
+    )
+
+
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
@@ -574,6 +598,11 @@ class ParameterisationSettings(_DefaultSettings):
     linearise_harmonics: bool = Field(
         True,
         description="Linearise the harmonic potentials in the Force Field (Default)",
+    )
+
+    msm_settings: MSMSettings | None = Field(
+        default_factory=lambda: MSMSettings(),
+        description="Settings for the modified Seminario method to initialise force field parameters.",
     )
 
     type_generation_settings: dict[NonLinearValenceType, TypeGenerationSettings] = (

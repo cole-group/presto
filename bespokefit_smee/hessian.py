@@ -1,6 +1,5 @@
 """Functionality for computing the Hessian, closely based on https://github.com/qubekit/QUBEKit/blob/bdccc28d1ad8c0fb4eeb01467bfe8365396c411c/qubekit/engines/openmm.py#L174."""
 
-
 import numpy as np
 from openmm import unit
 from openmm.app import Simulation
