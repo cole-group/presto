@@ -398,16 +398,12 @@ def filter_dataset_outliers(
         # Build filtered entry
         filtered_entry: dict[str, typing.Any] = {
             "smiles": entry_smiles,
-            "coords": coords[keep_indices].cpu(),
-            "energy": original_energy[keep_indices].cpu(),
-            "forces": original_forces[keep_indices].cpu(),
+            "coords": coords.to(device)[keep_indices],
+            "energy": original_energy.to(device)[keep_indices],
+            "forces": original_forces.to(device)[keep_indices],
+            "energy_weights": entry["energy_weights"].to(device)[keep_indices],
+            "forces_weights": entry["forces_weights"].to(device)[keep_indices],
         }
-
-        # Preserve weights if present
-        if "energy_weights" in entry:
-            filtered_entry["energy_weights"] = entry["energy_weights"][keep_indices]
-        if "forces_weights" in entry:
-            filtered_entry["forces_weights"] = entry["forces_weights"][keep_indices]
 
         filtered_entries.append(filtered_entry)
 
