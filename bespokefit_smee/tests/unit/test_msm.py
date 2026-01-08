@@ -5,7 +5,7 @@ using the modified Seminario method -- see https://doi.org/10.1021/acs.jctc.7b00
 
 import json
 import math
-from pathlib import Path
+from importlib.resources import files
 
 import numpy as np
 import pytest
@@ -949,33 +949,26 @@ class TestMSMSettings:
 # implementation.
 #
 # Reference values were generated using QUBEKit installed at:
-# /home/campus.ncl.ac.uk/nfc78/miniforge3/envs/qubekit
 #
 # Test Molecule: Fluorochlorobromomethanol (OC(F)(Cl)Br)
 # - 6 atoms: O, C, F, Cl, Br, H
 # - 5 bonds (all unique): C-O, C-F, C-Cl, C-Br, O-H
 # - 7 angles (all unique)
 # - Fully asymmetric to avoid QUBEKit's internal symmetry averaging
-#
-# Convention: Both QUBEKit and our implementation output force constants
-# in the OpenMM convention: U = k * (r - r0)^2 (no 1/2 factor)
 # =============================================================================
 
-# Load reference data from QUBEKit JSON file
+# Load reference data from QUBEKit JSON file using importlib.resources
 _QUBEKIT_REFERENCE_FILE = (
-    Path(__file__).parent.parent.parent
-    / "data"
-    / "msm"
-    / "qubekit_reference_values.json"
+    files("bespokefit_smee.data.msm") / "qubekit_reference_values.json"
 )
 
 
 def _load_qubekit_reference_data():
     """Load QUBEKit reference data, returning None if file not found."""
-    if not _QUBEKIT_REFERENCE_FILE.exists():
+    try:
+        return json.loads(_QUBEKIT_REFERENCE_FILE.read_text())
+    except FileNotFoundError:
         return None
-    with open(_QUBEKIT_REFERENCE_FILE) as f:
-        return json.load(f)
 
 
 # Load reference data at module level
@@ -1031,14 +1024,6 @@ def _parse_reference_data():
 ) = _parse_reference_data()
 
 
-# Skip all QUBEKit comparison tests if reference file is not found
-_skip_qubekit_tests = _QUBEKIT_REFERENCE_DATA is None
-
-
-@pytest.mark.skipif(
-    _skip_qubekit_tests,
-    reason=f"QUBEKit reference file not found at {_QUBEKIT_REFERENCE_FILE}",
-)
 class TestMSMQubekitComparison:
     """Test MSM implementation against QUBEKit reference values.
 

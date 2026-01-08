@@ -662,6 +662,7 @@ def calculate_angle_params(
         # Average and apply vibrational scaling
         # Force constant is in kcal/mol/rad² (derived from internal units)
         k_theta = ((k_theta_ab + k_theta_ba) / 2.0) * (vib_scaling**2)
+
         # Angle is returned in degrees, convert to radians
         theta_0_rad = np.radians((theta_0_ab + theta_0_ba) / 2.0)
 
