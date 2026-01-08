@@ -802,20 +802,20 @@ class TestApplyMSMToMolecules:
 
         for param in mod_bond_handler.parameters:
             # Check dimensional compatibility by attempting conversion
-            assert param.k.is_compatible_with(original_bond_k_units), (
-                f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
-            )
-            assert param.length.is_compatible_with(original_bond_length_units), (
-                f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
-            )
+            assert param.k.is_compatible_with(
+                original_bond_k_units
+            ), f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
+            assert param.length.is_compatible_with(
+                original_bond_length_units
+            ), f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
 
         for param in mod_angle_handler.parameters:
-            assert param.k.is_compatible_with(original_angle_k_units), (
-                f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
-            )
-            assert param.angle.is_compatible_with(original_angle_angle_units), (
-                f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
-            )
+            assert param.k.is_compatible_with(
+                original_angle_k_units
+            ), f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
+            assert param.angle.is_compatible_with(
+                original_angle_angle_units
+            ), f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
 
 
 # --- MSMSettings Tests ---

@@ -12,7 +12,7 @@ Test Molecule: Fluorochlorobromomethanol (OC(F)(Cl)Br)
 - 7 angles (all unique)
 - Fully asymmetric to avoid QUBEKit's internal symmetry averaging
 
-Convention: Both QUBEKit and our implementation output force constants 
+Convention: Both QUBEKit and our implementation output force constants
 in the OpenMM convention: U = k * (r - r0)^2 (no 1/2 factor)
 """
 
@@ -67,24 +67,24 @@ REFERENCE_ANGLE_PARAMS = {
 
 def create_mock_hessian_kcal_nm2(n_atoms: int, k_diagonal: float = 500.0) -> np.ndarray:
     """Create a mock Hessian matrix in kcal/mol/nm² units.
-    
+
     This creates the same Hessian structure as QUBEKit uses, but in the units
     our MSM implementation expects (kcal/mol/nm²).
-    
+
     The QUBEKit generator creates a diagonal-dominated Hessian in kcal/mol/Å²
     then converts to Hartree/Bohr² for QUBEKit input. We replicate the same
     structure but in our expected units.
-    
+
     Args:
         n_atoms: Number of atoms
         k_diagonal: Force constant for diagonal elements (kcal/mol/Å²)
-        
+
     Returns:
         Hessian matrix in kcal/mol/nm²
     """
     size = 3 * n_atoms
     hessian = np.zeros((size, size))
-    
+
     # Set diagonal blocks (self-interaction)
     for i in range(n_atoms):
         block = np.diag([k_diagonal, k_diagonal, k_diagonal])
@@ -101,11 +101,11 @@ def create_mock_hessian_kcal_nm2(n_atoms: int, k_diagonal: float = 500.0) -> np.
 
     # Ensure symmetry
     hessian = 0.5 * (hessian + hessian.T)
-    
+
     # Convert from kcal/mol/Å² to kcal/mol/nm²
     # 1 nm = 10 Å, so 1/nm² = 1/100 Å², thus k [kcal/mol/nm²] = k [kcal/mol/Å²] * 100
     hessian_nm2 = hessian * 100.0
-    
+
     return hessian_nm2
 
 
@@ -116,7 +116,9 @@ class TestMSMQubekitComparison:
     def decomposer(self):
         """Create HessianDecomposer for the test molecule."""
         # Create the same mock Hessian structure as QUBEKit uses
-        hessian = create_mock_hessian_kcal_nm2(len(REFERENCE_COORDS_NM), k_diagonal=500.0)
+        hessian = create_mock_hessian_kcal_nm2(
+            len(REFERENCE_COORDS_NM), k_diagonal=500.0
+        )
         return HessianDecomposer(hessian, REFERENCE_COORDS_NM)
 
     @pytest.fixture
@@ -132,68 +134,68 @@ class TestMSMQubekitComparison:
     def test_bond_lengths(self, decomposer, bond_list):
         """Test that calculated bond lengths match QUBEKit within tolerance."""
         bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
-        
+
         for bond in bond_list:
             expected_length = REFERENCE_BOND_PARAMS[bond][0]
             calculated_length = bond_params[bond].length
-            
+
             # Bond lengths should match very closely (geometry is the same)
             np.testing.assert_allclose(
                 calculated_length,
                 expected_length,
                 rtol=1e-4,
-                err_msg=f"Bond length mismatch for bond {bond}"
+                err_msg=f"Bond length mismatch for bond {bond}",
             )
 
     def test_bond_force_constants(self, decomposer, bond_list):
         """Test that calculated bond force constants match QUBEKit within tolerance."""
         bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
-        
+
         for bond in bond_list:
             expected_k = REFERENCE_BOND_PARAMS[bond][1]
             calculated_k = bond_params[bond].force_constant
-            
+
             # Force constants should match within ~5%
             np.testing.assert_allclose(
                 calculated_k,
                 expected_k,
                 rtol=0.05,
                 err_msg=f"Bond force constant mismatch for bond {bond}: "
-                        f"calculated={calculated_k:.2f}, expected={expected_k:.2f}"
+                f"calculated={calculated_k:.2f}, expected={expected_k:.2f}",
             )
 
     def test_angle_values(self, decomposer, angle_list):
         """Test that calculated angle values match QUBEKit within tolerance."""
         angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
-        
+
         for angle in angle_list:
             expected_angle_deg = REFERENCE_ANGLE_PARAMS[angle][0]
             calculated_angle_rad = angle_params[angle].angle
             calculated_angle_deg = math.degrees(calculated_angle_rad)
-            
+
             # Angles should match very closely (geometry is the same)
             np.testing.assert_allclose(
                 calculated_angle_deg,
                 expected_angle_deg,
                 rtol=1e-3,
-                err_msg=f"Angle mismatch for angle {angle}"
+                err_msg=f"Angle mismatch for angle {angle}",
             )
 
     def test_angle_force_constants(self, decomposer, angle_list):
         """Test that calculated angle force constants match QUBEKit within tolerance."""
         angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
-        
+
         for angle in angle_list:
             expected_k = REFERENCE_ANGLE_PARAMS[angle][1]
             calculated_k = angle_params[angle].force_constant
-            
+
             # Force constants should match within ~10%
             np.testing.assert_allclose(
                 calculated_k,
                 expected_k,
                 rtol=0.10,
                 err_msg=f"Angle force constant mismatch for angle {angle}: "
-                        f"calculated={calculated_k:.2f}, expected={expected_k:.2f}"
+                f"calculated={calculated_k:.2f}, expected={expected_k:.2f}",
             )
 
     def test_all_bonds_have_reference(self, bond_list):
@@ -204,45 +206,51 @@ class TestMSMQubekitComparison:
     def test_all_angles_have_reference(self, angle_list):
         """Verify all test angles have reference values."""
         for angle in angle_list:
-            assert angle in REFERENCE_ANGLE_PARAMS, f"Missing reference for angle {angle}"
+            assert (
+                angle in REFERENCE_ANGLE_PARAMS
+            ), f"Missing reference for angle {angle}"
 
     def test_print_comparison_summary(self, decomposer, bond_list, angle_list):
         """Print a summary comparing calculated vs QUBEKit values."""
         bond_params = calculate_bond_params(bond_list, decomposer, vib_scaling=1.0)
         angle_params = calculate_angle_params(angle_list, decomposer, vib_scaling=1.0)
-        
+
         print("\n" + "=" * 70)
         print("MSM vs QUBEKit Comparison for Fluorochlorobromomethanol")
         print("=" * 70)
-        
+
         print("\nBOND PARAMETERS:")
         print("-" * 70)
         print(f"{'Bond':<10} {'Length (nm)':<18} {'Force Const (kJ/mol/nm²)':<30}")
         print(f"{'':10} {'Calc':<9}{'Ref':<9} {'Calc':<14}{'Ref':<14}{'Diff %':<8}")
         print("-" * 70)
-        
+
         for bond in bond_list:
             calc_length = bond_params[bond].length
             calc_k = bond_params[bond].force_constant
             ref_length, ref_k = REFERENCE_BOND_PARAMS[bond]
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
-            
-            print(f"{str(bond):<10} {calc_length:<9.5f}{ref_length:<9.5f} "
-                  f"{calc_k:<14.2f}{ref_k:<14.2f}{k_diff_pct:+.2f}%")
-        
+
+            print(
+                f"{str(bond):<10} {calc_length:<9.5f}{ref_length:<9.5f} "
+                f"{calc_k:<14.2f}{ref_k:<14.2f}{k_diff_pct:+.2f}%"
+            )
+
         print("\nANGLE PARAMETERS:")
         print("-" * 70)
         print(f"{'Angle':<12} {'Value (deg)':<18} {'Force Const (kJ/mol/rad²)':<28}")
         print(f"{'':12} {'Calc':<9}{'Ref':<9} {'Calc':<13}{'Ref':<13}{'Diff %':<8}")
         print("-" * 70)
-        
+
         for angle in angle_list:
             calc_angle = math.degrees(angle_params[angle].angle)
             calc_k = angle_params[angle].force_constant
             ref_angle, ref_k = REFERENCE_ANGLE_PARAMS[angle]
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
-            
-            print(f"{str(angle):<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
-                  f"{calc_k:<13.2f}{ref_k:<13.2f}{k_diff_pct:+.2f}%")
-        
+
+            print(
+                f"{str(angle):<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
+                f"{calc_k:<13.2f}{ref_k:<13.2f}{k_diff_pct:+.2f}%"
+            )
+
         print("=" * 70)
