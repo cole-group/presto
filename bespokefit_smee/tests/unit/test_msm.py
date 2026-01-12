@@ -800,6 +800,34 @@ class TestApplyMSMToMolecule:
             assert isinstance(k, tuple)
             assert isinstance(v, BondParams)
 
+    def test_multiple_conformers(self):
+        """Test MSM with multiple conformers averages parameters."""
+        mol = Molecule.from_smiles("CCO")
+        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        labels = ff.label_molecules(mol.to_topology())[0]
+        bond_indices = list(labels["Bonds"].keys())
+        angle_indices = list(labels["Angles"].keys())
+
+        # Test with 3 conformers
+        settings_multi = MSMSettings(n_conformers=3)
+
+        bond_params_multi, angle_params_multi = apply_msm_to_molecule(
+            mol, bond_indices, angle_indices, settings_multi
+        )
+
+        # Check that we got parameters for all bonds and angles
+        assert len(bond_params_multi) == len(bond_indices)
+        assert len(angle_params_multi) == len(angle_indices)
+
+        # Check all force constants are positive
+        for bp in bond_params_multi.values():
+            assert bp.force_constant.magnitude > 0
+            assert bp.length.magnitude > 0
+
+        for ap in angle_params_multi.values():
+            assert ap.force_constant.magnitude > 0
+            assert 0 < ap.angle.m_as(_ANGLE_UNIT) < np.pi
+
 
 @pytest.mark.slow
 class TestApplyMSMToMolecules:
@@ -902,20 +930,20 @@ class TestApplyMSMToMolecules:
 
         for param in mod_bond_handler.parameters:
             # Check dimensional compatibility by attempting conversion
-            assert param.k.is_compatible_with(original_bond_k_units), (
-                f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
-            )
-            assert param.length.is_compatible_with(original_bond_length_units), (
-                f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
-            )
+            assert param.k.is_compatible_with(
+                original_bond_k_units
+            ), f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
+            assert param.length.is_compatible_with(
+                original_bond_length_units
+            ), f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
 
         for param in mod_angle_handler.parameters:
-            assert param.k.is_compatible_with(original_angle_k_units), (
-                f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
-            )
-            assert param.angle.is_compatible_with(original_angle_angle_units), (
-                f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
-            )
+            assert param.k.is_compatible_with(
+                original_angle_k_units
+            ), f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
+            assert param.angle.is_compatible_with(
+                original_angle_angle_units
+            ), f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
 
 
 # --- MSMSettings Tests ---
@@ -1126,9 +1154,9 @@ class TestMSMQubekitComparison:
     def test_all_angles_have_reference(self, angle_list):
         """Verify all test angles have reference values."""
         for angle in angle_list:
-            assert angle in _QUBEKIT_ANGLE_PARAMS, (
-                f"Missing reference for angle {angle}"
-            )
+            assert (
+                angle in _QUBEKIT_ANGLE_PARAMS
+            ), f"Missing reference for angle {angle}"
 
     def test_print_comparison_summary(self, decomposer, bond_list, angle_list):
         """Print a summary comparing calculated vs QUBEKit values."""
