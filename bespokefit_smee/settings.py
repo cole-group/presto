@@ -575,6 +575,12 @@ class MSMSettings(_DefaultSettings):
         description="Vibrational scaling factor",
     )
 
+    n_conformers: int = Field(
+        10,
+        description="Number of conformers to generate and calculate MSM parameters for. "
+        "The resulting bond and angle parameters will be averaged over all conformers.",
+    )
+
 
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""

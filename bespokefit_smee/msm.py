@@ -682,55 +682,90 @@ def apply_msm_to_molecule(
     """Apply Modified Seminario Method to calculate bond and angle parameters.
 
     Sets up an ML potential simulation, minimizes the structure, computes the
-    Hessian, and calculates force field parameters.
+    Hessian, and calculates force field parameters. If settings.n_conformers > 1,
+    parameters are calculated for each conformer and averaged.
 
     Args:
         mol: OpenFF Molecule to parameterize.
         bond_indices: List of bond indices to calculate parameters for.
         angle_indices: List of angle indices to calculate parameters for.
-        settings: MSM settings including ML potential and scaling factors.
+        settings: MSM settings including ML potential, scaling factors, and n_conformers.
 
     Returns:
-        Tuple of (bond_params_dict, angle_params_dict).
+        Tuple of (bond_params_dict, angle_params_dict). If multiple conformers are used,
+        the parameters are averaged over all conformers.
     """
-    # Set up simulation with ML potential
-    mol_with_conformers = _copy_mol_and_add_conformers(mol, n_conformers=1)
+    # Generate conformers
+    mol_with_conformers = _copy_mol_and_add_conformers(
+        mol, n_conformers=settings.n_conformers
+    )
     ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
     integrator = _get_integrator(300 * _OMM_KELVIN, 1.0 * _OMM_FEMTOSECOND)
     simulation = Simulation(
         mol_with_conformers.to_topology().to_openmm(), ml_system, integrator
     )
-    simulation.context.setPositions(mol_with_conformers.conformers[0].to_openmm())
 
-    # Minimize to local energy minimum
-    simulation.minimizeEnergy(maxIterations=0, tolerance=settings.tolerance)
-    positions = simulation.context.getState(getPositions=True).getPositions(
-        asNumpy=True
+    # Collect parameters from each conformer
+    all_bond_params: defaultdict[tuple[int, int], list[BondParams]] = defaultdict(list)
+    all_angle_params: defaultdict[tuple[int, int, int], list[AngleParams]] = (
+        defaultdict(list)
     )
 
-    # Convert positions to internal units (nm)
-    coords = positions.value_in_unit(_INTERNAL_LENGTH_UNIT)
+    for conf_idx in tqdm(
+        range(settings.n_conformers),
+        desc="Finding MSM parameters for conformers",
+        leave=False,
+    ):
+        # Set positions for this conformer
+        simulation.context.setPositions(
+            mol_with_conformers.conformers[conf_idx].to_openmm()
+        )
 
-    # Compute Hessian at the minimum and convert to internal units (kcal/mol/nm²)
-    # The hessian is returned with OpenMM units attached, so we use automatic
-    # unit conversion to our internal standard units
-    hessian_with_units = calculate_hessian(
-        simulation,
-        positions,
-        finite_step=settings.finite_step,
-    )
-    hessian = hessian_with_units.value_in_unit(_INTERNAL_HESSIAN_UNIT)
+        # Minimize to local energy minimum
+        simulation.minimizeEnergy(maxIterations=0, tolerance=settings.tolerance)
+        positions = simulation.context.getState(getPositions=True).getPositions(
+            asNumpy=True
+        )
 
-    # Decompose Hessian (works with unitless numpy arrays in internal units)
-    hessian_decomposer = HessianDecomposer(hessian, coords)
+        # Convert positions to internal units (nm)
+        coords = positions.value_in_unit(_INTERNAL_LENGTH_UNIT)
 
-    # Calculate bond and angle parameters
-    bond_params = calculate_bond_params(
-        bond_indices, hessian_decomposer, settings.vib_scaling
-    )
-    angle_params = calculate_angle_params(
-        angle_indices, hessian_decomposer, settings.vib_scaling
-    )
+        # Compute Hessian at the minimum and convert to internal units (kcal/mol/nm²)
+        # The hessian is returned with OpenMM units attached, so we use automatic
+        # unit conversion to our internal standard units
+        hessian_with_units = calculate_hessian(
+            simulation,
+            positions,
+            finite_step=settings.finite_step,
+        )
+        hessian = hessian_with_units.value_in_unit(_INTERNAL_HESSIAN_UNIT)
+
+        # Decompose Hessian (works with unitless numpy arrays in internal units)
+        hessian_decomposer = HessianDecomposer(hessian, coords)
+
+        # Calculate bond and angle parameters for this conformer
+        conformer_bond_params = calculate_bond_params(
+            bond_indices, hessian_decomposer, settings.vib_scaling
+        )
+        conformer_angle_params = calculate_angle_params(
+            angle_indices, hessian_decomposer, settings.vib_scaling
+        )
+
+        # Collect parameters
+        for bond_idx, bond_param in conformer_bond_params.items():
+            all_bond_params[bond_idx].append(bond_param)
+        for angle_idx, angle_param in conformer_angle_params.items():
+            all_angle_params[angle_idx].append(angle_param)
+
+    # Average parameters over all conformers
+    bond_params = {
+        bond_idx: _mean_bond_params(params_list)
+        for bond_idx, params_list in all_bond_params.items()
+    }
+    angle_params = {
+        angle_idx: _mean_angle_params(params_list)
+        for angle_idx, params_list in all_angle_params.items()
+    }
 
     return bond_params, angle_params
 
