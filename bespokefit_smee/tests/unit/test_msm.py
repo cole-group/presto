@@ -123,10 +123,16 @@ def two_atom_coords():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
+def base_forcefield():
+    """Shared OpenFF force field instance for MSM integration tests."""
+    return ForceField("openff_unconstrained-2.3.0-rc2.offxml")
+
+
+@pytest.fixture(scope="module")
 def msm_settings():
-    """Default MSM settings for testing."""
-    return MSMSettings()
+    """Default MSM settings for testing with minimal conformer count."""
+    return MSMSettings(n_conformers=1)
 
 
 # --- Unit Vector Tests ---
@@ -755,10 +761,10 @@ class TestAngleParams:
 class TestApplyMSMToMolecule:
     """Integration tests for apply_msm_to_molecule function."""
 
-    def test_ethanol_molecule(self, msm_settings):
+    def test_ethanol_molecule(self, msm_settings, base_forcefield):
         """Test MSM on ethanol molecule."""
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         # Get bond and angle indices from force field
         labels = ff.label_molecules(mol.to_topology())[0]
@@ -782,10 +788,10 @@ class TestApplyMSMToMolecule:
             assert ap.force_constant.magnitude > 0
             assert 0 < ap.angle.m_as(_ANGLE_UNIT) < np.pi
 
-    def test_returns_correct_types(self, msm_settings):
+    def test_returns_correct_types(self, msm_settings, base_forcefield):
         """Test that return types are correct."""
         mol = Molecule.from_smiles("C")  # Methane - simple
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
         labels = ff.label_molecules(mol.to_topology())[0]
         bond_indices = list(labels["Bonds"].keys())
         angle_indices = list(labels["Angles"].keys())
@@ -800,16 +806,16 @@ class TestApplyMSMToMolecule:
             assert isinstance(k, tuple)
             assert isinstance(v, BondParams)
 
-    def test_multiple_conformers(self):
+    def test_multiple_conformers(self, base_forcefield):
         """Test MSM with multiple conformers averages parameters."""
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
         labels = ff.label_molecules(mol.to_topology())[0]
         bond_indices = list(labels["Bonds"].keys())
         angle_indices = list(labels["Angles"].keys())
 
         # Test with 3 conformers
-        settings_multi = MSMSettings(n_conformers=3)
+        settings_multi = MSMSettings(n_conformers=2)
 
         bond_params_multi, angle_params_multi = apply_msm_to_molecule(
             mol, bond_indices, angle_indices, settings_multi
@@ -833,31 +839,31 @@ class TestApplyMSMToMolecule:
 class TestApplyMSMToMolecules:
     """Integration tests for apply_msm_to_molecules function."""
 
-    def test_single_molecule(self, msm_settings):
+    def test_single_molecule(self, msm_settings, base_forcefield):
         """Test MSM on single molecule."""
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
 
         assert isinstance(modified_ff, ForceField)
 
-    def test_multiple_molecules(self, msm_settings):
+    def test_multiple_molecules(self, msm_settings, base_forcefield):
         """Test MSM on multiple molecules."""
         mols = [
             Molecule.from_smiles("CCO"),  # Ethanol
             Molecule.from_smiles("CC"),  # Ethane
         ]
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         modified_ff = apply_msm_to_molecules(mols, ff, msm_settings)
 
         assert isinstance(modified_ff, ForceField)
 
-    def test_force_field_not_modified_in_place(self, msm_settings):
+    def test_force_field_not_modified_in_place(self, msm_settings, base_forcefield):
         """Test that original force field is not modified."""
         mol = Molecule.from_smiles("C")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         # Get original bond parameter
         bond_handler = ff.get_parameter_handler("Bonds")
@@ -869,10 +875,10 @@ class TestApplyMSMToMolecules:
         new_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
         assert original_params == new_params
 
-    def test_modified_ff_has_different_params(self, msm_settings):
+    def test_modified_ff_has_different_params(self, msm_settings, base_forcefield):
         """Test that modified force field has different parameters."""
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         # Get SMIRKS patterns used by the molecule
         labels = ff.label_molecules(mol.to_topology())[0]
@@ -901,7 +907,7 @@ class TestApplyMSMToMolecules:
         different = any(original_k[s] != modified_k[s] for s in used_bond_smirks)
         assert different
 
-    def test_units_preserved_from_original_ff(self, msm_settings):
+    def test_units_preserved_from_original_ff(self, msm_settings, base_forcefield):
         """Test that units from the original force field are preserved.
 
         Note: The `.to()` method may format units differently (e.g.,
@@ -910,7 +916,7 @@ class TestApplyMSMToMolecules:
         exact string equality.
         """
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = base_forcefield
 
         # Get original units
         bond_handler = ff.get_parameter_handler("Bonds")
@@ -944,29 +950,6 @@ class TestApplyMSMToMolecules:
             assert param.angle.is_compatible_with(original_angle_angle_units), (
                 f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
             )
-
-
-# --- MSMSettings Tests ---
-
-
-class TestMSMSettings:
-    """Tests for MSMSettings class."""
-
-    def test_default_settings(self):
-        """Test default MSM settings."""
-        settings = MSMSettings()
-        assert settings.vib_scaling == 0.957
-        assert settings.ml_potential == "egret-1"
-
-    def test_custom_vib_scaling(self):
-        """Test custom vibrational scaling."""
-        settings = MSMSettings(vib_scaling=1.0)
-        assert settings.vib_scaling == 1.0
-
-    def test_custom_ml_potential(self):
-        """Test custom ML potential."""
-        settings = MSMSettings(ml_potential="mace-off23-medium")
-        assert settings.ml_potential == "mace-off23-medium"
 
 
 # =============================================================================

@@ -18,6 +18,7 @@ from bespokefit_smee.settings import (
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    MSMSettings,
     OutlierFilterSettings,
     ParameterisationSettings,
     TrainingSettings,
@@ -306,6 +307,26 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert OutputType.METADYNAMICS_BIAS in settings.output_types
         assert OutputType.PDB_TRAJECTORY in settings.output_types
+
+
+class TestMSMSettings:
+    """Tests for MSMSettings class."""
+
+    def test_default_settings(self):
+        """Test default MSM settings."""
+        settings = MSMSettings()
+        assert settings.vib_scaling == 0.957
+        assert settings.ml_potential == "egret-1"
+
+    def test_custom_vib_scaling(self):
+        """Test custom vibrational scaling."""
+        settings = MSMSettings(vib_scaling=1.0)
+        assert settings.vib_scaling == 1.0
+
+    def test_custom_ml_potential(self):
+        """Test custom ML potential."""
+        settings = MSMSettings(ml_potential="mace-off23-medium")
+        assert settings.ml_potential == "mace-off23-medium"
 
 
 class TestTrainingSettings:
