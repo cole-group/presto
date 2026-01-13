@@ -21,6 +21,7 @@ class TestMultiMoleculeParameterisation:
             smiles=["CCO"],
             linearise_harmonics=False,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -35,6 +36,7 @@ class TestMultiMoleculeParameterisation:
             smiles=["CC", "CCO", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -212,6 +214,7 @@ class TestMultiMoleculeEnergyCalculations:
             smiles=["CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -235,6 +238,7 @@ class TestMultiMoleculeEnergyCalculations:
             smiles=["CC", "CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -258,6 +262,7 @@ class TestMultiMoleculeParameterSharing:
             smiles=["CC", "CCC", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -276,6 +281,7 @@ class TestMultiMoleculeParameterSharing:
             smiles=["CC", "CCC"],
             linearise_harmonics=False,
             expand_torsions=False,
+            msm_settings=None,
         )
 
         mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")

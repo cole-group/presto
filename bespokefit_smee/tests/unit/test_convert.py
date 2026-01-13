@@ -16,7 +16,7 @@ from ...convert import (
     convert_to_smirnoff,
     parameterise,
 )
-from ...loss import predict
+from ...loss import predict_with_weights
 from ...settings import ParameterisationSettings
 
 
@@ -43,7 +43,9 @@ def test_params_equivalent(linearise_harmonics: bool, smiles: str):
         smiles=smiles,
         initial_force_field="openff_unconstrained-2.3.0-rc2.offxml",
         expand_torsions=False,
+        msm_settings=None,
     )
+
     mols, _, _, tff = parameterise(settings=settings, device="cpu")
     mol = mols[0]  # Single molecule test
 
@@ -156,6 +158,7 @@ def test_energies_equivalent(
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
         expand_torsions=True,
         type_generation_settings=type_gen_settings,
+        msm_settings=None,
     )
     mols, _, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
     mol = mols[0]  # Single molecule test
@@ -203,6 +206,7 @@ def test_openmm_smee_energy_equivalence(linearise_harmonics: bool, smiles: str):
         smiles=smiles,
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
         expand_torsions=False,
+        msm_settings=None,
     )
 
     mols, off_ff, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -263,6 +267,7 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
         smiles=smiles,
         initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
         expand_torsions=False,
+        msm_settings=None,
     )
 
     mols, off_ff, tensor_tops, tensor_ff = parameterise(settings=settings, device="cpu")
@@ -314,7 +319,7 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
     )
 
     # Use predict function to get SMEE energies
-    energy_ref, energy_pred, _, _ = predict(
+    energy_ref, energy_pred, _, _, _, _ = predict_with_weights(
         dataset,
         tensor_ff,
         {indexed_smiles: tensor_top},

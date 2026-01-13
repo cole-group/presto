@@ -1,40 +1,17 @@
 """Create new tagged SMARTS parameter types for molecules of interest."""
 
 import copy
+from collections import defaultdict
 from collections.abc import Mapping
-from typing import Any, Iterator, TypeVar
+from typing import TypeVar
 
 import openff.toolkit
 from loguru import logger
-from openff.toolkit.utils.rdkit_wrapper import RDKitToolkitWrapper
 from openff.units import Quantity
+from rdkit import Chem
 
 from .settings import TypeGenerationSettings
 from .utils.typing import NonLinearValenceType
-
-
-class ReversibleTuple:
-    def __init__(self, *items: Any) -> None:
-        self.items = tuple(items)
-        # Normalize to the lexicographically smaller of the tuple and its reverse
-        self.canonical = min(self.items, tuple(reversed(self.items)))
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, ReversibleTuple):
-            return NotImplemented
-        return self.canonical == other.canonical
-
-    def __hash__(self) -> int:
-        return hash(self.canonical)
-
-    def __repr__(self) -> str:
-        return f"ReversibleTuple{self.items}"
-
-    def __iter__(self) -> Iterator[Any]:
-        return iter(self.items)
-
-    def __getitem__(self, index: int) -> Any:
-        return self.items[index]
 
 
 def _add_parameter_with_overwrite(
@@ -64,6 +41,10 @@ def _create_smarts(
     max_extend_distance: int = -1,
 ) -> str:
     """Create a mapped SMARTS representation of a molecule.
+    Crucially, this uses MergeQueryHs to merge non-mapped
+    hydrogens into their heavy atom. This dramatically increases
+    the speed of SMARTS matching in RDKit for complex SMARTS patterns
+    (thanks to Niels Maeder for suggesting this!).
 
     Parameters
     ----------
@@ -80,7 +61,6 @@ def _create_smarts(
     str
         The SMARTS pattern with atom maps.
     """
-    from rdkit import Chem
 
     mol_rdkit = mol.to_rdkit()
 
@@ -130,64 +110,85 @@ def _create_smarts(
         atom = mol_rdkit.GetAtomWithIdx(idx)
         atom.SetAtomMapNum(i + 1)
 
-    smarts = Chem.MolToSmarts(mol_rdkit)
+    # Merge non-mapped hydrogens into their heavy atoms to
+    # speed up SMARTS matching
+    h_merged_mol_rdkit = Chem.MergeQueryHs(mol_rdkit, True)
+    smarts = Chem.MolToSmarts(h_merged_mol_rdkit)
+
     return smarts
 
 
-def _deduplicate_symmetry_related_smarts(
-    smarts_list: list[str],
-) -> list[str]:
-    """
-    Deduplicate SMARTS patterns that are symmetry-equivalent.
+def _remove_redundant_smarts(
+    mols: openff.toolkit.Molecule | list[openff.toolkit.Molecule],
+    force_field: openff.toolkit.ForceField,
+    id_substring: str | None = None,
+) -> openff.toolkit.ForceField:
+    """Remove redundant SMARTS parameters that are not used by any molecule.
+
+    This function labels all molecules with the force field and identifies which
+    parameters are actually applied. Parameters that are not used by any molecule
+    and have an ID containing the specified substring are removed. This works because
+    the a given substructure should always be matched by the last equivalent mapped-SMARTS
+    in the force field.
 
     Parameters
     ----------
-    smarts_list: list[str]
-        List of SMARTS patterns to deduplicate.
+    mols : openff.toolkit.Molecule | list[openff.toolkit.Molecule]
+        Molecule or list of molecules to check parameter usage against
+    force_field : openff.toolkit.ForceField
+        Force field to remove redundant parameters from
+    id_substring : str | None, default None
+        Only remove parameters whose ID contains this substring.
+        If None, no parameters are removed.
 
     Returns
     -------
-    list[str]
-        Deduplicated list of SMARTS patterns.
+    openff.toolkit.ForceField
+        Force field with redundant parameters removed
     """
-    from rdkit import Chem
+    if id_substring is None:
+        return force_field
 
-    unique_smarts: list[str] = []
-    unique_mols: list[Chem.Mol] = []
+    # Convert single molecule to list
+    if isinstance(mols, openff.toolkit.Molecule):
+        mols = [mols]
 
-    for smarts in smarts_list:
-        mol = Chem.MolFromSmarts(smarts)
-        if mol is None:
-            raise ValueError(f"Invalid SMARTS pattern: {smarts}")
+    # Create a copy to avoid modifying the original
+    ff_copy = copy.deepcopy(force_field)
 
-        is_duplicate = False
-        for unique_mol, unique_smarts_pattern in zip(
-            unique_mols, unique_smarts, strict=True
-        ):
-            # Cannot match if different number of atoms
-            if not mol.GetNumAtoms() == unique_mol.GetNumAtoms():
-                continue
+    # Label all molecules and collect used parameter IDs for each handler
+    used_param_ids: dict[str, set[str]] = defaultdict(set)
 
-            # Check that both SMARTS match the same sets of atoms in the same molecule
-            matches_new_smarts = [
-                ReversibleTuple(*match)
-                for match in RDKitToolkitWrapper._find_smarts_matches(mol, smarts)
-            ]
-            matches_unique_smarts = [
-                ReversibleTuple(*match)
-                for match in RDKitToolkitWrapper._find_smarts_matches(
-                    mol, unique_smarts_pattern
-                )
-            ]
-            if set(matches_new_smarts) == set(matches_unique_smarts):
-                is_duplicate = True
-                break
+    for mol in mols:
+        labels = ff_copy.label_molecules(mol.to_topology())[0]
+        for handler_name, param_dict in labels.items():
+            for param in param_dict.values():
+                used_param_ids[handler_name].add(param.id)
 
-        if not is_duplicate:
-            unique_smarts.append(smarts)
-            unique_mols.append(mol)
+    # If no molecules, we need to check all handlers for bespoke parameters
+    if not mols:
+        # Get all handler names from the force field
+        for handler_name in ff_copy.registered_parameter_handlers:
+            used_param_ids[handler_name] = set()
 
-    return unique_smarts
+    # Remove unused parameters that contain the id_substring
+    for handler_name, used_ids in used_param_ids.items():
+        handler = ff_copy.get_parameter_handler(handler_name)
+        params_to_remove = []
+
+        for param in handler.parameters:
+            # Check if parameter has id_substring and is not used
+            if id_substring in param.id and param.id not in used_ids:
+                params_to_remove.append(param)
+
+        # Remove the parameters
+        for param in params_to_remove:
+            handler._parameters.remove(param)
+            logger.debug(
+                f"Removed unused parameter {param.id} with SMIRKS {param.smirks} from {handler_name}"
+            )
+
+    return ff_copy
 
 
 _T = TypeVar(
@@ -295,14 +296,12 @@ def _add_types_to_parameter_handler(
             bespoke_smarts_list.append(bespoke_smarts)
             smarts_to_param[bespoke_smarts] = param
 
-    # Deduplicate symmetry-related SMARTS patterns
-    unique_smarts = _deduplicate_symmetry_related_smarts(bespoke_smarts_list)
     logger.info(
-        f"Generated {len(unique_smarts)} unique bespoke SMARTS patterns for handler {handler_name}."
+        f"Generated {len(bespoke_smarts_list)} bespoke SMARTS patterns for handler {handler_name}."
     )
 
-    # Second pass: add the unique SMARTS patterns to the handler
-    for bespoke_smarts in unique_smarts:
+    # Second pass: add the SMARTS patterns to the handler
+    for bespoke_smarts in bespoke_smarts_list:
         # Get the original parameter to copy attributes from
         param = smarts_to_param[bespoke_smarts]
 
@@ -390,16 +389,14 @@ def add_types_to_forcefield(
                     all_bespoke_smarts.append(bespoke_smarts)
                     smarts_to_param[bespoke_smarts] = param
 
-        # Deduplicate symmetry-related SMARTS patterns across all molecules
-        unique_smarts = _deduplicate_symmetry_related_smarts(all_bespoke_smarts)
         logger.info(
-            f"Generated {len(unique_smarts)} unique bespoke SMARTS patterns for handler {handler_name} across {len(mols)} molecules."
+            f"Generated {len(all_bespoke_smarts)} bespoke SMARTS patterns for handler {handler_name} across {len(mols)} molecules."
         )
 
-        # Add the unique SMARTS patterns to the handler
+        # Add the SMARTS patterns to the handler
         handler_copy = copy.deepcopy(parameter_handler)
 
-        for bespoke_smarts in unique_smarts:
+        for bespoke_smarts in all_bespoke_smarts:
             param = smarts_to_param[bespoke_smarts]
 
             # Create a new parameter dict based on the original parameter
@@ -421,5 +418,8 @@ def add_types_to_forcefield(
         # Update the force field with the modified parameter handler
         ff_copy.deregister_parameter_handler(handler_name)
         ff_copy.register_parameter_handler(handler_copy)
+
+    # Remove redundant parameters that are not used by any molecule
+    ff_copy = _remove_redundant_smarts(mols, ff_copy, id_substring="bespoke")
 
     return ff_copy

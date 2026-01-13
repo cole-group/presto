@@ -930,20 +930,20 @@ class TestApplyMSMToMolecules:
 
         for param in mod_bond_handler.parameters:
             # Check dimensional compatibility by attempting conversion
-            assert param.k.is_compatible_with(
-                original_bond_k_units
-            ), f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
-            assert param.length.is_compatible_with(
-                original_bond_length_units
-            ), f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
+            assert param.k.is_compatible_with(original_bond_k_units), (
+                f"Bond k units {param.k.units} not compatible with {original_bond_k_units}"
+            )
+            assert param.length.is_compatible_with(original_bond_length_units), (
+                f"Bond length units {param.length.units} not compatible with {original_bond_length_units}"
+            )
 
         for param in mod_angle_handler.parameters:
-            assert param.k.is_compatible_with(
-                original_angle_k_units
-            ), f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
-            assert param.angle.is_compatible_with(
-                original_angle_angle_units
-            ), f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
+            assert param.k.is_compatible_with(original_angle_k_units), (
+                f"Angle k units {param.k.units} not compatible with {original_angle_k_units}"
+            )
+            assert param.angle.is_compatible_with(original_angle_angle_units), (
+                f"Angle units {param.angle.units} not compatible with {original_angle_angle_units}"
+            )
 
 
 # --- MSMSettings Tests ---
@@ -1154,9 +1154,9 @@ class TestMSMQubekitComparison:
     def test_all_angles_have_reference(self, angle_list):
         """Verify all test angles have reference values."""
         for angle in angle_list:
-            assert (
-                angle in _QUBEKIT_ANGLE_PARAMS
-            ), f"Missing reference for angle {angle}"
+            assert angle in _QUBEKIT_ANGLE_PARAMS, (
+                f"Missing reference for angle {angle}"
+            )
 
     def test_print_comparison_summary(self, decomposer, bond_list, angle_list):
         """Print a summary comparing calculated vs QUBEKit values."""

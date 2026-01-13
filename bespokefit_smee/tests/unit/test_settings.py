@@ -356,8 +356,8 @@ class TestOutlierFilterSettings:
     def test_default_values(self):
         """Test default values."""
         settings = OutlierFilterSettings()
-        assert settings.energy_outlier_threshold == 10.0
-        assert settings.force_outlier_threshold == 50.0
+        assert settings.energy_outlier_threshold == 2.0
+        assert settings.force_outlier_threshold == 500.0
         assert settings.min_conformations == 1
 
     def test_custom_thresholds(self):
@@ -375,12 +375,12 @@ class TestOutlierFilterSettings:
         """Test that energy filtering can be disabled."""
         settings = OutlierFilterSettings(energy_outlier_threshold=None)
         assert settings.energy_outlier_threshold is None
-        assert settings.force_outlier_threshold == 50.0
+        assert settings.force_outlier_threshold == 500.0
 
     def test_disable_forces_filtering(self):
         """Test that forces filtering can be disabled."""
         settings = OutlierFilterSettings(force_outlier_threshold=None)
-        assert settings.energy_outlier_threshold == 10.0
+        assert settings.energy_outlier_threshold == 2.0
         assert settings.force_outlier_threshold is None
 
     def test_disable_all_filtering(self):
@@ -644,11 +644,11 @@ class TestWorkflowSettings:
         assert valid_workflow_settings.outlier_filter_settings is not None
         assert (
             valid_workflow_settings.outlier_filter_settings.energy_outlier_threshold
-            == 10.0
+            == 2.0
         )
         assert (
             valid_workflow_settings.outlier_filter_settings.force_outlier_threshold
-            == 50.0
+            == 500.0
         )
 
     def test_outlier_filter_settings_can_be_set(self):

@@ -13,7 +13,6 @@ from .settings import (
     ParameterisationSettings,
     WorkflowSettings,
 )
-from .utils.rdkit_bespoke_wrapper import use_bespoke_rdkit_toolkit_decorator
 from .workflow import get_bespoke_force_field
 
 logger = loguru.logger
@@ -122,7 +121,6 @@ class CLI(BaseModel):
         CliApp.run_subcommand(self)
 
 
-@use_bespoke_rdkit_toolkit_decorator
 def run_cli() -> None:
     CliApp.run(
         CLI,

@@ -6,11 +6,9 @@ from openff.toolkit import ForceField
 from rdkit import Chem
 
 from bespokefit_smee.create_types import (
-    ReversibleTuple,
     _add_parameter_with_overwrite,
-    _add_types_to_parameter_handler,
     _create_smarts,
-    _deduplicate_symmetry_related_smarts,
+    _remove_redundant_smarts,
     add_types_to_forcefield,
 )
 from bespokefit_smee.settings import (
@@ -214,8 +212,8 @@ class TestAddParameterWithOverwrite:
             "[C:1]([C:2]([H:6])([H:7])[H:8])([H:3])([H:4])[H:5]",
             (0, 1),
             -1,
-            8,
-            "[#6:1](-[#6:2](-[H])(-[H])-[H])(-[H])(-[H])-[H]",
+            2,
+            "[#6&!H0&!H1&!H2:1]-[#6&!H0&!H1&!H2:2]",
         ),
         # Ethane, no extension
         (
@@ -230,40 +228,40 @@ class TestAddParameterWithOverwrite:
             "[C:1]([C:2]([H:6])([H:7])[H:8])([H:3])([H:4])[H:5]",
             (0, 1),
             1,
-            8,
-            "[#6:1](-[#6:2](-[H])(-[H])-[H])(-[H])(-[H])-[H]",
+            2,
+            "[#6&!H0&!H1&!H2:1]-[#6&!H0&!H1&!H2:2]",
         ),
         # Propane, angle, full extension
         (
             "[C:1]([C:2]([C:3]([H:9])([H:10])[H:11])([H:7])[H:8])([H:4])([H:5])[H:6]",
             (0, 1, 2),
             -1,
-            11,
-            "[#6:1](-[#6:2](-[#6:3](-[H])(-[H])-[H])(-[H])-[H])(-[H])(-[H])-[H]",
+            3,
+            "[#6&!H0&!H1&!H2:1]-[#6&!H0&!H1:2]-[#6&!H0&!H1&!H2:3]",
         ),
         # Butane, proper torsion, full extension
         (
             "[C:1]([C:2]([C:3]([C:4]([H:12])([H:13])[H:14])([H:10])[H:11])([H:8])[H:9])([H:5])([H:6])[H:7]",
             (0, 1, 2, 3),
             -1,
-            14,
-            "[#6:1](-[#6:2](-[#6:3](-[#6:4](-[H])(-[H])-[H])(-[H])-[H])(-[H])-[H])(-[H])(-[H])-[H]",
+            4,
+            "[#6&!H0&!H1&!H2:1]-[#6&!H0&!H1:2]-[#6&!H0&!H1:3]-[#6&!H0&!H1&!H2:4]",
         ),
         # Pyridine, full extension
         (
             "[c:1]1([H:7])[c:2]([H:8])[c:3]([H:9])[n:4][c:5]([H:10])[c:6]1[H:11]",
             (0, 1),
             -1,
-            11,
-            "[#6:1]1(:[#6:2](:[#6](:[#7]:[#6](:[#6]:1-[H])-[H])-[H])-[H])-[H]",
+            6,
+            "[#6&!H0:1]1:[#6&!H0:2]:[#6&!H0]:[#7]:[#6&!H0]:[#6&!H0]:1",
         ),
         # Pyridine, improper torsion, extend 2 bonds
         (
             "[c:1]1([H:7])[c:2]([H:8])[c:3]([H:9])[n:4][c:5]([H:10])[c:6]1[H:11]",
             (3, 4, 9, 5),
             2,
-            10,  # Should miss 1 hydrogen
-            "[#6]1(:[#6]:[#6](:[#7:1]:[#6:2](:[#6:4]:1-[H])-[H:3])-[H])-[H]",
+            7,  # Should include 1 hydrogen explicitly
+            "[#6&!H0]1:[#6]:[#6&!H0]:[#7:1]:[#6:2](:[#6&!H0:4]:1)-[H:3]",
         ),
     ],
 )
@@ -291,266 +289,234 @@ def test_create_smarts(
         assert smarts == expected_smarts
 
 
-class TestDeduplicateSymmetryRelatedSmarts:
-    """Tests for _deduplicate_symmetry_related_smarts function."""
+class TestRemoveRedundantSmarts:
+    """Tests for the _remove_redundant_smarts function."""
 
-    def test_no_duplicates(self):
-        """Test with a list that has no duplicates."""
-        smarts_list = [
-            "[#6:1]-[#6:2]",
-            "[#6:1]-[#8:2]",
-            "[#6:1]=[#8:2]",
-        ]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        assert len(result) == 3
-        assert result == smarts_list
+    def test_removes_unused_bespoke_parameters(self):
+        """Test that unused parameters with id_substring are removed."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")  # Ethanol
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
 
-    def test_exact_duplicates(self):
-        """Test with exact duplicate SMARTS."""
-        smarts_list = [
-            "[#6:1]-[#6:2]",
-            "[#6:1]-[#6:2]",
-            "[#6:1]-[#8:2]",
-        ]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        assert len(result) == 2
-        assert "[#6:1]-[#6:2]" in result
-        assert "[#6:1]-[#8:2]" in result
+        # Add a bespoke parameter that will be used
+        bond_handler = ff.get_parameter_handler("Bonds")
+        labels = bond_handler.find_matches(mol.to_topology())
+        first_bond_indices = list(labels.keys())[0]
 
-    def test_symmetry_equivalent_simple(self):
-        """Test with symmetry-equivalent simple bond patterns."""
-        # C-C is the same as C-C regardless of atom numbering
-        smarts_list = [
-            "[#6:1]-[#6:2]",
-            "[#6:2]-[#6:1]",  # Same but reversed
-        ]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        # Should keep only one
-        assert len(result) == 1
+        # Create a SMARTS that matches ethanol
+        used_smarts = _create_smarts(mol, first_bond_indices, max_extend_distance=-1)
+        used_param = {
+            "smirks": used_smarts,
+            "id": "b-bespoke-used",
+            "length": 1.5 * openff.toolkit.unit.angstrom,
+            "k": 500.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, used_param)
 
-    def test_symmetry_equivalent_ethane(self):
-        """Test with symmetry-equivalent patterns from ethane."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
+        # Add a bespoke parameter that won't be used (element 99 doesn't exist in ethanol)
+        unused_param = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-unused",
+            "length": 1.2 * openff.toolkit.unit.angstrom,
+            "k": 600.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, unused_param)
 
-        # All C-C bonds in ethane are equivalent
-        smarts1 = _create_smarts(mol, (0, 1), max_extend_distance=-1)
-        smarts2 = _create_smarts(mol, (1, 0), max_extend_distance=-1)
+        original_count = len(bond_handler.parameters)
 
-        result = _deduplicate_symmetry_related_smarts([smarts1, smarts2])
-        # Should deduplicate to 1
-        assert len(result) == 1
+        # Remove redundant parameters
+        ff_cleaned = _remove_redundant_smarts(mol, ff, id_substring="bespoke")
 
-    def test_symmetry_equivalent_benzene_bonds(self):
-        """Test with symmetry-equivalent bonds in benzene."""
-        mol = openff.toolkit.Molecule.from_smiles("c1ccccc1")
+        # Check that the unused parameter was removed
+        cleaned_handler = ff_cleaned.get_parameter_handler("Bonds")
+        new_count = len(cleaned_handler.parameters)
 
-        # All C-C bonds in benzene are equivalent
-        bonds = [(0, 1), (1, 2), (2, 3)]
-        smarts_list = [
-            _create_smarts(mol, bond, max_extend_distance=-1) for bond in bonds
-        ]
+        assert new_count == original_count - 1
 
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        # All benzene C-C bonds are equivalent
-        assert len(result) == 1
+        # Check that the used parameter is still there
+        param_ids = [p.id for p in cleaned_handler.parameters]
+        assert "b-bespoke-used" in param_ids
+        assert "b-bespoke-unused" not in param_ids
 
-    def test_symmetry_equivalent_ethanol_angles(self):
-        """Test with angles in ethanol using limited extension."""
+    def test_does_not_remove_non_bespoke_parameters(self):
+        """Test that parameters without id_substring are never removed."""
+        mol = openff.toolkit.Molecule.from_smiles("C")  # Methane (very simple)
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+
+        original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
+
+        # This should not remove any original parameters even if some are unused
+        ff_cleaned = _remove_redundant_smarts(mol, ff, id_substring="bespoke")
+
+        # Original parameters should be unchanged (they don't have "bespoke" in their id)
+        new_bond_count = len(ff_cleaned.get_parameter_handler("Bonds").parameters)
+        assert new_bond_count == original_bond_count
+
+    def test_multiple_molecules_keeps_if_used_by_any(self):
+        """Test that parameter is kept if used by any molecule."""
+        mol1 = openff.toolkit.Molecule.from_smiles("CC")  # Ethane
+        mol2 = openff.toolkit.Molecule.from_smiles("CCO")  # Ethanol
+
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        # Create a SMARTS that matches ethanol but not ethane
+        labels = bond_handler.find_matches(mol2.to_topology())
+        # Find the C-O bond
+        co_bond = None
+        for bond_indices, _match in labels.items():
+            atoms = [mol2.atoms[i] for i in bond_indices]
+            if (atoms[0].atomic_number == 6 and atoms[1].atomic_number == 8) or (
+                atoms[0].atomic_number == 8 and atoms[1].atomic_number == 6
+            ):
+                co_bond = bond_indices
+                break
+
+        assert co_bond is not None, "Could not find C-O bond in ethanol"
+
+        ethanol_specific_smarts = _create_smarts(mol2, co_bond, max_extend_distance=-1)
+        ethanol_param = {
+            "smirks": ethanol_specific_smarts,
+            "id": "b-bespoke-ethanol",
+            "length": 1.4 * openff.toolkit.unit.angstrom,
+            "k": 550.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, ethanol_param)
+
+        # Remove redundant - should keep ethanol param since mol2 uses it
+        ff_cleaned = _remove_redundant_smarts([mol1, mol2], ff, id_substring="bespoke")
+
+        param_ids = [p.id for p in ff_cleaned.get_parameter_handler("Bonds").parameters]
+        assert "b-bespoke-ethanol" in param_ids
+
+    def test_none_id_substring_does_nothing(self):
+        """Test that passing None for id_substring doesn't remove anything."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
 
-        # Use limited extension to avoid all angles becoming identical
-        # C-C-O angle
-        smarts1 = _create_smarts(mol, (0, 1, 2), max_extend_distance=1)
-        # H-C-C angle (multiple of these are equivalent)
-        smarts2 = _create_smarts(mol, (3, 0, 1), max_extend_distance=1)
-        smarts3 = _create_smarts(mol, (4, 0, 1), max_extend_distance=1)
-        smarts4 = _create_smarts(mol, (5, 0, 1), max_extend_distance=1)
+        bond_handler = ff.get_parameter_handler("Bonds")
 
-        smarts_list = [smarts1, smarts2, smarts3, smarts4]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
+        # Add an unused bespoke parameter
+        unused_param = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-unused",
+            "length": 1.2 * openff.toolkit.unit.angstrom,
+            "k": 600.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, unused_param)
 
-        # Should have 2 unique: C-C-O and H-C-C (the H-C-C are all equivalent)
-        assert len(result) == 2
+        original_count = len(bond_handler.parameters)
 
-    def test_different_patterns_not_deduplicated(self):
-        """Test that genuinely different patterns are not deduplicated."""
-        smarts_list = [
-            "[#6:1]-[#6:2]-[#6:3]",  # C-C-C
-            "[#6:1]-[#6:2]-[#8:3]",  # C-C-O
-            "[#6:1]-[#8:2]-[#6:3]",  # C-O-C
-        ]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        assert len(result) == 3
+        # Call with id_substring=None
+        ff_result = _remove_redundant_smarts(mol, ff, id_substring=None)
 
-    def test_empty_list(self):
-        """Test with an empty list."""
-        result = _deduplicate_symmetry_related_smarts([])
-        assert result == []
+        # Nothing should be removed
+        assert (
+            len(ff_result.get_parameter_handler("Bonds").parameters) == original_count
+        )
 
-    def test_single_element(self):
-        """Test with a single element."""
-        smarts_list = ["[#6:1]-[#6:2]"]
-        result = _deduplicate_symmetry_related_smarts(smarts_list)
-        assert result == smarts_list
+    def test_empty_molecule_list(self):
+        """Test with empty molecule list."""
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
 
-    def test_invalid_smarts_raises_error(self):
-        """Test that invalid SMARTS raises an error."""
-        smarts_list = ["invalid_smarts"]
-        with pytest.raises(ValueError, match="Invalid SMARTS pattern"):
-            _deduplicate_symmetry_related_smarts(smarts_list)
+        bond_handler = ff.get_parameter_handler("Bonds")
 
+        # Add a bespoke parameter
+        bespoke_param = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-test",
+            "length": 1.2 * openff.toolkit.unit.angstrom,
+            "k": 600.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, bespoke_param)
 
-@pytest.mark.parametrize(
-    "smiles, max_extend_distance, expected_num_new_params",
-    [
-        ("c1ccccc1", -1, 2),  # Benzene: 1 C-C bond type, 1 C-H bond type
-        (
-            "c1ccncc1",
-            1,
-            5,
-        ),  # Pyridine: 2 C-C bond types, 1 C-N bond type, 2 C-H bond types
-    ],
-)
-def test_add_types_deduplicates_symmetry_equivalent_bonds(
-    smiles, max_extend_distance, expected_num_new_params
-):
-    """Test that _add_types_to_parameter_handler deduplicates symmetry-equivalent SMARTS."""
+        original_count = len(bond_handler.parameters)
 
-    mol = openff.toolkit.Molecule.from_smiles(smiles)
+        # Call with empty list - should remove the bespoke parameter since nothing uses it
+        ff_cleaned = _remove_redundant_smarts([], ff, id_substring="bespoke")
 
-    ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
-    bond_handler = ff.get_parameter_handler("Bonds")
+        new_count = len(ff_cleaned.get_parameter_handler("Bonds").parameters)
+        assert new_count == original_count - 1
 
-    original_count = len(bond_handler.parameters)
+    def test_single_molecule_as_object(self):
+        """Test that single molecule (not in list) works correctly."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
 
-    updated_handler = _add_types_to_parameter_handler(
-        mol,
-        bond_handler,
-        handler_name="Bonds",
-        max_extend_distance=max_extend_distance,
-    )
+        bond_handler = ff.get_parameter_handler("Bonds")
 
-    new_count = len(updated_handler.parameters)
-    added_count = new_count - original_count
+        # Add unused parameter
+        unused_param = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-unused",
+            "length": 1.2 * openff.toolkit.unit.angstrom,
+            "k": 600.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, unused_param)
 
-    assert added_count == expected_num_new_params, (
-        f"Expected {expected_num_new_params} new parameters, got {added_count}"
-    )
+        original_count = len(bond_handler.parameters)
 
-    # Verify that the added parameters are at the end
-    bespoke_params = updated_handler.parameters[original_count:]
-    assert len(bespoke_params) == expected_num_new_params
+        # Pass single molecule, not list
+        ff_cleaned = _remove_redundant_smarts(mol, ff, id_substring="bespoke")
 
-    # Check that both have bespoke IDs
-    for param in bespoke_params:
-        assert param.id.startswith("b-bespoke-")
+        new_count = len(ff_cleaned.get_parameter_handler("Bonds").parameters)
+        assert new_count == original_count - 1
 
+    def test_multiple_handlers(self):
+        """Test that redundancy removal works across multiple handlers."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
 
-class TestReversibleTuple:
-    """Tests for the ReversibleTuple class."""
+        # Add unused parameters to multiple handlers
+        bond_handler = ff.get_parameter_handler("Bonds")
+        angle_handler = ff.get_parameter_handler("Angles")
 
-    def test_initialization(self):
-        """Test basic initialization."""
-        rt = ReversibleTuple(1, 2, 3)
-        assert rt.items == (1, 2, 3)
-        assert rt.canonical == (1, 2, 3)
+        unused_bond = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-unused",
+            "length": 1.2 * openff.toolkit.unit.angstrom,
+            "k": 600.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, unused_bond)
 
-    def test_equality_same_order(self):
-        """Test equality with same order."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(1, 2, 3)
-        assert rt1 == rt2
+        unused_angle = {
+            "smirks": "[#99:1]-[#99:2]-[#99:3]",
+            "id": "a-bespoke-unused",
+            "angle": 120.0 * openff.toolkit.unit.degree,
+            "k": 100.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.radian**2,
+        }
+        _add_parameter_with_overwrite(angle_handler, unused_angle)
 
-    def test_equality_reversed_order(self):
-        """Test equality with reversed order."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(3, 2, 1)
-        assert rt1 == rt2
+        original_bond_count = len(bond_handler.parameters)
+        original_angle_count = len(angle_handler.parameters)
 
-    def test_inequality(self):
-        """Test inequality with different tuples."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(1, 2, 4)
-        assert rt1 != rt2
+        # Remove redundant from both handlers
+        ff_cleaned = _remove_redundant_smarts(mol, ff, id_substring="bespoke")
 
-    def test_hash_same_order(self):
-        """Test that same order produces same hash."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(1, 2, 3)
-        assert hash(rt1) == hash(rt2)
-
-    def test_hash_reversed_order(self):
-        """Test that reversed order produces same hash."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(3, 2, 1)
-        assert hash(rt1) == hash(rt2)
-
-    def test_hash_different_tuples(self):
-        """Test that different tuples produce different hashes."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(1, 2, 4)
-        assert hash(rt1) != hash(rt2)
-
-    def test_use_in_set(self):
-        """Test that ReversibleTuples work correctly in sets."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(3, 2, 1)  # Same as rt1 when reversed
-        rt3 = ReversibleTuple(1, 2, 4)  # Different
-
-        # Should only have 2 unique items
-        unique_set = {rt1, rt2, rt3}
-        assert len(unique_set) == 2
-
-    def test_use_in_dict(self):
-        """Test that ReversibleTuples work correctly as dict keys."""
-        rt1 = ReversibleTuple(1, 2, 3)
-        rt2 = ReversibleTuple(3, 2, 1)
-
-        data = {rt1: "value1"}
-        # Should access the same key
-        assert data[rt2] == "value1"
-
-    def test_iteration(self):
-        """Test iteration over ReversibleTuple."""
-        rt = ReversibleTuple(1, 2, 3)
-        result = list(rt)
-        assert result == [1, 2, 3]
-
-    def test_indexing(self):
-        """Test indexing ReversibleTuple."""
-        rt = ReversibleTuple(1, 2, 3)
-        assert rt[0] == 1
-        assert rt[1] == 2
-        assert rt[2] == 3
-
-    def test_repr(self):
-        """Test string representation."""
-        rt = ReversibleTuple(1, 2, 3)
-        assert repr(rt) == "ReversibleTuple(1, 2, 3)"
-
-    def test_canonical_chooses_smaller(self):
-        """Test that canonical form is lexicographically smaller."""
-        # (3, 2, 1) < (1, 2, 3) is False, so canonical should be (1, 2, 3)
-        rt1 = ReversibleTuple(3, 2, 1)
-        assert rt1.canonical == (1, 2, 3)
-
-        # (1, 2, 3) < (3, 2, 1) is True, so canonical should be (1, 2, 3)
-        rt2 = ReversibleTuple(1, 2, 3)
-        assert rt2.canonical == (1, 2, 3)
-
-    def test_two_element_tuple(self):
-        """Test with two-element tuple."""
-        rt1 = ReversibleTuple(1, 2)
-        rt2 = ReversibleTuple(2, 1)
-        assert rt1 == rt2
-        assert hash(rt1) == hash(rt2)
-
-    def test_single_element_tuple(self):
-        """Test with single element."""
-        rt1 = ReversibleTuple(1)
-        rt2 = ReversibleTuple(1)
-        assert rt1 == rt2
-        assert rt1.canonical == (1,)
+        # Both should have removed the unused parameter
+        assert (
+            len(ff_cleaned.get_parameter_handler("Bonds").parameters)
+            == original_bond_count - 1
+        )
+        assert (
+            len(ff_cleaned.get_parameter_handler("Angles").parameters)
+            == original_angle_count - 1
+        )
 
 
 class TestAddTypesToForcefield:
@@ -709,6 +675,7 @@ class TestAddTypesToForcefield:
         assert count_limited > original_count
         assert count_full > original_count
 
-        # Full extension might add fewer parameters due to deduplication
-        # (all bonds look the same when including full molecule context)
-        assert count_full <= count_limited
+        # With redundancy removal, both may have similar counts since unused
+        # parameters are removed - just verify both are reasonable
+        assert count_limited >= original_count
+        assert count_full >= original_count

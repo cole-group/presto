@@ -20,6 +20,7 @@ from .create_types import (
     _create_smarts,
     add_types_to_forcefield,
 )
+from .msm import apply_msm_to_molecules
 from .settings import ParameterisationSettings
 from .utils.typing import TorchDevice
 
@@ -461,6 +462,13 @@ def parameterise(
         settings.type_generation_settings,
     )
 
+    if settings.msm_settings is not None:
+        bespoke_ff = apply_msm_to_molecules(
+            mols=mols,
+            off_ff=bespoke_ff,
+            settings=settings.msm_settings,
+        )
+
     # Create separate Interchange objects for each molecule
     interchanges = [
         openff.interchange.Interchange.from_smirnoff(bespoke_ff, mol.to_topology())
@@ -482,7 +490,7 @@ def parameterise(
 
     return (
         mols,
-        off_ff,
+        bespoke_ff,
         tensor_tops,
         force_field,
     )
