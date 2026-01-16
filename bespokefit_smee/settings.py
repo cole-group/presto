@@ -120,7 +120,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
-        default=400 * unit.femtoseconds,
+        default=0.5 * unit.picoseconds,
         description="Interval between saving snapshots during production sampling",
     )
 
@@ -130,14 +130,14 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     equilibration_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        default=0.1 * unit.picoseconds,
+        default=0.0 * unit.picoseconds,
         description="Equilibration sampling time per conformer. No snapshots are saved during "
         "equilibration sampling. The total sampling time per conformer will be this plus "
         "the production_sampling_time_per_conformer.",
     )
 
     production_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        default=20 * unit.picoseconds,
+        default=100 * unit.picoseconds,
         description="Production sampling time per conformer. The total sampling time per conformer "
         "will be this plus the equilibration_sampling_time_per_conformer.",
     )
@@ -243,12 +243,12 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        0.5 * unit.picoseconds,
+        2.5 * unit.picoseconds,
         description="Frequency at which to add bias",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        1.0 * unit.picoseconds,
+        2.5 * unit.picoseconds,
         description="Frequency at which to save the bias",
     )
 
@@ -329,7 +329,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
 
     # Loss weights for the torsion-minimised samples
     map_ml_coords_energy_to_mm_coords_energy: bool = Field(
-        True,
+        False,
         description="Whether to substitute the MLP energy for the MM-minimised coordinates with the "
         "MLP energy for the corresponding MLP-minimised coordinates.",
     )
@@ -703,7 +703,11 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     testing_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
+        default_factory=lambda: MLMDSamplingSettings(
+            temperature=300 * unit.kelvin,
+            snapshot_interval=20 * unit.femtoseconds,
+            production_sampling_time_per_conformer=2 * unit.picoseconds,
+        ),
         description="Settings for sampling for generating the testing data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )
