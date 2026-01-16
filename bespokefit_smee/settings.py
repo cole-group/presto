@@ -104,7 +104,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "egret-1",
+        "aceff-2.0",
         description="The machine learning potential to use for calculating energies and forces of "
         " the snapshots. Note that this is not generally the potential used for sampling.",
     )
@@ -556,7 +556,7 @@ class MSMSettings(_DefaultSettings):
     """Settings for the modified Seminario method."""
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "egret-1",
+        "aceff-2.0",
         description="The machine learning potential to use for calculating the Hessian matrix",
     )
 
@@ -576,7 +576,7 @@ class MSMSettings(_DefaultSettings):
     )
 
     n_conformers: int = Field(
-        10,
+        1,
         description="Number of conformers to generate and calculate MSM parameters for. "
         "The resulting bond and angle parameters will be averaged over all conformers.",
     )

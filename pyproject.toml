@@ -93,11 +93,10 @@ datasets = "*"
 jupyter = "*"
 nglview = "*"
 "smirnoff-plugins" = ">=0.0.4"
-openmm = ">=8.2"
+openmm = ">=8.4"
 "openff-toolkit" = ">=0.17.0"
 "openff-units" = "*"
 "openff-interchange" = ">=0.4.7"
-"openmm-ml" = "*"
 tensorboardX = "*"
 tensorboard = "*"
 versioneer = "*"
@@ -109,6 +108,9 @@ h5py = "*"
 seaborn = "*"
 rdkit = ">=2024.03.6"
 ambertools = "*"
+# nnpops = "*" # This pins pytorch to old versions. This results in a resolution failure when combined with openmm-torch (which pins a specific build).
+openmm-torch = ">=1.5.1"
+torchmd-net = "*"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
@@ -116,6 +118,7 @@ descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-re
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 mace-torch = "*"
 bespokefit_smee ={ path = ".", editable = true }
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", tag = "1.5" }
 
 # -----------------------------
 # GPU vs CPU toggle
@@ -145,7 +148,6 @@ datasets = "*"
 openff-units = "*"
 openff-toolkit-base = ">=0.9.2"
 openff-interchange-base = ">=0.3.17"
-nnpops = "*"
 pytorch = "*"
 __unix = "*"
 

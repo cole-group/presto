@@ -12,6 +12,7 @@ logger = loguru.logger
 
 
 AvailableModels = Literal[
+    "aceff-2.0",
     "mace-off23-small",
     "mace-off23-medium",
     "mace-off23-large",
