@@ -24,7 +24,7 @@ class TestWriteScatter:
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=2)
 
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         import openff.interchange
 
@@ -256,7 +256,7 @@ class TestPotentialSummary:
         from bespokefit_smee.writers import get_potential_summary
 
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         import openff.interchange
 
@@ -278,7 +278,7 @@ class TestPotentialSummary:
         from bespokefit_smee.writers import get_potential_summary
 
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         import openff.interchange
 
@@ -304,7 +304,7 @@ class TestReport:
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=3, rms_cutoff=0.0 * unit.angstrom)
 
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
         )

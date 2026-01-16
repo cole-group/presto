@@ -59,7 +59,7 @@ class TestLoadPrecomputedDataset:
         """Test loading a precomputed dataset."""
         settings = PreComputedDatasetSettings(dataset_path=sample_dataset)
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         device = torch.device("cpu")
 
         result = load_precomputed_dataset(
@@ -77,7 +77,7 @@ class TestLoadPrecomputedDataset:
         """Test FileNotFoundError for non-existent path."""
         settings = PreComputedDatasetSettings(dataset_path=tmp_path / "nonexistent")
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         device = torch.device("cpu")
 
         with pytest.raises(FileNotFoundError, match="Dataset not found"):
@@ -95,7 +95,7 @@ class TestLoadPrecomputedDataset:
 
         settings = PreComputedDatasetSettings(dataset_path=sample_dataset)
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         device = torch.device("cpu")
 
         with pytest.raises(ValueError, match="Output paths must contain exactly"):

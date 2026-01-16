@@ -291,7 +291,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-system-1.0.0-1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/opencl-headers-2025.06.13-h5888daf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-amber-ff-ports-2025.09.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2025.10.1-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2026.01.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-base-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-nagl-0.5.4-pyhd8ed1ab_1.conda
@@ -820,7 +820,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-system-1.0.0-1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/opencl-headers-2025.06.13-h5888daf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-amber-ff-ports-2025.09.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2025.10.1-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2026.01.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-base-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-nagl-0.5.4-pyhd8ed1ab_1.conda
@@ -1319,7 +1319,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ocl-icd-system-1.0.0-1.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/linux-64/opencl-headers-2025.06.13-h5888daf_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-amber-ff-ports-2025.09.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2025.10.1-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2026.01.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-base-0.4.8-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/openff-nagl-0.5.4-pyhd8ed1ab_1.conda
@@ -2160,8 +2160,8 @@ packages:
   timestamp: 1759146127397
 - pypi: ./
   name: bespokefit-smee
-  version: 0.1.2.dev28+g2cf6d9034.d20260116
-  sha256: 03c98957bc9ddb7d4973fe3d41e3253ef47370ac15edc925bbfcffbf7a13372f
+  version: 0.1.2.dev29+g20eb108f3.d20260116
+  sha256: c3cd761f011013261d3d266c14b92914435c814ee9235db5009b5403413e3056
   requires_python: '>=3.11'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/black-25.1.0-pyh866005b_0.conda
@@ -6861,9 +6861,9 @@ packages:
   - pkg:pypi/openff-amber-ff-ports?source=hash-mapping
   size: 222475
   timestamp: 1758297599388
-- conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2025.10.1-pyhd8ed1ab_0.conda
-  sha256: 0487cb88b0a8f0794a61745a86e0d050e41a3848410cd80f34e824cf80aa14fa
-  md5: 755a961ede9ddb097df00e6a9cae7bb4
+- conda: https://conda.anaconda.org/conda-forge/noarch/openff-forcefields-2026.01.0-pyhd8ed1ab_0.conda
+  sha256: 0ddbef322b893062565e91218689a9ffff1380f6742df12d783ce63b49325c57
+  md5: a58c407277d3c04a21cea9eaeea03618
   depends:
   - python >=3.11
   - setuptools
@@ -6873,8 +6873,8 @@ packages:
   license_family: CC
   purls:
   - pkg:pypi/openforcefields?source=hash-mapping
-  size: 117608
-  timestamp: 1761076927582
+  size: 118532
+  timestamp: 1768284405101
 - conda: https://conda.anaconda.org/conda-forge/noarch/openff-interchange-0.4.8-pyhd8ed1ab_1.conda
   sha256: 426d8bbf771f87cd510abf4c4ea1469b65ee24abcf89c0c6a51039d77849da7e
   md5: 2a0c3300b0d94d9731422503d8107019

@@ -27,7 +27,7 @@ def ethanol_training_setup():
     mol.generate_conformers(n_conformers=3, rms_cutoff=0.0 * unit.angstrom)
 
     # Create force field and interchange
-    ff = ForceField("openff_unconstrained-2.2.1.offxml")
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
     interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
 
     # Convert to tensor representation
@@ -402,7 +402,7 @@ class TestTrainAdam:
         mol2 = Molecule.from_smiles("CCO")
         mol2.generate_conformers(n_conformers=2, rms_cutoff=0.0 * unit.angstrom)
 
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Create interchanges for both molecules using the same force field
         interchange1 = openff.interchange.Interchange.from_smirnoff(

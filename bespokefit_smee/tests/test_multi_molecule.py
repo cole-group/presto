@@ -62,7 +62,7 @@ class TestMultiMoleculeParameterisation:
             Molecule.from_smiles("CCCC", allow_undefined_stereo=True),
         ]
 
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         type_gen_settings = {
             "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
@@ -112,7 +112,7 @@ class TestMultiMoleculeTypeGeneration:
     def test_type_generation_single_molecule(self):
         """Test type generation with single molecule as list."""
         mol = Molecule.from_smiles("CCO", allow_undefined_stereo=True)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_count = len(ff.get_parameter_handler("Bonds").parameters)
 
@@ -132,7 +132,7 @@ class TestMultiMoleculeTypeGeneration:
             Molecule.from_smiles("CC", allow_undefined_stereo=True),
             Molecule.from_smiles("CCC", allow_undefined_stereo=True),
         ]
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_count = len(ff.get_parameter_handler("Bonds").parameters)
 
@@ -153,7 +153,7 @@ class TestMultiMoleculeTypeGeneration:
             Molecule.from_smiles("CCC", allow_undefined_stereo=True),
             Molecule.from_smiles("CCCC", allow_undefined_stereo=True),
         ]
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         type_gen_settings = {
             "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),

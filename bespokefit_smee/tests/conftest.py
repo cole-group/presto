@@ -35,7 +35,7 @@ def ethanol_with_conformers():
 @pytest.fixture
 def simple_force_field():
     """Simple OpenFF force field for testing."""
-    return ForceField("openff_unconstrained-2.2.1.offxml")
+    return ForceField("openff_unconstrained-2.3.0.offxml")
 
 
 @pytest.fixture

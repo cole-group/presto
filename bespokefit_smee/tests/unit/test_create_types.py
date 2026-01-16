@@ -21,7 +21,7 @@ class TestAddParameterWithOverwrite:
 
     def test_add_new_parameter(self):
         """Test adding a new bond parameter to a handler."""
-        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         original_count = len(bond_handler.parameters)
@@ -49,7 +49,7 @@ class TestAddParameterWithOverwrite:
 
     def test_overwrite_existing_parameter(self):
         """Test overwriting an existing parameter with the same SMIRKS."""
-        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         # Find an existing parameter to overwrite
@@ -84,7 +84,7 @@ class TestAddParameterWithOverwrite:
 
     def test_parameter_preserves_position_on_overwrite(self):
         """Test that overwriting a parameter preserves its position in the handler."""
-        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         # Get the 5th parameter (arbitrary choice)
@@ -119,7 +119,7 @@ class TestAddParameterWithOverwrite:
 
     def test_add_multiple_new_parameters(self):
         """Test adding multiple new parameters sequentially."""
-        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         original_count = len(bond_handler.parameters)
@@ -162,7 +162,7 @@ class TestAddParameterWithOverwrite:
 
     def test_mixed_add_and_overwrite(self):
         """Test a mix of adding new parameters and overwriting existing ones."""
-        ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         original_count = len(bond_handler.parameters)
@@ -295,7 +295,7 @@ class TestRemoveRedundantSmarts:
     def test_removes_unused_bespoke_parameters(self):
         """Test that unused parameters with id_substring are removed."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")  # Ethanol
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Add a bespoke parameter that will be used
         bond_handler = ff.get_parameter_handler("Bonds")
@@ -344,7 +344,7 @@ class TestRemoveRedundantSmarts:
     def test_does_not_remove_non_bespoke_parameters(self):
         """Test that parameters without id_substring are never removed."""
         mol = openff.toolkit.Molecule.from_smiles("C")  # Methane (very simple)
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
 
@@ -360,7 +360,7 @@ class TestRemoveRedundantSmarts:
         mol1 = openff.toolkit.Molecule.from_smiles("CC")  # Ethane
         mol2 = openff.toolkit.Molecule.from_smiles("CCO")  # Ethanol
 
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
         bond_handler = ff.get_parameter_handler("Bonds")
 
         # Create a SMARTS that matches ethanol but not ethane
@@ -397,7 +397,7 @@ class TestRemoveRedundantSmarts:
     def test_none_id_substring_does_nothing(self):
         """Test that passing None for id_substring doesn't remove anything."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         bond_handler = ff.get_parameter_handler("Bonds")
 
@@ -424,7 +424,7 @@ class TestRemoveRedundantSmarts:
 
     def test_empty_molecule_list(self):
         """Test with empty molecule list."""
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         bond_handler = ff.get_parameter_handler("Bonds")
 
@@ -450,7 +450,7 @@ class TestRemoveRedundantSmarts:
     def test_single_molecule_as_object(self):
         """Test that single molecule (not in list) works correctly."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         bond_handler = ff.get_parameter_handler("Bonds")
 
@@ -476,7 +476,7 @@ class TestRemoveRedundantSmarts:
     def test_multiple_handlers(self):
         """Test that redundancy removal works across multiple handlers."""
         mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Add unused parameters to multiple handlers
         bond_handler = ff.get_parameter_handler("Bonds")
@@ -525,7 +525,7 @@ class TestAddTypesToForcefield:
     def test_basic_usage(self):
         """Test basic usage with benzene."""
         mol = openff.toolkit.Molecule.from_smiles("c1ccccc1")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Get original counts
         original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
@@ -553,7 +553,7 @@ class TestAddTypesToForcefield:
     def test_with_exclusions(self):
         """Test with excluded SMIRKS patterns."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Get a parameter to exclude
         bond_handler = ff.get_parameter_handler("Bonds")
@@ -584,7 +584,7 @@ class TestAddTypesToForcefield:
     def test_multiple_handlers(self):
         """Test adding types to multiple handlers."""
         mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         # Get original counts for multiple handlers
         original_counts = {
@@ -615,7 +615,7 @@ class TestAddTypesToForcefield:
     def test_force_field_not_modified(self):
         """Test that original force field is not modified."""
         mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
 
@@ -637,7 +637,7 @@ class TestAddTypesToForcefield:
     def test_empty_settings(self):
         """Test with empty type generation settings."""
         mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
 
@@ -653,7 +653,7 @@ class TestAddTypesToForcefield:
     def test_different_extension_distances(self):
         """Test with different max_extend_distance values."""
         mol = openff.toolkit.Molecule.from_smiles("CCCC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
 
         original_count = len(ff.get_parameter_handler("Bonds").parameters)
 

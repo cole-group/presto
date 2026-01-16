@@ -452,7 +452,7 @@ class TestFilterDatasetOutliers:
         """Create ethanol force field and topology for testing."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=5)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()

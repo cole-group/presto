@@ -30,7 +30,7 @@ class TestComputeRegularisationPenalty:
     def simple_trainable_and_params(self):
         """Create a simple trainable and parameters for testing."""
         mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         import openff.interchange
 
@@ -191,7 +191,7 @@ class TestPredictWithWeights:
         """Create ethanol force field and topology for testing."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=3)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
@@ -279,7 +279,7 @@ class TestPredictionLossWithWeights:
         """Create ethanol trainable and weighted dataset for testing."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=3)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
@@ -387,7 +387,7 @@ class TestPredictionLossWithWeights:
         """Test that zero energy weight excludes energy from loss."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=2)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
@@ -438,7 +438,7 @@ class TestPredictionLossWithWeights:
         """Test that NaN forces are handled correctly (zero weight)."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=2)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
@@ -499,7 +499,7 @@ class TestPredictFunction:
 
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=2, rms_cutoff=0.0 * unit.angstrom)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()
@@ -589,7 +589,7 @@ class TestPredictWithWeightsMultipleEntries:
 
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=3, rms_cutoff=0.0 * unit.angstrom)
-        ff = ForceField("openff_unconstrained-2.2.1.offxml")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
         interchange = openff.interchange.Interchange.from_smirnoff(
             ff, mol.to_topology()

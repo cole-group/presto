@@ -139,7 +139,7 @@ def test_energies_equivalent(
     from ...settings import TypeGenerationSettings
     from ...utils.typing import NonLinearValenceType
 
-    base_ff = ForceField("openff_unconstrained-2.3.0-rc1.offxml")
+    base_ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
     # Build type_generation_settings with proper_torsion_excludes
     type_gen_settings: dict[NonLinearValenceType, TypeGenerationSettings] = {
@@ -155,7 +155,7 @@ def test_energies_equivalent(
     settings = ParameterisationSettings(
         linearise_harmonics=linearise_harmonics,
         smiles=smiles,
-        initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
+        initial_force_field="openff_unconstrained-2.3.0.offxml",
         expand_torsions=True,
         type_generation_settings=type_gen_settings,
         msm_settings=None,
@@ -204,7 +204,7 @@ def test_openmm_smee_energy_equivalence(linearise_harmonics: bool, smiles: str):
     settings = ParameterisationSettings(
         linearise_harmonics=linearise_harmonics,
         smiles=smiles,
-        initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
+        initial_force_field="openff_unconstrained-2.3.0.offxml",
         expand_torsions=False,
         msm_settings=None,
     )
@@ -265,7 +265,7 @@ def test_openmm_smee_energy_with_predict(linearise_harmonics: bool, smiles: str)
     settings = ParameterisationSettings(
         linearise_harmonics=linearise_harmonics,
         smiles=smiles,
-        initial_force_field="openff_unconstrained-2.3.0-rc1.offxml",
+        initial_force_field="openff_unconstrained-2.3.0.offxml",
         expand_torsions=False,
         msm_settings=None,
     )
