@@ -265,6 +265,11 @@ def train_adam(
                 trainable.clamp(trainable_parameters)
                 if i % settings.learning_rate_decay_step == 0:
                     scheduler.step()
+
+        # Required to avoid filling up the GPU memory between iterations
+        # TODO: Find a better way to do this.
+        torch.cuda.empty_cache()
+
         # some book-keeping and outputting
         losses_train = prediction_loss(
             datasets,
