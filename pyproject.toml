@@ -94,6 +94,7 @@ jupyter = "*"
 nglview = "*"
 "smirnoff-plugins" = ">=0.0.4"
 openmm = ">=8.4"
+openmm-ml = ">=1.5"
 "openff-toolkit" = ">=0.17.0"
 "openff-units" = "*"
 "openff-interchange" = ">=0.4.7"
@@ -119,7 +120,6 @@ descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-re
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 mace-torch = "*"
 bespokefit_smee ={ path = ".", editable = true }
-openmmml = { git = "https://github.com/openmm/openmm-ml.git", tag = "1.5" }
 
 # -----------------------------
 # GPU vs CPU toggle

@@ -304,6 +304,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.4-h55fea9a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openldap-2.6.10-he970967_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-8.4.0-py312ha28768a_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openmm-ml-1.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-torch-1.5.1-cpu_py312h48f1310_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.5.4-h26f9b46_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/optree-0.18.0-py312hd9148b4_0.conda
@@ -470,7 +471,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c6/53/7d7b1de354a43e11cb19b370f81833f078f931aff4555b24e869013eea1a/mace_torch-0.3.14-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/be/ba/eb76f2bb74d2f2ad15a0fdf87afc9767a594c8e972b9f1b509a1378d68a6/matscipy-1.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
-      - pypi: git+https://github.com/openmm/openmm-ml.git?tag=1.5#cc19b74e02668f25e7ca751d2388f2dc14886c8c
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/01/7e/62517dddcfce6d53a39543cd74d0dccfcbdf53967017c58af68822100272/orjson-3.11.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -833,6 +833,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.4-h55fea9a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openldap-2.6.10-he970967_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-8.4.0-py313h6d35a0d_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openmm-ml-1.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-torch-1.5.1-cuda129py313ha409ee9_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.5.4-h26f9b46_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/optree-0.17.0-py313h7037e92_1.conda
@@ -1001,7 +1002,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/c6/53/7d7b1de354a43e11cb19b370f81833f078f931aff4555b24e869013eea1a/mace_torch-0.3.14-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/46/6e/af9cd40006f9caf13618dce250200e2eb61ef6b27ed2e2a713ff64b7d050/matscipy-1.1.0.tar.gz
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
-      - pypi: git+https://github.com/openmm/openmm-ml.git?tag=1.5#cc19b74e02668f25e7ca751d2388f2dc14886c8c
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/aa/fd/d0733fcb9086b8be4ebcfcda2d0312865d17d0d9884378b7cffb29d0763f/orjson-3.11.4-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -1332,6 +1332,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.4-h55fea9a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openldap-2.6.10-he970967_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-8.4.0-py313h6d35a0d_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/openmm-ml-1.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-torch-1.5.1-cuda129py313ha409ee9_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.5.4-h26f9b46_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/optree-0.17.0-py313h7037e92_1.conda
@@ -1479,7 +1480,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/2a/4d/8e6be8d7d5a30d47fa0ce4b55e3a8050ad689556e6e979d206b4ac67b733/lmdb-1.7.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/c6/53/7d7b1de354a43e11cb19b370f81833f078f931aff4555b24e869013eea1a/mace_torch-0.3.14-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/46/6e/af9cd40006f9caf13618dce250200e2eb61ef6b27ed2e2a713ff64b7d050/matscipy-1.1.0.tar.gz
-      - pypi: git+https://github.com/openmm/openmm-ml.git?tag=1.5#cc19b74e02668f25e7ca751d2388f2dc14886c8c
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/aa/fd/d0733fcb9086b8be4ebcfcda2d0312865d17d0d9884378b7cffb29d0763f/orjson-3.11.4-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -2160,8 +2160,8 @@ packages:
   timestamp: 1759146127397
 - pypi: ./
   name: bespokefit-smee
-  version: 0.1.2.dev29+g20eb108f3.d20260116
-  sha256: c3cd761f011013261d3d266c14b92914435c814ee9235db5009b5403413e3056
+  version: 0.1.2.dev31+g1185446d2.d20260117
+  sha256: 85cae33efecb08ebe433474389a624ca2adbe69eab2ad4ddc65bb2ee6dabbe02
   requires_python: '>=3.11'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/black-25.1.0-pyh866005b_0.conda
@@ -7112,6 +7112,21 @@ packages:
   - pkg:pypi/openmm?source=hash-mapping
   size: 14566974
   timestamp: 1765254682650
+- conda: https://conda.anaconda.org/conda-forge/noarch/openmm-ml-1.5-pyhd8ed1ab_1.conda
+  sha256: 106e406021326d8950ad8c0b4387970e55265db262915f36bf59afb8b8d35d79
+  md5: 5e65a18cbeb56f03a9dbd8c8e2a5e682
+  depends:
+  - numpy
+  - openmm >=8.4.0
+  - openmm-torch >=1.5.1
+  - python >=3.10
+  - setuptools
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/openmmml?source=hash-mapping
+  size: 25074
+  timestamp: 1768582026570
 - conda: https://conda.anaconda.org/conda-forge/linux-64/openmm-torch-1.5.1-cpu_py312h48f1310_3.conda
   sha256: d014c79a91229f048c346ed054cb505edaf3ebf32b692e050f9c48754a02049a
   md5: 036e188cec413cf8f64ccdff225de87f
@@ -7157,12 +7172,6 @@ packages:
   - pkg:pypi/openmmtorch?source=hash-mapping
   size: 285012
   timestamp: 1765228727671
-- pypi: git+https://github.com/openmm/openmm-ml.git?tag=1.5#cc19b74e02668f25e7ca751d2388f2dc14886c8c
-  name: openmmml
-  version: '1.5'
-  requires_dist:
-  - numpy
-  - openmm>=8.4
 - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.5.4-h26f9b46_0.conda
   sha256: e807f3bad09bdf4075dbb4168619e14b0c0360bacb2e12ef18641a834c8c5549
   md5: 14edad12b59ccbfa3910d42c72adc2a0
