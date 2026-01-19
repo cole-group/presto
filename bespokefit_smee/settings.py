@@ -367,16 +367,30 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
 
 
 class PreComputedDatasetSettings(_DefaultSettings):
-    """Settings for loading pre-computed datasets from disk."""
+    """Settings for loading pre-computed datasets from disk.
+
+    For single-molecule fits, provide a single Path.
+    For multi-molecule fits, provide a list of Paths (one per molecule).
+    """
 
     sampling_protocol: Literal["pre_computed"] = Field(
         "pre_computed", description="Sampling protocol identifier."
     )
 
-    dataset_path: Path = Field(
+    dataset_paths: list[Path] = Field(
         ...,
-        description="Path to the pre-computed dataset saved with dataset.save_to_disk().",
+        description="Path(s) to pre-computed dataset(s) saved with dataset.save_to_disk(). "
+        "For single-molecule fits, provide a single Path. "
+        "For multi-molecule fits, provide a list of Paths (one per molecule in order).",
     )
+
+    @field_validator("dataset_paths", mode="before")
+    @classmethod
+    def normalize_dataset_paths(cls, value: Path | list[Path]) -> list[Path]:
+        """Normalize dataset_paths to always be a list internally."""
+        if isinstance(value, (str, Path)):
+            return [Path(value)]
+        return [Path(p) for p in value]
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -585,7 +599,7 @@ class MSMSettings(_DefaultSettings):
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
-    smiles: Union[str, list[str]] = Field(
+    smiles: list[str] = Field(
         ...,
         description="SMILES string or list of SMILES for molecules to fit",
     )

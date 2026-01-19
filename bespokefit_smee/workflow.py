@@ -152,6 +152,7 @@ def get_bespoke_force_field(
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
 
     # Train the force field
+    breakpoint()
     for iteration in tqdm(
         range(1, settings.n_iterations + 1),  # Start from 1 (0 is untrained)
         leave=False,
