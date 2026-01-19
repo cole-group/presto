@@ -251,6 +251,7 @@ def train_adam(
                         settings.regularisation_target,
                         str(device),
                     )
+
                     write_metrics(
                         i,
                         losses_train,
@@ -258,16 +259,18 @@ def train_adam(
                         writer,
                         metrics_file,
                     )
-                tot_loss_train.backward(retain_graph=True)  # type: ignore[union-attr]
-                # trainable.freeze_grad()
+
+                tot_loss_train.backward(retain_graph=False)  # type: ignore[union-attr]
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 trainable.clamp(trainable_parameters)
+
                 if i % settings.learning_rate_decay_step == 0:
                     scheduler.step()
 
         # Required to avoid filling up the GPU memory between iterations
         # TODO: Find a better way to do this.
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
 
         # some book-keeping and outputting

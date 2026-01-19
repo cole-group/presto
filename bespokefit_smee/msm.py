@@ -19,6 +19,7 @@ import numpy as np
 import openff.interchange
 import openff.toolkit
 import openmm.unit
+import torch
 from numpy import typing as npt
 from openff.toolkit.typing.engines.smirnoff import (
     AngleHandler,
@@ -756,6 +757,12 @@ def apply_msm_to_molecule(
             all_bond_params[bond_idx].append(bond_param)
         for angle_idx, angle_param in conformer_angle_params.items():
             all_angle_params[angle_idx].append(angle_param)
+
+    # Clean up OpenMM objects to free GPU memory
+    del simulation
+    del integrator
+    torch.cuda.synchronize()  # Wait for all GPU operations to complete -- this is critical
+    torch.cuda.empty_cache()  # Now GPU is idle, memory can actually be freed
 
     # Average parameters over all conformers
     bond_params = {

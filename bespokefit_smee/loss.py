@@ -104,8 +104,8 @@ def _compute_total_loss(
     Returns:
         Tuple of (avg_energy_loss, avg_force_loss) averaged across molecules.
     """
-    total_energy_loss = torch.tensor(0.0, dtype=torch.float64, device=device_type)
-    total_force_loss = torch.tensor(0.0, dtype=torch.float64, device=device_type)
+    energy_losses = []
+    force_losses = []
 
     for dataset, topology in zip(datasets_list, topologies, strict=True):
         (
@@ -121,6 +121,7 @@ def _compute_total_loss(
             {dataset[0]["smiles"]: topology},
             device_type=device_type,
             normalize=False,
+            create_graph=False,
         )
 
         energy_loss, force_loss = _compute_molecule_energy_force_loss(
@@ -134,12 +135,13 @@ def _compute_total_loss(
             device_type,
         )
 
-        total_energy_loss = total_energy_loss + energy_loss
-        total_force_loss = total_force_loss + force_loss
+        energy_losses.append(energy_loss)
+        force_losses.append(force_loss)
 
-    # Average across molecules
-    n_molecules = len(datasets_list)
-    return total_energy_loss / n_molecules, total_force_loss / n_molecules
+    total_energy_loss = torch.stack(energy_losses).mean()
+    total_force_loss = torch.stack(force_losses).mean()
+
+    return total_energy_loss, total_force_loss
 
 
 def prediction_loss(
@@ -322,6 +324,7 @@ def get_loss_closure_fn(
 
         # Free GPU memory explicitly
         if x.device.type == "cuda":
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
         return loss, gradient, hessian
@@ -437,7 +440,7 @@ def predict_with_weights(
     reference: typing.Literal["mean", "min", "median"] = "mean",
     normalize: bool = True,
     device_type: str = "cpu",
-    create_graph: bool = True,
+    create_graph: bool = False,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]:
@@ -454,7 +457,6 @@ def predict_with_weights(
         normalize: Whether to scale the relative energies and forces.
         device_type: The device type (e.g., 'cpu' or 'cuda').
         create_graph: Whether to create a computation graph for gradients.
-            Set to False for filtering/evaluation where backprop is not needed.
 
     Returns:
         Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
@@ -491,7 +493,7 @@ def predict_with_weights(
             energy_pred.sum(),
             coords,
             create_graph=create_graph,
-            retain_graph=create_graph,
+            retain_graph=True,  # Need to retain connection to FF parameters
             allow_unused=True,
         )[0]
 
