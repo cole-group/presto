@@ -315,7 +315,7 @@ class TestMSMSettings:
     def test_default_settings(self):
         """Test default MSM settings."""
         settings = MSMSettings()
-        assert settings.vib_scaling == 0.957
+        assert settings.vib_scaling == 0.958
         assert settings.ml_potential == "aceff-2.0"
 
     def test_custom_vib_scaling(self):

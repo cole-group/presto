@@ -585,8 +585,9 @@ class MSMSettings(_DefaultSettings):
     )
 
     vib_scaling: float = Field(
-        0.957,
-        description="Vibrational scaling factor",
+        0.958,
+        description="Vibrational scaling factor. This is a reasonable default for ωB97M-V/def2-TZVPPD (AceFF-2.0 LOT), "
+        " see https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0152838",
     )
 
     n_conformers: int = Field(
