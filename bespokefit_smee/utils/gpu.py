@@ -33,5 +33,6 @@ def cleanup_simulation(
     del simulation
     if integrator is not None:
         del integrator
-    torch.cuda.synchronize()  # Wait for all GPU operations to complete
-    torch.cuda.empty_cache()  # Now GPU is idle, memory can actually be freed
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()  # Wait for all GPU operations to complete
+        torch.cuda.empty_cache()  # Now GPU is idle, memory can actually be freed

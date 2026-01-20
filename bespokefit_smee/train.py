@@ -270,8 +270,9 @@ def train_adam(
 
         # Required to avoid filling up the GPU memory between iterations
         # TODO: Find a better way to do this.
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
 
         # some book-keeping and outputting
         losses_train = prediction_loss(
