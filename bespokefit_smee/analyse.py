@@ -18,12 +18,21 @@ from PIL import Image
 from rdkit.Chem import Draw
 from tqdm import tqdm
 
-from .outputs import OutputStage, OutputType, StageKind
+from .loss import LossRecord
+from .outputs import OutputStage, OutputType, StageKind, get_mol_path
 from .settings import WorkflowSettings
 
 logger = loguru.logger
 
 PLT_STYLE = "ggplot"
+
+
+def _add_legend_if_labels(ax: Axes, **kwargs: Any) -> None:
+    """Add a legend to the axes only if there are labeled artists."""
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(**kwargs)
+
 
 POTENTIAL_KEYS = Literal[
     "Bonds", "Angles", "ProperTorsions", "ImproperTorsions", "vdW", "Electrostatics"
@@ -65,28 +74,22 @@ def read_errors(
 
 
 def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
-    idxs, losses_test, losses_train, iteration = [], [], [], []
+    df_rows = []
+    names = []
+    for loss_type in ["train", "test"]:
+        for field in LossRecord._fields:
+            names.append(f"loss_{loss_type}_{field}")
 
     for i, loss_datafile in paths_by_iter.items():
         df = pd.read_csv(
             loss_datafile,
             sep=r"\s+",
             header=None,
-            names=["idx", "loss_train", "loss_test"],
+            names=names,
         )
-        idxs.append(df["idx"].tolist())
-        losses_test.append(df["loss_train"].tolist())
-        losses_train.append(df["loss_test"].tolist())
-        iteration.append(np.ones_like(df["idx"].tolist()) * i)
+        df_rows.append(df.assign(iteration=i))
 
-    return pd.DataFrame(
-        data={
-            "idx": np.concatenate(idxs),
-            "loss_train": np.concatenate(losses_test),
-            "loss_test": np.concatenate(losses_train),
-            "iteration": np.concatenate(iteration),
-        }
-    )
+    return pd.concat(df_rows, ignore_index=True)
 
 
 def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
@@ -96,24 +99,48 @@ def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
 
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
     # Colour by iteration - full line for train, dotted for test
-    for i in losses["iteration"].unique():
-        ax.plot(
-            losses[losses["iteration"] == i].index,
-            losses[losses["iteration"] == i]["loss_train"],
-            label=f"train-{i}",
-            color=f"C{i}",
-        )
-        ax.plot(
-            losses[losses["iteration"] == i].index,
-            losses[losses["iteration"] == i]["loss_test"],
-            label=f"test-{i}",
-            color=f"C{i}",
-            linestyle="--",
-        )
+    iterations = losses["iteration"].unique()
+    first_iteration = iterations[0]
+    for i in iterations:
+        loss_names = [name for name in losses.columns if name.startswith("loss_")]
+        for loss_name in loss_names:
+            if loss_name == "loss_test_regularisation":
+                continue  # Skip regularisation loss as not meaningful
+            linestyle = "-" if "train" in loss_name else "--"
+            color_idx = (
+                0 if "energy" in loss_name else 1 if "forces" in loss_name else 2
+            )
+            label = loss_name.split("_")[1] + " " + loss_name.split("_")[-1]
+            ax.plot(
+                losses[losses["iteration"] == i].index,
+                losses[losses["iteration"] == i][loss_name],
+                label=(
+                    label if i == first_iteration else None
+                ),  # Don't repeat labels for new iterations
+                color=f"C{color_idx}",
+                linestyle=linestyle,
+            )
+
+        # If this isn't the last iteration, add a vertical line to separate iterations # and label it
+        if i != iterations[-1]:
+            ax.axvline(
+                x=losses[losses["iteration"] == i].index[-1] + 0.5,
+                color="black",
+                linestyle=":",
+                alpha=0.5,
+            )
+            ax.text(
+                losses[losses["iteration"] == i].index[-1] + 0.5,
+                ax.get_ylim()[1] * 0.9,
+                f"Iteration {i}",
+                rotation=90,
+                verticalalignment="top",
+                horizontalalignment="right",
+            )
 
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Loss")
-    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    _add_legend_if_labels(ax, bbox_to_anchor=(1.05, 1), loc="upper left")
 
 
 def plot_energy_correlation(
@@ -232,7 +259,7 @@ def plot_distributions_of_errors(
     # Colour by iteration
     # Use continuous colourmap for the iterations
     iterations = errors.keys()
-    colours = plt.cm.get_cmap("viridis")(np.linspace(0, 1, len(iterations) + 1))
+    colours = plt.colormaps["viridis"](np.linspace(0, 1, len(iterations) + 1))
 
     for i in iterations:
         ax.hist(
@@ -283,29 +310,6 @@ def plot_mean_errors(
     )
 
 
-def plot_sd_of_errors(
-    fig: Figure,
-    ax: Axes,
-    errors: dict[int, npt.NDArray[np.float64]],
-    error_type: Literal["energy", "force"],
-) -> None:
-    sd_errors = {i: np.std(errors[i]) for i in errors.keys()}
-
-    ax.plot(
-        list(sd_errors.keys()),
-        list(sd_errors.values()),
-        marker="o",
-        color="black",
-    )
-
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel(
-        "Standard Deviation of Relative Energy Error / kcal mol$^{-1}$"
-        if error_type == "energy"
-        else "Standard Deviation of Relative Force Error / kcal mol$^{-1}$ Å$^{-1}$"
-    )
-
-
 def plot_rmse_of_errors(
     fig: Figure,
     ax: Axes,
@@ -353,10 +357,6 @@ def plot_error_statistics(
     # plot_mean_errors(fig, axs[4], errors, "energy")
     # plot_mean_errors(fig, axs[5], errors, "force")
 
-    # # Plot the standard deviation of the errors
-    plot_sd_of_errors(fig, axs[4], errors["energy_differences"], "energy")
-    plot_sd_of_errors(fig, axs[5], errors["forces_differences"], "force")
-
 
 def plot_ff_differences(
     fig: Figure,
@@ -389,20 +389,18 @@ def plot_ff_differences(
         )
     param_ids = sorted(potentials_start.keys())
 
-    parameter_keys = [
-        k
-        for k in potentials_start[list(potentials_start.keys())[0]].keys()
-        if k not in ["smirks", "id"]
-    ]
-    if parameter_key not in parameter_keys:
-        raise ValueError(f"Parameter key {parameter_key} not found in {parameter_keys}")
-
     # Get the differences for each key id
     differences = {
         param_id: potentials_end[param_id][parameter_key]
         - potentials_start[param_id][parameter_key]
         for param_id in param_ids
+        if parameter_key
+        in potentials_start[param_id]  # Skip missing keys, e.g. periodicity in torsions
     }
+
+    if not differences:
+        return {}
+
     differences_first_key = list(differences.keys())[0]
 
     # Plot the differences
@@ -411,8 +409,10 @@ def plot_ff_differences(
         if potential_type == "Angles" and parameter_key == "angle"
         else differences[differences_first_key].units
     )
+    # Use numeric x positions to avoid matplotlib categorical warning
+    x_positions = list(range(len(differences)))
     ax.bar(
-        list(differences.keys()),
+        x_positions,
         [float(differences[k] / q_units) for k in differences.keys()],
     )
 
@@ -420,8 +420,9 @@ def plot_ff_differences(
     ax.set_xlabel("Key ID")
     ax.set_title(f"{potential_type} {parameter_key} differences")
 
-    # Rotate tick labels 90
-    ax.set_xticklabels(differences.keys(), rotation=90)
+    # Rotate tick labels 90 - set ticks first to avoid warning
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(list(differences.keys()), rotation=90)
 
     return differences
 
@@ -435,7 +436,7 @@ def plot_ff_values(
     parameter_key: str,
 ) -> None:
     # nice colour map for the iterations
-    colours = plt.cm.get_cmap("viridis")(np.linspace(0, 1, len(force_fields) + 1))
+    colours = plt.colormaps["viridis"](np.linspace(0, 1, len(force_fields) + 1))
 
     # Get the desired ids
     first_ff = force_fields[list(force_fields.keys())[0]]
@@ -459,18 +460,16 @@ def plot_ff_values(
                 f"Force field at iteration {i} has different {potential_type} ids: {set(potentials.keys())} vs {set(param_ids)}"
             )
 
-        parameter_keys = [
-            k
-            for k in potentials[list(potentials.keys())[0]].keys()
-            if k not in ["smirks", "id"]
-        ]
-        if parameter_key not in parameter_keys:
-            raise ValueError(
-                f"Parameter key {parameter_key} not found in {parameter_keys}"
-            )
+        vals = {
+            param_id: potentials[param_id][parameter_key]
+            for param_id in param_ids
+            if parameter_key
+            in potentials[param_id]  # Skip missing keys, e.g. periodicity in torsions
+        }
 
-        # Get the differences for each key id
-        vals = {param_id: potentials[param_id][parameter_key] for param_id in param_ids}
+        if not vals:
+            return
+
         vals_first_key = list(vals.keys())[0]
 
         # Plot the differences
@@ -496,14 +495,18 @@ def plot_ff_values(
     ax.set_ylabel(f"{parameter_key} / {q_units}")
     ax.set_xlabel("Key ID")
     ax.set_title(f"{potential_type} {parameter_key}")
-    # ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 
 
 pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
     "Bonds": ["length", "k"],
     "Angles": ["angle", "k"],
-    "ProperTorsions": ["k1", "k2", "k3", "k4", "phase1", "phase2", "phase3", "phase4"],
-    "ImproperTorsions": ["k1", "phase1"],
+    "ProperTorsions": [
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+    ],  # "phase1", "phase2", "phase3", "phase4"],
+    "ImproperTorsions": ["k1"],  # "phase1"],
 }
 
 
@@ -529,11 +532,15 @@ def plot_all_ffs(
         for j, param_key in enumerate(param_keys):
             plt_fn(fig, axs[j, i], force_fields, molecule, potential_type, param_key)
 
+        # If this is the last potential type, add legend
+        if i == ncols - 1:
+            _add_legend_if_labels(axs[j, i], bbox_to_anchor=(1.05, 1), loc="upper left")
+
         # Hide the remaining axes
         for k in range(j + 1, nrows):
             axs[k, i].axis("off")
 
-    axs[2, 3].legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    _add_legend_if_labels(axs[2, 3], bbox_to_anchor=(1.05, 1), loc="upper left")
 
     fig.tight_layout()
 
@@ -543,19 +550,21 @@ def plot_all_ffs(
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
     """Analyse the results of a BespokeFitSMEE workflow."""
 
+    mols = workflow_settings.parameterisation_settings.molecules
+
     with plt.style.context(PLT_STYLE):
         # Plot the losses
         path_manager = workflow_settings.get_path_manager()
         stage = OutputStage(StageKind.PLOTS)
         path_manager.mk_stage_dir(stage)
-        mol = Molecule.from_smiles(
-            workflow_settings.parameterisation_settings.smiles,
-            allow_undefined_stereo=True,
+
+        output_paths_by_type = path_manager.get_all_output_paths_by_output_type()
+        output_paths_by_type_by_mol = (
+            path_manager.get_all_output_paths_by_output_type_by_molecule()
         )
 
-        output_paths_by_output_type = path_manager.get_all_output_paths_by_output_type()
         training_metric_paths = dict(
-            enumerate(output_paths_by_output_type[OutputType.TRAINING_METRICS])
+            enumerate(output_paths_by_type[OutputType.TRAINING_METRICS])
         )
         losses = read_losses(training_metric_paths)
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -567,69 +576,71 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         )
         plt.close(fig)
 
-        # Plot the errors
-        scatter_paths = dict(enumerate(output_paths_by_output_type[OutputType.SCATTER]))
-        errors = read_errors(scatter_paths)
-        fig, axs = plt.subplots(3, 2, figsize=(13, 18))
-        # TODO: typing below which is ignored
-        plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.ERROR_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        # Get scatter paths organized by molecule
+        scatter_paths_by_mol = output_paths_by_type_by_mol.get(OutputType.SCATTER, {})
+        assert isinstance(scatter_paths_by_mol, dict)
 
-        # Plot the correlation plots
-        fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
-        plot_energy_correlation(
-            fig,
-            ax,
-            errors["energy_reference"],
-            errors["energy_predicted"],
-        )
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.CORRELATION_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+        # Plot for each molecule
+        for mol_idx, mol in enumerate(mols):
+            if mol_idx not in scatter_paths_by_mol:
+                logger.warning(f"No scatter paths found for molecule {mol_idx}")
+                continue
 
-        # Plot the force error by atom index
-        fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
-        plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
-        fig.savefig(
-            str(
-                path_manager.get_output_path(
-                    stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT
-                )
-            ),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+            # Convert list of paths to dict indexed by iteration
+            scatter_paths_for_mol = dict(enumerate(scatter_paths_by_mol[mol_idx]))
+            errors = read_errors(scatter_paths_for_mol)
 
-        # Plot the force field changes
-        ff_paths = load_force_fields(
-            dict(enumerate(output_paths_by_output_type[OutputType.OFFXML]))
-        )
+            # Plot the errors
+            fig, axs = plt.subplots(2, 2, figsize=(13, 12))
+            plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
+            error_plot_path = path_manager.get_output_path(stage, OutputType.ERROR_PLOT)
+            error_plot_path_mol = get_mol_path(error_plot_path, mol_idx)
+            fig.savefig(str(error_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "values")
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.PARAMETER_VALUES_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+            # Plot the correlation plots
+            fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
+            plot_energy_correlation(
+                fig,
+                ax,
+                errors["energy_reference"],
+                errors["energy_predicted"],
+            )
+            corr_plot_path = path_manager.get_output_path(
+                stage, OutputType.CORRELATION_PLOT
+            )
+            corr_plot_path_mol = get_mol_path(corr_plot_path, mol_idx)
+            fig.savefig(str(corr_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
 
-        fig, axs = plot_all_ffs(ff_paths, mol, "differences")
-        fig.savefig(
-            str(
-                path_manager.get_output_path(
-                    stage, OutputType.PARAMETER_DIFFERENCES_PLOT
-                )
-            ),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
+            # Plot the force error by atom index
+            fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
+            plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
+            force_error_plot_path = path_manager.get_output_path(
+                stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT
+            )
+            force_error_plot_path_mol = get_mol_path(force_error_plot_path, mol_idx)
+            fig.savefig(str(force_error_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+        # Plot the force field changes for each molecule
+        offxml_paths = output_paths_by_type.get(OutputType.OFFXML, [])
+        assert isinstance(offxml_paths, list)
+        ff_paths = load_force_fields(dict(enumerate(offxml_paths)))
+
+        for mol_idx, mol in enumerate(mols):
+            fig, axs = plot_all_ffs(ff_paths, mol, "values")
+            param_values_plot_path = path_manager.get_output_path(
+                stage, OutputType.PARAMETER_VALUES_PLOT
+            )
+            param_values_plot_path_mol = get_mol_path(param_values_plot_path, mol_idx)
+            fig.savefig(str(param_values_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+            fig, axs = plot_all_ffs(ff_paths, mol, "differences")
+            param_diff_plot_path = path_manager.get_output_path(
+                stage, OutputType.PARAMETER_DIFFERENCES_PLOT
+            )
+            param_diff_plot_path_mol = get_mol_path(param_diff_plot_path, mol_idx)
+            fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
+            plt.close(fig)

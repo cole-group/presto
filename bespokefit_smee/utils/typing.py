@@ -19,3 +19,15 @@ ValenceType = Literal[
     "ProperTorsions",
     "ImproperTorsions",
 ]
+
+NonLinearValenceType = Literal[
+    "Bonds",
+    "Angles",
+    "ProperTorsions",
+    "ImproperTorsions",
+]
+
+AllowedAttributeType = Literal[
+    "vdW",
+    "Electrostatics",
+]

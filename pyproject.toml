@@ -32,7 +32,7 @@ ignore-init-module-imports = true
 exclude = ["bespokefit_smee/models/compile_aimnet2_ens_models.py"]
 
 [tool.coverage.run]
-omit = ["**/tests/*", "**/_version.py"]
+omit = ["**/tests/*", "**/_version.py", "bespokefit_smee/models/compile_aimnet2_ens_models.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
@@ -77,9 +77,10 @@ version = "*"
 channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing"] }
-cpu = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing"] }
-runtime = { features = ["common", "smee_descent", "gpu",] }
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff"] }
+cpu = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff"] }
+runtime = { features = ["common", "smee_descent", "gpu", "aceff"] }
+mace-runtime = { features = ["common", "smee_descent", "gpu", "mace"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11"
@@ -93,11 +94,10 @@ datasets = "*"
 jupyter = "*"
 nglview = "*"
 "smirnoff-plugins" = ">=0.0.4"
-openmm = ">=8.2"
 "openff-toolkit" = ">=0.17.0"
 "openff-units" = "*"
-"openff-interchange" = ">=0.4.7"
-"openmm-ml" = "*"
+"openff-interchange" = ">=0.4.11" # Required for numpy 2.4 compatibility
+"openff-forcefields" = ">=2026.01.0"
 tensorboardX = "*"
 tensorboard = "*"
 versioneer = "*"
@@ -108,10 +108,11 @@ loguru = "*"
 h5py = "*"
 seaborn = "*"
 rdkit = ">=2024.03.6"
+ambertools = "*"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
-descent = { git = "https://github.com/SimonBoothroyd/descent.git"}
+descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 mace-torch = "*"
 bespokefit_smee ={ path = ".", editable = true }
@@ -125,6 +126,11 @@ cuda = "12"
 [tool.pixi.feature.gpu.dependencies]
 cuda-version = ">=12"
 pytorch-gpu = "*"
+# cuequivariance="*"
+# cuequivariance-torch="*"
+
+# [tool.pixi.feature.gpu.pypi-dependencies]
+# cuequivariance-ops-torch-cu12="*"
 
 [tool.pixi.feature.cpu.dependencies]
 pytorch = "*"
@@ -139,9 +145,23 @@ datasets = "*"
 openff-units = "*"
 openff-toolkit-base = ">=0.9.2"
 openff-interchange-base = ">=0.3.17"
-nnpops = "*"
 pytorch = "*"
 __unix = "*"
+
+# -----------------------------
+# Different ML potential options
+# -----------------------------
+# Need for different features as nnpoops pins torch to older versions. This causes resolution conflicts with openmm-torch (which pins a specific build).
+[tool.pixi.feature.aceff.dependencies]
+openmm = ">=8.4"
+openmm-ml = ">=1.5"
+openmm-torch = ">=1.5.1"
+torchmd-net = "*"
+
+[tool.pixi.feature.mace.dependencies] # Also applies to Egret-1
+openmm = ">=8.2"
+openmm-ml = ">=1.2"
+nnpops = "*"
 
 # -----------------------------
 # Dev/test tools
@@ -155,6 +175,7 @@ pytest-cov = "*"
 codecov = "*"
 mypy = "*"
 hypothesis = "*"
+ipdb = "*"
 
 # -----------------------------
 # Documentation

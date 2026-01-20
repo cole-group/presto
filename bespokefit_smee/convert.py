@@ -1,8 +1,9 @@
-"""Functionality for generating the initial parameterisation."""
+"""Convert OpenFF ForceField <--> smee TensorForceField."""
 
 import collections
 import copy
 import math
+from typing import Callable, cast
 
 import loguru
 import openff.interchange
@@ -10,12 +11,16 @@ import openff.toolkit
 import smee
 import smee.converters
 import torch
-from descent.train import ParameterConfig, Trainable
 from openff.units import Quantity
 from openff.units import unit as off_unit
 from rdkit import Chem
 
-from .msm import apply_msm
+from .create_types import (
+    _add_parameter_with_overwrite,
+    _create_smarts,
+    add_types_to_forcefield,
+)
+from .msm import apply_msm_to_molecules
 from .settings import ParameterisationSettings
 from .utils.typing import TorchDevice
 
@@ -83,15 +88,8 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(potential.parameter_cols)
                     }
                 )
-                if current_param := handler.get_parameter(
-                    {"smirks": parameter_dict["smirks"]}
-                ):
-                    logger.warning(
-                        f"Parameter with smirks {parameter_dict['smirks']} already exists in the force field."
-                        f"Current parameter: {current_param}. New parameter: {parameter_dict}. Skipping addition of new parameter."
-                    )
-                    continue
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
+
         elif potential.type == "LinearBonds":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -133,7 +131,7 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
         elif potential.type == "LinearAngles":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -178,7 +176,7 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
         elif potential.type == "LinearProperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -229,7 +227,7 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_torsion_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
         elif potential.type == "LinearImproperTorsions":
             assert potential.attribute_cols is None
             parameters_by_smarts = collections.defaultdict(dict)
@@ -281,23 +279,9 @@ def convert_to_smirnoff(
                         for col_idx, col in enumerate(reconstructed_torsion_cols)
                     }
                 )
-                handler.add_parameter(parameter_dict)
+                _add_parameter_with_overwrite(handler, parameter_dict)
 
     return ff_smirnoff
-
-
-def _create_smarts(mol: openff.toolkit.Molecule, idxs: torch.Tensor) -> str:
-    """Create a mapped SMARTS representation of a molecule."""
-    from rdkit import Chem
-
-    mol_rdkit = mol.to_rdkit()
-
-    for i, idx in enumerate(idxs):
-        atom = mol_rdkit.GetAtomWithIdx(int(idx))
-        atom.SetAtomMapNum(i + 1)
-
-    smarts = Chem.MolToSmarts(mol_rdkit)
-    return smarts
 
 
 def _prepare_potential(
@@ -305,9 +289,13 @@ def _prepare_potential(
     symmetries: list[int],
     potential: smee.TensorPotential,
     parameter_map: smee.ValenceParameterMap,
+    max_extend_distance: int = -1,
     excluded_smirks: list[str] | None = None,
-) -> list[openff.interchange.models.PotentialKey]:
+) -> None:
     """Prepare a potential to use bespoke parameters for each 'slot'."""
+
+    if not max_extend_distance == -1:
+        raise NotImplementedError("max_extend_distance is not implemented yet.")
 
     excluded_smirks = excluded_smirks or []
 
@@ -391,10 +379,6 @@ def _prepare_potential(
         for particle_ids, parameter_idx in parameter_ids
     ]
 
-    excluded_parameter_keys = [
-        key for key in potential.parameter_keys if key.id in excluded_smirks
-    ]
-
     assignment_matrix = smee.utils.zeros_like(
         (len(parameter_map.particle_idxs), len(potential.parameters)),
         parameter_map.assignment_matrix,
@@ -415,11 +399,104 @@ def _prepare_potential(
     )
     parameter_map.assignment_matrix = assignment_matrix.to_sparse()
 
-    return excluded_parameter_keys
 
-
-# TODO: Break this up into smaller functions
 def parameterise(
+    settings: ParameterisationSettings,
+    device: TorchDevice = "cuda",
+) -> tuple[
+    list[openff.toolkit.Molecule],
+    openff.toolkit.ForceField,
+    list[smee.TensorTopology],
+    smee.TensorForceField,
+]:
+    """Prepare a Trainable object that contains a force field with
+    unique parameters for each topologically symmetric term across multiple molecules.
+
+    Parameters
+    ----------
+    settings: ParameterisationSettings
+        The settings for the parameterisation.
+
+    device: TorchDevice, default "cuda"
+        The device to use for the force field and topology.
+
+    Returns
+    -------
+    mols: list[openff.toolkit.Molecule]
+        The molecules that have been parameterised.
+    off_ff: openff.toolkit.ForceField
+        The original force field, used as a base for the bespoke force field.
+    tensor_tops: list[smee.TensorTopology]
+        The topologies of the molecules.
+    tensor_ff: smee.TensorForceField
+        The force field with unique parameters for each topologically
+        symmetric term.
+    """
+    # Create molecules from SMILES
+    mols = settings.molecules
+
+    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
+
+    if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
+        logger.warning(
+            "The force field contains a constraint for [#1:1]-[*:2] which "
+            "is not supported. Removing this constraint."
+        )
+        del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
+
+    if settings.expand_torsions:
+        torsion_generation_settings = settings.type_generation_settings.get(
+            "ProperTorsions"
+        )
+        excluded_smirks = (
+            torsion_generation_settings.exclude
+            if torsion_generation_settings is not None
+            else None
+        )
+        off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
+
+    # Add bespoke parameters to the force field (deduplicated across all molecules)
+    bespoke_ff = add_types_to_forcefield(
+        mols,
+        off_ff,
+        settings.type_generation_settings,
+    )
+
+    if settings.msm_settings is not None:
+        bespoke_ff = apply_msm_to_molecules(
+            mols=mols,
+            off_ff=bespoke_ff,
+            settings=settings.msm_settings,
+        )
+
+    # Create separate Interchange objects for each molecule
+    interchanges = [
+        openff.interchange.Interchange.from_smirnoff(bespoke_ff, mol.to_topology())
+        for mol in mols
+    ]
+
+    # Convert all interchanges at once to get a shared force field
+    # and separate topologies that all reference the same parameters
+    force_field, tensor_tops = smee.converters.convert_interchange(interchanges)
+    force_field = force_field.to(device)
+
+    # Move each topology to the device
+    tensor_tops = [top.to(device) for top in tensor_tops]
+
+    if settings.linearise_harmonics:
+        force_field = linearise_harmonics_force_field(force_field, device)
+        for i in range(len(tensor_tops)):
+            tensor_tops[i] = linearise_harmonics_topology(tensor_tops[i], device)
+
+    return (
+        mols,
+        bespoke_ff,
+        tensor_tops,
+        force_field,
+    )
+
+
+def parameterise_old(
     settings: ParameterisationSettings,
     device: TorchDevice = "cuda",
 ) -> tuple[
@@ -427,10 +504,10 @@ def parameterise(
     openff.toolkit.ForceField,
     smee.TensorTopology,
     smee.TensorForceField,
-    Trainable,
 ]:
-    """Prepare a Trainable object that contains a force field with
-    unique parameters for each topologically symmetric term of a molecule.
+    """Old implementation of parameterise using _prepare_potential.
+
+    This is kept for comparison/testing purposes.
 
     Parameters
     ----------
@@ -449,24 +526,33 @@ def parameterise(
     tensor_top: smee.TensorTopology
         The topology of the molecule.
     tensor_ff: smee.TensorForceField
-        The force field with unique parameters for each topologically symmetric term.
-    trainable: descent.train.Trainable
-        The trainable object that contains the force field and parameter configuration.
+        The force field with unique parameters for each topologically
+        symmetric term.
     """
     mol = openff.toolkit.Molecule.from_smiles(
-        settings.smiles, allow_undefined_stereo=True, hydrogens_are_explicit=False
+        settings.smiles,
+        allow_undefined_stereo=True,
+        hydrogens_are_explicit=False,
     )
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
     if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
         logger.warning(
-            "The force field contains a constraint for [#1:1]-[*:2] which is not supported. "
-            "Removing this constraint."
+            "The force field contains a constraint for [#1:1]-[*:2] which "
+            "is not supported. Removing this constraint."
         )
         del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
 
     if settings.expand_torsions:
-        off_ff = _expand_torsions(off_ff, settings.excluded_smirks)
+        torsion_generation_settings = settings.type_generation_settings.get(
+            "ProperTorsions"
+        )
+        excluded_smirks = (
+            torsion_generation_settings.exclude
+            if torsion_generation_settings is not None
+            else None
+        )
+        off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
 
     force_field, [topology] = smee.converters.convert_interchange(
         openff.interchange.Interchange.from_smirnoff(off_ff, mol.to_topology())
@@ -480,147 +566,44 @@ def parameterise(
     if topology.n_v_sites != 0:
         raise NotImplementedError("virtual sites are not supported yet.")
 
-    excluded_keys = collections.defaultdict(list)
-    for potential in force_field.potentials:
-        parameter_map = topology.parameters[potential.type]
-        if isinstance(parameter_map, smee.NonbondedParameterMap):
+    for (
+        potential_type,
+        type_generation_settings,
+    ) in settings.type_generation_settings.items():
+        potential = force_field.potentials_by_type.get(potential_type)
+
+        if potential is None:
+            logger.warning(
+                f"No potential of type {potential_type} found in the "
+                f"force field. Skipping bespoke parameterisation for this "
+                f"type."
+            )
             continue
-        # TODO: Check Tom's comment below
-        excluded_keys[potential.type] = _prepare_potential(
-            mol, symmetries, potential, parameter_map, settings.excluded_smirks
-        )  ### ??? is it re-ordering the atoms and bonds?
 
-    if settings.msm_settings is not None:
-        raise NotImplementedError("MSM is not supported yet.")
+        parameter_map = topology.parameters[potential_type]
 
-        force_field = apply_msm(
-            mol=mol,
-            off_ff=off_ff,
-            tensor_top=topology,
-            tensor_ff=force_field,
-            device=device,
-            settings=settings.msm_settings,
+        # Can only be a ValenceParameterMap here because we validate
+        # that we only have valence terms in the settings
+        parameter_map = cast(smee.ValenceParameterMap, parameter_map)
+
+        _prepare_potential(
+            mol,
+            symmetries,
+            potential,
+            parameter_map,
+            type_generation_settings.max_extend_distance,
+            type_generation_settings.exclude,
         )
 
-    # Parameter scales obtained from trained force field - but only for linearised bonds and
-    # angles and unlinearised harmonics.
-    if settings.linear_harmonics:
-        topology.parameters["LinearBonds"] = copy.deepcopy(topology.parameters["Bonds"])
-        topology.parameters["LinearAngles"] = copy.deepcopy(
-            topology.parameters["Angles"]
-        )
-        force_field = linearize_harmonics(force_field, device)
-        parameter_list = {
-            "LinearBonds": ParameterConfig(
-                cols=["k1", "k2"],
-                scales={"k1": 0.0024, "k2": 0.0024},
-                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
-                exclude=excluded_keys["Bonds"] if excluded_keys["Bonds"] else None,
-            ),
-            "LinearAngles": ParameterConfig(
-                cols=["k1", "k2"],
-                scales={"k1": 0.0207, "k2": 0.0207},
-                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
-                exclude=excluded_keys["Angles"] if excluded_keys["Angles"] else None,
-            ),
-        }
-    else:
-        parameter_list = {
-            "Bonds": ParameterConfig(
-                cols=["k", "length"],
-                scales={"k": 1.0, "length": 1.0},
-                limits={"k": (0.0, None), "length": (0.0, None)},
-                exclude=excluded_keys["Bonds"] if excluded_keys["Bonds"] else None,
-            ),
-            "Angles": ParameterConfig(
-                cols=["k", "angle"],
-                scales={"k": 1.0, "angle": 1.0},
-                limits={"k": (0.0, None), "angle": (0.0, math.pi)},
-                exclude=excluded_keys["Angles"] if excluded_keys["Angles"] else None,
-            ),
-        }
-    for potential in force_field.potentials:
-        if potential.type == "ProperTorsions":
-            if settings.linear_torsions:
-                topology.parameters["LinearProperTorsions"] = copy.deepcopy(
-                    topology.parameters["ProperTorsions"]
-                )
-                force_field = linearize_propertorsions(force_field, device)
-                parameter_list.update(
-                    {
-                        "LinearProperTorsions": ParameterConfig(
-                            cols=["k1", "k2"],
-                            scales={"k1": 100.0, "k2": 100.0},
-                            limits={"k1": (0, None), "k2": (0, None)},
-                            exclude=(
-                                excluded_keys["ProperTorsions"]
-                                if excluded_keys["ProperTorsions"]
-                                else None
-                            ),
-                        )
-                    }
-                )
-            else:
-                parameter_list.update(
-                    {
-                        "ProperTorsions": ParameterConfig(
-                            cols=["k"],
-                            scales={
-                                "k": 0.3252,
-                            },
-                            limits={"k": (None, None)},
-                            exclude=(
-                                excluded_keys["ProperTorsions"]
-                                if excluded_keys["ProperTorsions"]
-                                else None
-                            ),
-                        ),
-                    }
-                )
-        elif potential.type == "ImproperTorsions":
-            if settings.linear_torsions:
-                topology.parameters["LinearImproperTorsions"] = copy.deepcopy(
-                    topology.parameters["ImproperTorsions"]
-                )
-                force_field = linearize_impropertorsions(force_field, device)
-                parameter_list.update(
-                    {
-                        "LinearImproperTorsions": ParameterConfig(
-                            cols=["k1", "k2"],
-                            scales={"k1": 100.0, "k2": 100.0},
-                            limits={"k1": (0, None), "k2": (0, None)},
-                            exclude=(
-                                excluded_keys["ImproperTorsions"]
-                                if excluded_keys["ImproperTorsions"]
-                                else None
-                            ),
-                        ),
-                    }
-                )
-            else:
-                parameter_list.update(
-                    {
-                        "ImproperTorsions": ParameterConfig(
-                            cols=["k"],
-                            scales={
-                                "k": 0.1647,
-                            },
-                            limits={"k": (0, None)},
-                            exclude=(
-                                excluded_keys["ImproperTorsions"]
-                                if excluded_keys["ImproperTorsions"]
-                                else None
-                            ),
-                        ),
-                    }
-                )
+    if settings.linearise_harmonics:
+        force_field = linearise_harmonics_force_field(force_field, device)
+        topology = linearise_harmonics_topology(topology, device)
 
     return (
-        copy.deepcopy(mol),
-        copy.deepcopy(off_ff),
+        mol,
+        off_ff,
         topology,
         force_field,
-        Trainable(force_field, parameter_list, {}),
     )
 
 
@@ -654,163 +637,166 @@ def _expand_torsions(
     return ff_copy
 
 
-def linearize_harmonics(
+def _add_angle_within_range(initial_angle: float, diff: float) -> float:
+    """Add a difference to an angle cap to be within [0, pi]"""
+    new_angle = initial_angle + diff
+    if diff > 0:
+        return min(new_angle, math.pi)
+    else:
+        return max(new_angle, 0.0)
+
+
+def _compute_linear_harmonic_params(
+    k: float,
+    eq_value: float,
+    compute_lower_bound: Callable[[float], float],
+    compute_upper_bound: Callable[[float], float],
+) -> tuple[float, float, float, float]:
+    """Compute linearized harmonic parameters from standard parameters.
+
+    This generic function distributes a force constant across two bounds,
+    inversely proportional to the distance from each bound.
+
+    Args:
+        k: Force constant (e.g., kcal/mol/Å² or kcal/mol/rad²)
+        eq_value: Equilibrium value (e.g., bond length or angle)
+        compute_lower_bound: Function that takes eq_value and returns
+            lower bound
+        compute_upper_bound: Function that takes eq_value and returns
+            upper bound
+
+    Returns:
+        Tuple of (k1, k2, eq1, eq2) where:
+        - k1, k2: Distributed force constants
+        - eq1, eq2: Lower and upper equilibrium value bounds
+    """
+    eq1 = compute_lower_bound(eq_value)
+    eq2 = compute_upper_bound(eq_value)
+    d = eq2 - eq1
+    # Distribute force constant inversely proportional to distance from bounds
+    k1 = k * (eq2 - eq_value) / d
+    k2 = k * (eq_value - eq1) / d
+    return k1, k2, eq1, eq2
+
+
+def _linearize_bond_parameters(
+    potential: smee.TensorPotential, device_type: str
+) -> smee.TensorPotential:
+    """Linearize bond potential parameters.
+
+    Converts standard harmonic bond parameters (k, length) to linearized
+    form (k1, k2, b1, b2) where the equilibrium bond length range is
+    [0.5*length, 1.5*length].
+    """
+    new_potential = copy.deepcopy(potential)
+    new_potential.type = "LinearBonds"
+    new_potential.fn = "(k1+k2)/2*(r-(k1*length1+k2*length2)/(k1+k2))**2"
+    new_potential.parameter_cols = ("k1", "k2", "b1", "b2")
+
+    # Get dtype from the first parameter
+    dtype = potential.parameters.dtype
+
+    new_params = [
+        _compute_linear_harmonic_params(
+            param[0].item(),
+            param[1].item(),
+            lambda b: b - 0.4,  # Lower bound: current length - 0.4 Å
+            lambda b: b + 0.4,  # Upper bound: current length + 0.4 Å
+        )
+        for param in potential.parameters
+    ]
+
+    new_potential.parameters = torch.tensor(
+        new_params, dtype=dtype, requires_grad=False, device=device_type
+    )
+    new_potential.parameter_units = (
+        _KCAL_PER_MOL_ANGSQ,
+        _KCAL_PER_MOL_ANGSQ,
+        _ANGSTROM,
+        _ANGSTROM,
+    )
+    return new_potential
+
+
+def _linearize_angle_parameters(
+    potential: smee.TensorPotential, device_type: str
+) -> smee.TensorPotential:
+    """Linearize angle potential parameters.
+
+    Converts standard harmonic angle parameters (k, angle) to linearized form
+    (k1, k2, angle1, angle2) where the equilibrium angle range is [0, π].
+    """
+    new_potential = copy.deepcopy(potential)
+    new_potential.type = "LinearAngles"
+    new_potential.fn = "(k1+k2)/2*(r-(k1*angle1+k2*angle2)/(k1+k2))**2"
+    new_potential.parameter_cols = ("k1", "k2", "angle1", "angle2")
+
+    # Get dtype from the first parameter
+    dtype = potential.parameters.dtype
+
+    new_params = [
+        _compute_linear_harmonic_params(
+            param[0].item(),
+            param[1].item(),
+            lambda a: max(0.0, a - math.pi / 3),  # Lower bound: max(0, angle - π/3)
+            lambda a: min(math.pi, a + math.pi / 3),  # Upper bound: min(π, angle + π/3)
+        )
+        for param in potential.parameters
+    ]
+
+    new_potential.parameters = torch.tensor(
+        new_params, dtype=dtype, requires_grad=False, device=device_type
+    )
+    new_potential.parameter_units = (
+        _KCAL_PER_MOL_RADSQ,
+        _KCAL_PER_MOL_RADSQ,
+        _RADIANS,
+        _RADIANS,
+    )
+    return new_potential
+
+
+def linearise_harmonics_force_field(
     ff: smee.TensorForceField, device_type: str
 ) -> smee.TensorForceField:
-    """Linearize the harmonic potential parameters in the forcefield for more robust optimization"""
+    """Linearize the harmonic potential parameters in the forcefield.
+
+    This converts Bonds and Angles potentials to their linearized forms
+    (LinearBonds and LinearAngles) for more robust optimization.
+    """
     ff_copy = copy.deepcopy(ff)
     ff_copy.potentials = []
+
     for potential in ff.potentials:
-        if potential.type in {"Bonds"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearBonds"
-            new_potential.fn = "(k1+k2)/2*(r-(k1*length1+k2*length2)/(k1+k2))**2"
-            new_potential.parameter_cols = ("k1", "k2", "b1", "b2")
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                b = param[1].item()
-                dt = param.dtype
-                b1 = b * 0.5
-                b2 = b * 1.5
-                d = b2 - b1
-                k1 = k * (b2 - b) / d
-                k2 = k * (b - b1) / d
-                new_params.append([k1, k2, b1, b2])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, requires_grad=False, device=device_type
+        if potential.type == "Bonds":
+            ff_copy.potentials.append(
+                _linearize_bond_parameters(potential, device_type)
             )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL_ANGSQ,
-                _KCAL_PER_MOL_ANGSQ,
-                _ANGSTROM,
-                _ANGSTROM,
+        elif potential.type == "Angles":
+            ff_copy.potentials.append(
+                _linearize_angle_parameters(potential, device_type)
             )
-            ff_copy.potentials.append(new_potential)
-        elif potential.type in {"Angles"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearAngles"
-            new_potential.fn = "(k1+k2)/2*(r-(k1*angle1+k2*angle2)/(k1+k2))**2"
-            new_potential.parameter_cols = ("k1", "k2", "angle1", "angle2")
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                a = param[1].item()
-                dt = param.dtype
-                # a1 = a * 0.9
-                # a2 = a * 1.1
-                a1 = 0.0
-                a2 = math.pi
-                d = a2 - a1
-                k1 = k * (a2 - a) / d
-                k2 = k * (a - a1) / d
-                new_params.append([k1, k2, a1, a2])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, requires_grad=False, device=device_type
-            )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL_RADSQ,
-                _KCAL_PER_MOL_RADSQ,
-                _RADIANS,
-                _RADIANS,
-            )
-            ff_copy.potentials.append(new_potential)
         else:
             ff_copy.potentials.append(potential)
+
     return ff_copy
 
 
-def linearize_propertorsions(
-    ff: smee.TensorForceField, device_type: str
-) -> smee.TensorForceField:
-    """Linearize the proper torsion parameters in the forcefield for more robust optimization"""
-    ff_copy = copy.deepcopy(ff)
-    ff_copy.potentials = []
-    for potential in ff.potentials:
-        if potential.type in {"ProperTorsions"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearProperTorsions"
-            new_potential.fn = (
-                "(k1+k2)*(1+cos(periodicity*theta-acos((k1-k2)/(k1+k2))))"
-            )
-            new_potential.parameter_cols = (
-                "k1",
-                "k2",
-                "periodicity",
-                "phase1",
-                "phase2",
-                "idivf",
-            )
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                periodicity = param[1].item()
-                phase = param[2].item()
-                idivf = param[3].item()
-                dt = param.dtype
-                k1 = abs(k * 0.5 * (1 + math.cos(phase)))
-                k2 = abs(k * 0.5 * (1 - math.cos(phase)))
-                new_params.append([k1, k2, periodicity, 0.0, math.pi, idivf])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, requires_grad=True, device=device_type
-            )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL,
-                _KCAL_PER_MOL,
-                _UNITLESS,
-                _RADIANS,
-                _RADIANS,
-                _UNITLESS,
-            )
-            ff_copy.potentials.append(new_potential)
-        else:
-            ff_copy.potentials.append(potential)
-    return ff_copy
+def linearise_harmonics_topology(
+    topology: smee.TensorTopology, device_type: TorchDevice
+) -> smee.TensorTopology:
+    """Linearize harmonic potential parameters in the topology.
 
-
-def linearize_impropertorsions(
-    ff: smee.TensorForceField, device_type: str
-) -> smee.TensorForceField:
-    """Linearize the improper torsion parameters in the forcefield for more robust optimization"""
-    ff_copy = copy.deepcopy(ff)
-    ff_copy.potentials = []
-    for potential in ff.potentials:
-        if potential.type in {"ImproperTorsions"}:
-            new_potential = copy.deepcopy(potential)
-            new_potential.type = "LinearImproperTorsions"
-            new_potential.fn = (
-                "(k1+k2)*(1+cos(periodicity*theta-acos((k1-k2)/(k1+k2))))"
-            )
-            new_potential.parameter_cols = (
-                "k1",
-                "k2",
-                "periodicity",
-                "phase1",
-                "phase2",
-                "idivf",
-            )
-            new_params = []
-            for param in potential.parameters:
-                k = param[0].item()
-                periodicity = param[1].item()
-                phase = param[2].item()
-                idivf = param[3].item()
-                dt = param.dtype
-                k1 = abs(k * 0.5 * (1 + math.cos(phase)))
-                k2 = abs(k * 0.5 * (1 - math.cos(phase)))
-                new_params.append([k1, k2, periodicity, 0.0, math.pi, idivf])
-            new_potential.parameters = torch.tensor(
-                new_params, dtype=dt, device=device_type
-            )
-            new_potential.parameter_units = (
-                _KCAL_PER_MOL,
-                _KCAL_PER_MOL,
-                _UNITLESS,
-                _RADIANS,
-                _RADIANS,
-                _UNITLESS,
-            )
-            ff_copy.potentials.append(new_potential)
-        else:
-            ff_copy.potentials.append(potential)
-    return ff_copy
+    This updates the topology to use LinearBonds and LinearAngles
+    parameter maps instead of Bonds and Angles.
+    """
+    topology_copy = topology.to(device_type)
+    topology_copy.parameters["LinearBonds"] = copy.deepcopy(
+        topology_copy.parameters["Bonds"]
+    )
+    topology_copy.parameters["LinearAngles"] = copy.deepcopy(
+        topology.parameters["Angles"]
+    )
+    del topology_copy.parameters["Bonds"]
+    del topology_copy.parameters["Angles"]
+    return topology_copy

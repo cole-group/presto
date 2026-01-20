@@ -55,7 +55,12 @@ def test_integration_cli(tmp_cwd) -> None:
 
     expected_output_files = path_manager.get_all_output_paths(only_if_exists=False)
     for stage, outputs in expected_output_files.items():
-        for output_type, path in outputs.items():
-            assert path.exists(), (
-                f"Expected output {output_type} in stage {stage} not found at {path}."
+        for output_type, path_or_paths in outputs.items():
+            # Handle both single paths and lists of paths (for per-molecule outputs)
+            paths = (
+                path_or_paths if isinstance(path_or_paths, list) else [path_or_paths]
             )
+            for path in paths:
+                assert path.exists(), (
+                    f"Expected output {output_type} in stage {stage} not found at {path}."
+                )

@@ -16,7 +16,7 @@ import torch
 from tqdm import tqdm
 
 # from .sample import get_data_MLMD, get_data_MMMD
-from .loss_functions import get_loss_closure_fn, prediction_loss
+from .loss import get_loss_closure_fn, prediction_loss
 from .outputs import OutputType
 from .settings import (
     TrainingSettings,
@@ -44,9 +44,9 @@ class TrainingFnArgs(TypedDict):
     trainable_parameters: torch.Tensor
     initial_parameters: torch.Tensor
     trainable: descent.train.Trainable
-    topology: smee.TensorTopology
-    dataset: datasets.Dataset
-    dataset_test: datasets.Dataset
+    topologies: list[smee.TensorTopology]
+    datasets: list[datasets.Dataset]
+    datasets_test: list[datasets.Dataset]
     settings: TrainingSettings
     output_paths: dict[OutputType, Path]
     device: torch.device
@@ -71,9 +71,9 @@ def train_levenberg_marquardt(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
-    topology: smee.TensorTopology,
-    dataset: datasets.Dataset,
-    dataset_test: datasets.Dataset,
+    topologies: list[smee.TensorTopology],
+    datasets: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -89,16 +89,14 @@ def train_levenberg_marquardt(
             The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
-        topology: smee.TensorTopology
-            The topology of the system.
-        dataset: datasets.Dataset
-            The dataset to be used for training.
-        dataset_test: datasets.Dataset
-            The dataset to be used for testing.
+        topologies: list[smee.TensorTopology]
+            The topologies of the systems.
+        datasets: list[datasets.Dataset]
+            The datasets to be used for training.
+        datasets_test: list[datasets.Dataset]
+            The datasets to be used for testing.
         settings: TrainingSettings
             The settings object containing training parameters.
-        output_dir: PathLike
-            The directory to write output files to.
         output_paths: dict[OutputType, PathLike]
             A mapping of output types to filesystem paths. The following keys are
             expected:
@@ -120,24 +118,36 @@ def train_levenberg_marquardt(
 
     # Run the training with the LM optimiser
     lm_config = descent.optim.LevenbergMarquardtConfig(
-        mode="adaptive", n_convergence_criteria=2, max_steps=100
+        mode="adaptive", n_convergence_criteria=2, max_steps=settings.n_epochs
     )
 
+    # Get loss weights - using default values
+    # TODO: Support getting these from protocol settings when available
+    loss_energy_weight = 1000.0
+    loss_force_weight = 0.1
+
     closure_fn = get_loss_closure_fn(
+        datasets,
         trainable,
+        trainable_parameters,
         initial_parameters,
-        topology,
-        dataset,
-        settings.regularisation_settings,
+        topologies,
+        loss_energy_weight,
+        loss_force_weight,
+        settings.regularisation_target,
     )
 
     correct_fn = trainable.clamp
 
+    # Create report function that computes metrics consistently with train_adam
     report_fn = functools.partial(
         report,
         trainable=trainable,
-        topology=topology,
-        dataset_test=dataset_test,
+        topologies=topologies,
+        datasets_train=datasets,
+        datasets_test=datasets_test,
+        initial_parameters=initial_parameters,
+        regularisation_target=settings.regularisation_target,
         metrics_file=output_paths[OutputType.TRAINING_METRICS],
         experiment_dir=Path(output_paths[OutputType.TENSORBOARD]),
     )
@@ -155,9 +165,9 @@ def train_adam(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
-    topology: smee.TensorTopology,
-    dataset: datasets.Dataset,
-    dataset_test: datasets.Dataset,
+    topologies: list[smee.TensorTopology],
+    datasets: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -173,12 +183,12 @@ def train_adam(
             The initial parameters before training.
         trainable: descent.train.Trainable
             The trainable object containing the parameters.
-        topology: smee.TensorTopology
-            The topology of the system.
-        dataset: datasets.Dataset
-            The dataset to be used for training.
-        dataset_test: datasets.Dataset
-            The dataset to be used for testing.
+        topologies: list[smee.TensorTopology]
+            The topologies of the systems.
+        datasets: list[datasets.Dataset]
+            The datasets to be used for training.
+        datasets_test: list[datasets.Dataset]
+            The datasets to be used for testing.
         settings: TrainingSettings
             The settings object containing training parameters.
         output_paths: dict[OutputType, PathLike]
@@ -219,46 +229,73 @@ def train_adam(
                 colour="blue",
                 desc="Optimising MM parameters",
             ):
-                loss_trn = prediction_loss(
-                    dataset,
+                losses_train = prediction_loss(
+                    datasets,
                     trainable,
                     trainable_parameters,
                     initial_parameters,
-                    topology,
-                    settings.loss_force_weight,
-                    settings.regularisation_settings,
+                    topologies,
+                    settings.regularisation_target,
                     str(device),
                 )
+                tot_loss_train = sum(losses_train)
+
+                logger.info(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
                 if i % 10 == 0:
-                    loss_tst = prediction_loss(
-                        dataset_test,
+                    losses_test = prediction_loss(
+                        datasets_test,
                         trainable,
                         trainable_parameters,
                         initial_parameters,
-                        topology,
-                        settings.loss_force_weight,
-                        settings.regularisation_settings,
+                        topologies,
+                        settings.regularisation_target,
                         str(device),
                     )
-                    write_metrics(i, loss_trn, loss_tst, writer, metrics_file)
-                loss_trn.backward(retain_graph=True)  # type: ignore[no-untyped-call]
-                # trainable.freeze_grad()
+
+                    write_metrics(
+                        i,
+                        losses_train,
+                        losses_test,
+                        writer,
+                        metrics_file,
+                    )
+
+                tot_loss_train.backward(retain_graph=False)  # type: ignore[union-attr]
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 trainable.clamp(trainable_parameters)
+
                 if i % settings.learning_rate_decay_step == 0:
                     scheduler.step()
+
+        # Required to avoid filling up the GPU memory between iterations
+        # TODO: Find a better way to do this.
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+
         # some book-keeping and outputting
-        loss_tst = prediction_loss(
-            dataset_test,
+        losses_train = prediction_loss(
+            datasets,
             trainable,
             trainable_parameters,
             initial_parameters,
-            topology,
-            settings.loss_force_weight,
-            settings.regularisation_settings,
+            topologies,
+            settings.regularisation_target,
             str(device),
         )
-        write_metrics(settings.n_epochs, loss_trn, loss_tst, writer, metrics_file)
+        losses_test = prediction_loss(
+            datasets_test,
+            trainable,
+            trainable_parameters,
+            initial_parameters,
+            topologies,
+            settings.regularisation_target,
+            str(device),
+        )
+
+        write_metrics(
+            settings.n_epochs, losses_train, losses_test, writer, metrics_file
+        )
 
         return trainable_parameters, trainable

@@ -3,11 +3,14 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal, TypeVar, Union
 
 import numpy as np
 import torch
 import yaml
+from descent.train import AttributeConfig, ParameterConfig
+from loguru import logger
+from openff.toolkit import Molecule
 from openmm import unit
 from packaging.version import Version
 from pydantic import (
@@ -24,31 +27,53 @@ from typing_extensions import Self
 from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
 from .outputs import OutputType, WorkflowPathManager
-from .utils.typing import OptimiserName, PathLike, TorchDevice, ValenceType
+from .utils.typing import (
+    AllowedAttributeType,
+    NonLinearValenceType,
+    OptimiserName,
+    PathLike,
+    TorchDevice,
+    ValenceType,
+)
 
 _DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
+
+_DEFAULT_MODEL_CONFIG = ConfigDict(
+    extra="forbid",
+    validate_assignment=True,
+)
+
+
+def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
+    """Save the settings to a YAML file"""
+    data = model.model_dump(mode="json")
+    with open(yaml_path, "w") as file:
+        yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
+
+
+_T = TypeVar("_T", bound=BaseModel)
+
+
+def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
+    """Load settings from a YAML file"""
+    with open(yaml_path, "r") as file:
+        settings_data = yaml.safe_load(file)
+    return cls(**settings_data)
 
 
 class _DefaultSettings(BaseModel, ABC):
     """Default configuration for all models."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        validate_assignment=True,
-    )
+    model_config = _DEFAULT_MODEL_CONFIG
 
     def to_yaml(self, yaml_path: PathLike) -> None:
         """Save the settings to a YAML file"""
-        data = self.model_dump(mode="json")
-        with open(yaml_path, "w") as file:
-            yaml.dump(data, file, default_flow_style=False, sort_keys=False)
+        _model_to_yaml(self, yaml_path)
 
     @classmethod
     def from_yaml(cls, yaml_path: PathLike) -> Self:
         """Load settings from a YAML file"""
-        with open(yaml_path, "r") as file:
-            settings_data = yaml.safe_load(file)
-        return cls(**settings_data)
+        return _model_from_yaml(cls, yaml_path)
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -79,7 +104,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "egret-1",
+        "aceff-2.0",
         description="The machine learning potential to use for calculating energies and forces of "
         " the snapshots. Note that this is not generally the potential used for sampling.",
     )
@@ -95,7 +120,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
-        default=100 * unit.femtoseconds,
+        default=0.5 * unit.picoseconds,
         description="Interval between saving snapshots during production sampling",
     )
 
@@ -105,16 +130,26 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     equilibration_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        default=0.1 * unit.picoseconds,
+        default=0.0 * unit.picoseconds,
         description="Equilibration sampling time per conformer. No snapshots are saved during "
         "equilibration sampling. The total sampling time per conformer will be this plus "
         "the production_sampling_time_per_conformer.",
     )
 
     production_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        default=10 * unit.picoseconds,
+        default=100 * unit.picoseconds,
         description="Production sampling time per conformer. The total sampling time per conformer "
         "will be this plus the equilibration_sampling_time_per_conformer.",
+    )
+
+    loss_energy_weight: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for samples from this protocol.",
+    )
+
+    loss_force_weight: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for samples from this protocol.",
     )
 
     @property
@@ -208,12 +243,12 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        0.5 * unit.picoseconds,
+        2.5 * unit.picoseconds,
         description="Frequency at which to add bias",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        1.0 * unit.picoseconds,
+        2.5 * unit.picoseconds,
         description="Frequency at which to save the bias",
     )
 
@@ -251,10 +286,124 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
+class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+    MMMDMetadynamicsSamplingSettings
+):
+    """Settings for MM MD metadynamics sampling with additional torsion-restrained
+    minimisation structures. This extends MMMDMetadynamicsSamplingSettings by generating
+    additional training data from torsion-restrained minimisations."""
+
+    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
+        "mm_md_metadynamics_torsion_minimisation",
+        description="Sampling protocol to use.",
+    )
+
+    # Settings for torsion-restrained minimisation
+    ml_minimisation_steps: int = Field(
+        10,
+        description="Number of MLP minimisation steps with restrained torsions.",
+    )
+
+    mm_minimisation_steps: int = Field(
+        10,
+        description="Number of MM minimisation steps with restrained torsions.",
+    )
+
+    torsion_restraint_force_constant: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
+        unit.kilojoules_per_mole / unit.radian**2
+    ] = Field(
+        0.0 * unit.kilojoules_per_mole / unit.radian**2,
+        description="Force constant for torsion restraints.",
+    )
+
+    # Loss weights for the MMMD metadynamics samples
+    loss_energy_weight_mmmd: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for MMMD metadynamics samples.",
+    )
+
+    loss_force_weight_mmmd: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for MMMD metadynamics samples.",
+    )
+
+    # Loss weights for the torsion-minimised samples
+    map_ml_coords_energy_to_mm_coords_energy: bool = Field(
+        False,
+        description="Whether to substitute the MLP energy for the MM-minimised coordinates with the "
+        "MLP energy for the corresponding MLP-minimised coordinates.",
+    )
+
+    loss_energy_weight_mm_torsion_min: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
+        "MM minimisation.",
+    )
+
+    loss_force_weight_mm_torsion_min: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for torsion-minimised samples. ",
+    )
+
+    loss_energy_weight_ml_torsion_min: float = Field(
+        1000.0,
+        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
+        "MLP minimisation.",
+    )
+
+    loss_force_weight_ml_torsion_min: float = Field(
+        0.1,
+        description="Scaling factor for the force loss term for torsion-minimised samples. ",
+    )
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        return {
+            OutputType.METADYNAMICS_BIAS,
+            OutputType.PDB_TRAJECTORY,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+
+
+class PreComputedDatasetSettings(_DefaultSettings):
+    """Settings for loading pre-computed datasets from disk.
+
+    For single-molecule fits, provide a single Path.
+    For multi-molecule fits, provide a list of Paths (one per molecule).
+    """
+
+    sampling_protocol: Literal["pre_computed"] = Field(
+        "pre_computed", description="Sampling protocol identifier."
+    )
+
+    dataset_paths: list[Path] = Field(
+        ...,
+        description="Path(s) to pre-computed dataset(s) saved with dataset.save_to_disk(). "
+        "For single-molecule fits, provide a single Path. "
+        "For multi-molecule fits, provide a list of Paths (one per molecule in order).",
+    )
+
+    @field_validator("dataset_paths", mode="before")
+    @classmethod
+    def normalize_dataset_paths(cls, value: Path | list[Path]) -> list[Path]:
+        """Normalize dataset_paths to always be a list internally."""
+        if isinstance(value, (str, Path)):
+            return [Path(value)]
+        return [Path(p) for p in value]
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        """Pre-computed datasets don't produce any output files."""
+        return set()
+
+
 SamplingSettings = Union[
     MMMDSamplingSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
+    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    PreComputedDatasetSettings,
 ]
 
 
@@ -265,30 +414,6 @@ def _get_default_regularised_parameters() -> dict[ValenceType, list[str]]:
     }
 
 
-class RegularisationSettings(_DefaultSettings):
-    """Settings for regularisation of the force field parameters. Note that
-    regularisation is applied after scaling the parameters to ensure similar
-    magnitudes."""
-
-    regularisation_strength: float = Field(
-        100.0, description="Strength of the L2 regularisation term."
-    )
-
-    regularisation_value: Literal["initial", "zero"] = Field(
-        "initial",
-        description="Value to regularise parameters towards. 'initial' is the initial parameter value, "
-        "'zero' is zero.",
-    )
-
-    # TODO: Better validation for this. Should probably be in the same
-    # place as the option to linearise, and where the ParameterConfigs are
-    # created. Should probably create PR to descent.
-    parameters: dict[ValenceType, list[str]] = Field(
-        default_factory=_get_default_regularised_parameters,
-        description="Dictionary of parameters to be regularised by valence type.",
-    )
-
-
 class TrainingSettings(_DefaultSettings):
     """Settings for the training process."""
 
@@ -296,26 +421,79 @@ class TrainingSettings(_DefaultSettings):
         "adam",
         description="Optimiser to use for the training. 'adam' is Adam, 'lm' is Levenberg-Marquardt",
     )
-    test_data_path: Path | None = Field(
-        None,
-        description="Path to the test data. If None, the data will be generated using the ML potential.",
+    # Use AttributeConfigs to prevent the user passing exclude or include keys,
+    # which should be set in the parameterisation settings because they decide
+    # which tagged SMARTS are generated
+    parameter_configs: dict[ValenceType, ParameterConfig] = Field(
+        default_factory=lambda: {  # type: ignore[arg-type]
+            "LinearBonds": ParameterConfig(
+                cols=["k1", "k2"],
+                scales={"k1": 0.0028, "k2": 0.0028},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                include=None,
+                exclude=None,
+            ),
+            "LinearAngles": ParameterConfig(
+                cols=["k1", "k2"],
+                scales={"k1": 0.012, "k2": 0.011},
+                limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+                include=None,
+                exclude=None,
+            ),
+            "ProperTorsions": ParameterConfig(
+                cols=["k"],
+                scales={"k": 1.3},
+                limits={"k": (None, None)},
+                regularize={"k": 1.0},
+                include=None,
+                # Exclude linear torsions to avoid non-zero force constants which can
+                # cause instabilities. Taken from https://github.com/openforcefield/openff-forcefields/blob/05f7ad0daad1ccdefdf931846fd13df863ab5c7d/openforcefields/offxml/openff-2.2.1.offxml#L326-L328
+                exclude=[
+                    {
+                        "id": "[*:1]-[*:2]#[*:3]-[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
+                    {
+                        "id": "[*:1]~[*:2]-[*:3]#[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
+                    {
+                        "id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",
+                        "multiplicity": 1,
+                        "parameter_handler": "ProperTorsions",
+                    },
+                ],
+            ),
+            "ImproperTorsions": ParameterConfig(
+                cols=["k"],
+                scales={"k": 0.12},
+                limits={"k": (0, None)},
+                regularize={"k": 1.0},
+                include=None,
+                exclude=None,
+            ),
+        },
+        description="Configuration for the force field parameters to be trained.",
     )
-    data: str | None = Field(
-        None,
-        description="Location of pre-calculated data set. Must be None unless method == 'data'",
+
+    attribute_configs: dict[AllowedAttributeType, AttributeConfig] = Field(
+        {},
+        description="Configuration for the force field attributes to be trained. "
+        "This allows 1-4 scaling for 'vdW' and 'Electrostatics' to be trained.",
     )
+
     n_epochs: int = Field(1000, description="Number of epochs in the ML fit")
     learning_rate: float = Field(0.01, description="Learning Rate in the ML fit")
     learning_rate_decay: float = Field(
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
     )
     learning_rate_decay_step: int = Field(10, description="Learning Rate Decay Step")
-    loss_force_weight: float = Field(
-        0.1, description="Scaling Factor for the Force loss term"
-    )
-    regularisation_settings: RegularisationSettings = Field(
-        default_factory=lambda: RegularisationSettings(),
-        description="Settings for regularisation of the force field parameters",
+    regularisation_target: Literal["initial", "zero"] = Field(
+        "initial",
+        description="Target value to regularise parameters towards. 'initial' is the initial parameter value, "
+        "'zero' is zero.",
     )
 
     @property
@@ -326,11 +504,73 @@ class TrainingSettings(_DefaultSettings):
         }
 
 
+class OutlierFilterSettings(_DefaultSettings):
+    """Settings for filtering outliers from datasets based on MM vs MLP differences.
+
+    Outliers are identified by comparing MM and reference (typically MLP) energies
+    and forces. Conformations where the absolute difference exceeds a threshold
+    are removed.
+    """
+
+    energy_outlier_threshold: float | None = Field(
+        2.0,
+        description="Absolute threshold in kcal/mol/atom for energy outlier detection. "
+        "Conformations where |energy_mm - energy_ref| / n_atoms (relative to minimum) "
+        "exceeds this threshold will be removed. Set to None to disable energy-based filtering.",
+    )
+
+    force_outlier_threshold: float | None = Field(
+        500.0,
+        description="Absolute threshold in kcal/mol/Å for force outlier detection. "
+        "Conformations where max |force_mm - force_ref| exceeds this threshold "
+        "will be removed. Set to None to disable force-based filtering.",
+    )
+
+    min_conformations: int = Field(
+        1,
+        description="Minimum number of conformations to keep per molecule. "
+        "If filtering would remove too many conformations, all conformations "
+        "will be kept for that molecule.",
+    )
+
+
+class TypeGenerationSettings(_DefaultSettings):
+    """Settings for generating tagged SMARTS types for a given potential type."""
+
+    max_extend_distance: int = Field(
+        -1,
+        description="Maximum number of bonds to extend from the atoms to which the potential is applied "
+        "when generating tagged SMARTS patterns. A value of -1 means no limit.",
+    )
+    include: list[str] = Field(
+        [],
+        description="List of SMARTS present in the initial force field for which to generate new SMARTS "
+        " patterns. This allows you to split specific types for reparameterisation. This is mutually exclusive "
+        "with the exclude field.",
+    )
+
+    exclude: list[str] = Field(
+        [],
+        description="List of SMARTS patterns to exclude when generating tagged SMARTS types. If present, "
+        " these patterns will remain the same as in the initial force field. This is mutually exclusive "
+        "with the include field.",
+    )
+
+    @model_validator(mode="after")
+    def validate_include_exclude(self) -> Self:
+        """Ensure that only one of include or exclude is set."""
+        if self.include and self.exclude:
+            raise InvalidSettingsError(
+                "Only one of include or exclude can be set in TypeGenerationSettings."
+            )
+        return self
+
+
 class MSMSettings(_DefaultSettings):
     """Settings for the modified Seminario method."""
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "egret-1",
+        "aceff-2.0",
         description="The machine learning potential to use for calculating the Hessian matrix",
     )
 
@@ -343,45 +583,32 @@ class MSMSettings(_DefaultSettings):
         default=0.005291772 * unit.kilocalories_per_mole / unit.angstrom,
         description="Tolerance for the geometry optimizer",
     )
+
     vib_scaling: float = Field(
-        0.957,
-        description="Vibrational scaling factor",
+        0.958,
+        description="Vibrational scaling factor. This is a reasonable default for ωB97M-V/def2-TZVPPD (AceFF-2.0 LOT), "
+        " see https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0152838",
+    )
+
+    n_conformers: int = Field(
+        1,
+        description="Number of conformers to generate and calculate MSM parameters for. "
+        "The resulting bond and angle parameters will be averaged over all conformers.",
     )
 
 
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
-    smiles: str = Field(..., description="SMILES string")
+    smiles: list[str] = Field(
+        ...,
+        description="SMILES string or list of SMILES for molecules to fit",
+    )
 
     initial_force_field: str = Field(
-        "openff_unconstrained-2.2.1.offxml",
+        "openff_unconstrained-2.3.0-rc2.offxml",
         description="The force field from which to start. This can be any"
         " OpenFF force field, or your own .offxml file.",
-    )
-
-    excluded_smirks: list[str] = Field(
-        [
-            "[*:1]-[*:2]#[*:3]-[*:4]",  # Linear torsions should be kept linear
-            "[*:1]~[*:2]-[*:3]#[*:4]",  # Linear torsions should be kept linear
-            "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",  # Linear torsions should be kept linear
-        ],
-        description="List of SMARTS patterns to exclude from training,"
-        "i.e. to keep the parameters from the initial force field.",
-    )
-
-    linear_harmonics: bool = Field(
-        True,
-        description="Linearise the harmonic potentials in the Force Field (Default)",
-    )
-    linear_torsions: bool = Field(
-        False,
-        description="Linearise the torsion potentials in the Force Field (Default)",
-    )
-    msm_settings: MSMSettings | None = Field(
-        default=None,
-        description="Settings for the modified Seminario method. If None, the modified Seminario method "
-        "will not be used to derive bonded parameters.",
     )
 
     expand_torsions: bool = Field(
@@ -389,12 +616,67 @@ class ParameterisationSettings(_DefaultSettings):
         description="Whether to expand the torsion periodicities up to 4.",
     )
 
-    # Make sure that the smiles isn't set to the placeholder value (as done in the CLI)
-    @field_validator("smiles")
-    def validate_smiles(cls, value: str) -> str:
-        if Chem.MolFromSmiles(value) is None:
-            raise ValueError(f"Invalid SMILES string: {value}")
+    linearise_harmonics: bool = Field(
+        True,
+        description="Linearise the harmonic potentials in the Force Field (Default)",
+    )
+
+    msm_settings: MSMSettings | None = Field(
+        default_factory=lambda: MSMSettings(),
+        description="Settings for the modified Seminario method to initialise force field parameters.",
+    )
+
+    type_generation_settings: dict[NonLinearValenceType, TypeGenerationSettings] = (
+        Field(
+            default_factory=lambda: {  # type: ignore[arg-type]
+                "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+                "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+                "ProperTorsions": TypeGenerationSettings(
+                    max_extend_distance=-1,
+                    exclude=[
+                        "[*:1]-[*:2]#[*:3]-[*:4]",  # Linear torsions should be kept linear
+                        "[*:1]~[*:2]-[*:3]#[*:4]",  # Linear torsions should be kept linear
+                        "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",  # Linear torsions should be kept linear
+                    ],
+                ),
+                "ImproperTorsions": TypeGenerationSettings(
+                    max_extend_distance=-1, exclude=[]
+                ),
+            },
+            description="Settings for generating tagged SMARTS types for each valence type.",
+        )
+    )
+
+    # Validate that all SMILES strings are valid
+    @field_validator("smiles", mode="before")
+    def validate_smiles(cls, value: str | list[str]) -> list[str]:
+        """Validate all SMILES are valid, unique. Accepts string or list."""
+        # Convert single string to list for backward compatibility
+        if isinstance(value, str):
+            value = [value]
+
+        if not value:
+            raise ValueError("smiles list cannot be empty")
+
+        # Check for duplicates
+        if len(value) != len(set(value)):
+            duplicates = [s for s in value if value.count(s) > 1]
+            unique_duplicates = list(set(duplicates))
+            raise ValueError(f"Duplicate SMILES found: {unique_duplicates}")
+
+        # Validate each SMILES string
+        for smiles in value:
+            if Chem.MolFromSmiles(smiles) is None:
+                raise ValueError(f"Invalid SMILES string: {smiles}")
         return value
+
+    @property
+    def molecules(self) -> list[Molecule]:
+        """Return the list of OpenFF Molecule objects for the SMILES strings."""
+        return [
+            Molecule.from_smiles(smiles, allow_undefined_stereo=True)
+            for smiles in self.smiles
+        ]
 
 
 class WorkflowSettings(_DefaultSettings):
@@ -430,13 +712,17 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     training_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDMetadynamicsSamplingSettings(),
+        default_factory=lambda: MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         description="Settings for sampling for generating the training data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )
 
     testing_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDSamplingSettings(),
+        default_factory=lambda: MLMDSamplingSettings(
+            temperature=300 * unit.kelvin,
+            snapshot_interval=20 * unit.femtoseconds,
+            production_sampling_time_per_conformer=2 * unit.picoseconds,
+        ),
         description="Settings for sampling for generating the testing data (usually molecular dynamics)",
         discriminator="sampling_protocol",
     )
@@ -444,6 +730,12 @@ class WorkflowSettings(_DefaultSettings):
     training_settings: TrainingSettings = Field(
         default_factory=lambda: TrainingSettings(),
         description="Settings for the training process",
+    )
+
+    outlier_filter_settings: OutlierFilterSettings | None = Field(
+        default_factory=lambda: OutlierFilterSettings(),
+        description="Settings for filtering outliers from training data. "
+        "Set to None to disable outlier filtering.",
     )
 
     # Raise an error if the major and minor versions do not match
@@ -459,12 +751,10 @@ class WorkflowSettings(_DefaultSettings):
 
         actual_version = Version(__version__)
 
-        # Raise an error if the major and minor versions do not match
+        # Warn the user if major or minor versions do not match
         if parsed.major != actual_version.major or parsed.minor != actual_version.minor:
-            raise ValueError(
-                f"Incompatible settings version: {value}. The current bespokefit_smee version is {__version__}. "
-                f"Expected {actual_version.major}.{actual_version.minor}.x, got {parsed.major}.{parsed.minor}.x"
-                "Please install the correct version of bespokefit_smee or regenerate the settings file.",
+            logger.warning(
+                f"Version mismatch: settings version {value} may not be compatible with current version {__version__}."
             )
 
         return value
@@ -485,15 +775,43 @@ class WorkflowSettings(_DefaultSettings):
 
         return value
 
+    # Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
+    # in the training settings
+    @model_validator(mode="after")
+    def validate_parameterisation_training_consistency(self) -> Self:
+        """Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
+        in the training settings."""
+
+        harmonics_linearised = self.parameterisation_settings.linearise_harmonics
+        excluded_valence_types = (
+            ("Bonds", "Angles")
+            if harmonics_linearised
+            else ("LinearBonds", "LinearAngles")
+        )
+        if any(
+            valence_type in self.training_settings.parameter_configs
+            for valence_type in excluded_valence_types
+        ):
+            raise InvalidSettingsError(
+                f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
+                f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
+            )
+
+        return self
+
     @property
     def device(self) -> torch.device:
         return torch.device(self.device_type)
 
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
+        # Get the number of molecules from the smiles list
+        smiles = self.parameterisation_settings.smiles
+        n_mols = len(smiles) if isinstance(smiles, list) else 1
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,
+            n_mols=n_mols,
             training_settings=self.training_settings,
             training_sampling_settings=self.training_sampling_settings,
             testing_sampling_settings=self.testing_sampling_settings,
