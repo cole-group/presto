@@ -206,13 +206,35 @@ def _run_md(
 def _get_ml_omm_system(
     mol: openff.toolkit.Molecule, mlp_name: mlp.AvailableModels
 ) -> openmm.System:
-    """Get an OpenMM system for a molecule using a machine learning potential."""
+    """Get an OpenMM system for a molecule using a machine learning potential.
+
+    Parameters
+    ----------
+    mol : openff.toolkit.Molecule
+        The molecule for which to create the system.
+    mlp_name : mlp.AvailableModels
+        The name of the ML potential to use.
+
+    Returns
+    -------
+    openmm.System
+        The OpenMM system for the molecule.
+
+    Raises
+    ------
+    InvalidSettingsError
+        If the molecule is charged and the ML potential does not support charges.
+    """
+    # Validate that charged molecules are only used with compatible models
+    mlp.validate_model_charge_compatibility(mlp_name, mol)
+
     potential = mlp.get_mlp(mlp_name)
-    # with open("/dev/null", "w") as f:
-    #     with redirect_stdout(f):
+    charge = mol.total_charge.m_as(off_unit.e)
+
+    # Always pass charge argument for consistency, even for neutral molecules
     system = potential.createSystem(
         mol.to_topology().to_openmm(),
-        charge=mol.total_charge.m_as(off_unit.e),
+        charge=charge,
     )
 
     return system
