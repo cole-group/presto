@@ -214,7 +214,7 @@ def test_calculate_hessian_ethanol():
     # Create an OpenMM System and input coordinates for testing
     molecule = Molecule.from_smiles("CCO")
     molecule.generate_conformers(n_conformers=1)
-    forcefield = ForceField("openff_unconstrained-2.3.0-rc2.offxml")
+    forcefield = ForceField("openff_unconstrained-2.3.0.offxml")
     system = forcefield.create_openmm_system(molecule.to_topology())
     simulation = Simulation(
         topology=molecule.to_topology().to_openmm(),

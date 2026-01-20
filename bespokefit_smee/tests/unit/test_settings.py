@@ -493,7 +493,7 @@ class TestParameterisationSettings:
     def test_default_initial_force_field(self):
         """Test default initial force field."""
         settings = ParameterisationSettings(smiles="CCO")
-        assert settings.initial_force_field == "openff_unconstrained-2.3.0-rc2.offxml"
+        assert settings.initial_force_field == "openff_unconstrained-2.3.0.offxml"
 
     def test_default_type_generation_settings(self):
         """Test that default type generation settings are set."""

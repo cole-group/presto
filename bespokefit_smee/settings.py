@@ -606,7 +606,7 @@ class ParameterisationSettings(_DefaultSettings):
     )
 
     initial_force_field: str = Field(
-        "openff_unconstrained-2.3.0-rc2.offxml",
+        "openff_unconstrained-2.3.0.offxml",
         description="The force field from which to start. This can be any"
         " OpenFF force field, or your own .offxml file.",
     )

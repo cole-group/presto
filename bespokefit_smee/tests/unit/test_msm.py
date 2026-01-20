@@ -126,7 +126,7 @@ def two_atom_coords():
 @pytest.fixture(scope="module")
 def base_forcefield():
     """Shared OpenFF force field instance for MSM integration tests."""
-    return ForceField("openff_unconstrained-2.3.0-rc2.offxml")
+    return ForceField("openff_unconstrained-2.3.0.offxml")
 
 
 @pytest.fixture(scope="module")

@@ -5,7 +5,7 @@ n_iterations: 2
 memory: false
 parameterisation_settings:
     smiles: "N#CCC(=O)C"
-    initial_force_field: openff_unconstrained-2.3.0-rc2.offxml
+    initial_force_field: openff_unconstrained-2.3.0.offxml
     expand_torsions: true
     linearise_harmonics: true
     type_generation_settings:
