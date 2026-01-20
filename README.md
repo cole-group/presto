@@ -67,11 +67,19 @@ bespokefit_smee train-from-yaml default.yaml
 
 For more details on the theory and implementation, please see the [documentation](https://fjclark.github.io/bespokefit_smee/latest/).
 
+## MACE-Model Use
+
+To use models with the MACE architecture, run
+```
+pixi shell -e mace-runtime
+```
+
 ## Copyright
 
-Copyright (c) 2025, Thomas James Pope, Newcastle University, UK
+Copyright (c) 2025-2026, Finlay Clark, Newcastle University, UK
 
-Copyright (c) 2025, Finlay Clark, Newcastle University, UK
+Copyright (c) 2025-2026, Thomas James Pope, Newcastle University, UK
+
 
 This package includes models from other projects under the MIT license. See `bespokefit_smee/models/LICENSES.md` for details.
 
