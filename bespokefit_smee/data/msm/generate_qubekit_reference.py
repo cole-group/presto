@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Generate reference MSM values using QUBEKit's ModSeminario implementation.
 
