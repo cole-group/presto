@@ -35,6 +35,7 @@ from .find_torsions import (
 )
 from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
+from .utils.gpu import cleanup_simulation
 from .utils.register import get_registry_decorator
 
 logger = loguru.logger
@@ -320,14 +321,21 @@ def sample_mmmd(
             pdb_path,
         )
 
+        # Clean up MM simulation to free GPU memory
+        cleanup_simulation(simulation, integrator)
+
         # Recalculate energies and forces using the ML potential
         ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
         ml_simulation = Simulation(
             interchange.topology,
             ml_system,
-            _get_integrator(settings.temperature, settings.timestep),
+            ml_integrator,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        # Clean up ML simulation to free GPU memory
+        cleanup_simulation(ml_simulation, ml_integrator)
 
         # Convert to weighted dataset
         entry = ml_dataset[0]
@@ -404,6 +412,9 @@ def sample_mlmd(
             settings.production_n_steps_per_snapshot_per_conformer,
             pdb_path,
         )
+
+        # Clean up ML simulation to free GPU memory
+        cleanup_simulation(ml_simulation, integrator)
 
         # Convert to weighted dataset
         entry = ml_dataset[0]
@@ -535,6 +546,9 @@ def sample_mmmd_metadynamics(
                 settings.production_n_steps_per_snapshot_per_conformer,
                 pdb_path,
             )
+
+            # Clean up MM simulation to free GPU memory
+            cleanup_simulation(simulation, integrator)
         else:
             # Setup metadynamics
             bias_variables = _get_torsion_bias_forces(
@@ -587,14 +601,21 @@ def sample_mmmd_metadynamics(
                 pdb_path,
             )
 
+            # Clean up MM simulation to free GPU memory
+            cleanup_simulation(simulation)
+
         # Recalculate with ML potential
         ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
         ml_simulation = Simulation(
             interchange.topology.to_openmm(),
             ml_system,
-            _get_integrator(settings.temperature, settings.timestep),
+            ml_integrator,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        # Clean up ML simulation to free GPU memory
+        cleanup_simulation(ml_simulation, ml_integrator)
 
         # Convert to weighted dataset
         entry = ml_dataset[0]
@@ -1168,14 +1189,21 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 pdb_path,
             )
 
+            # Clean up MM simulation to free GPU memory
+            cleanup_simulation(simulation, integrator)
+
             # Recalculate with ML potential
             ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+            ml_integrator = _get_integrator(settings.temperature, settings.timestep)
             ml_simulation = Simulation(
                 interchange.topology.to_openmm(),
                 ml_system,
-                _get_integrator(settings.temperature, settings.timestep),
+                ml_integrator,
             )
             ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+            # Clean up ML simulation to free GPU memory
+            cleanup_simulation(ml_simulation, ml_integrator)
 
             # Convert to weighted dataset
             entry = ml_dataset[0]
@@ -1241,16 +1269,23 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             pdb_path,
         )
 
+        # Clean up MM simulation to free GPU memory
+        cleanup_simulation(simulation)
+
         # Create ML simulation for energy/force recalculation
         ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
         ml_simulation = Simulation(
             interchange.topology.to_openmm(),
             ml_system,
-            _get_integrator(settings.temperature, settings.timestep),
+            ml_integrator,
         )
 
         # Step 2: Recalculate energies and forces with ML potential
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
+
+        # Clean up ML recalculation simulation to free GPU memory
+        cleanup_simulation(ml_simulation, ml_integrator)
 
         # Convert to weighted dataset with MMMD weights
         entry = ml_dataset[0]
@@ -1267,18 +1302,20 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         # Step 3: Generate torsion-minimised structures
         # Create a fresh MM simulation for minimisation (without metadynamics biases)
         mm_min_system = interchange.to_openmm_system()
+        mm_min_integrator = _get_integrator(settings.temperature, settings.timestep)
         mm_min_simulation = Simulation(
             interchange.topology.to_openmm(),
             mm_min_system,
-            _get_integrator(settings.temperature, settings.timestep),
+            mm_min_integrator,
         )
 
         # Create a fresh ML simulation for minimisation
         ml_min_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
+        ml_min_integrator = _get_integrator(settings.temperature, settings.timestep)
         ml_min_simulation = Simulation(
             interchange.topology.to_openmm(),
             ml_min_system,
-            _get_integrator(settings.temperature, settings.timestep),
+            ml_min_integrator,
         )
 
         # Create molecule-specific PDB paths for minimised structures
@@ -1311,10 +1348,13 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             )
         )
 
+        # Clean up minimisation simulations to free GPU memory
+        cleanup_simulation(ml_min_simulation, ml_min_integrator)
+        cleanup_simulation(mm_min_simulation, mm_min_integrator)
+
         # Merge all datasets
         combined_dataset = merge_weighted_datasets(
             [mmmd_weighted_dataset, torsion_ml_min_dataset, torsion_mm_min_dataset]
-            # [torsion_ml_min_dataset]
         )
 
         all_datasets.append(combined_dataset)

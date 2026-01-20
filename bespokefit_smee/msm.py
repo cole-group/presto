@@ -19,7 +19,6 @@ import numpy as np
 import openff.interchange
 import openff.toolkit
 import openmm.unit
-import torch
 from numpy import typing as npt
 from openff.toolkit.typing.engines.smirnoff import (
     AngleHandler,
@@ -32,6 +31,7 @@ from tqdm import tqdm
 from .hessian import calculate_hessian
 from .sample import _copy_mol_and_add_conformers, _get_integrator, _get_ml_omm_system
 from .settings import MSMSettings
+from .utils.gpu import cleanup_simulation
 
 logger = loguru.logger
 
@@ -759,10 +759,7 @@ def apply_msm_to_molecule(
             all_angle_params[angle_idx].append(angle_param)
 
     # Clean up OpenMM objects to free GPU memory
-    del simulation
-    del integrator
-    torch.cuda.synchronize()  # Wait for all GPU operations to complete -- this is critical
-    torch.cuda.empty_cache()  # Now GPU is idle, memory can actually be freed
+    cleanup_simulation(simulation, integrator)
 
     # Average parameters over all conformers
     bond_params = {
