@@ -3,11 +3,11 @@
 <p align="center"> Parameter Refinement Engine for Smirnoff Training / Optimisation</p>
 
 <p align="center">
-  <a href="https://github.com/cole-lab/presto/actions/workflows/ci.yaml">
-    <img src="https://github.com/cole-lab/presto/actions/workflows/ci.yaml/badge.svg" alt="CI" />
+  <a href="https://github.com/cole-group/presto/actions/workflows/ci.yaml">
+    <img src="https://github.com/cole-group/presto/actions/workflows/ci.yaml/badge.svg" alt="CI" />
   </a>
-  <a href="https://codecov.io/gh/cole-lab/presto" >
-    <img src="https://codecov.io/gh/cole-lab/presto/graph/badge.svg?token=IBZ2H0NL58"/>
+  <a href="https://codecov.io/gh/cole-group/presto" >
+    <img src="https://codecov.io/gh/cole-group/presto/graph/badge.svg?token=IBZ2H0NL58"/>
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img alt="license" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
@@ -22,7 +22,7 @@
 
 ---
 
-Train bespoke SMIRNOFF force fields using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-lab.github.io/presto/latest/).
+Train bespoke SMIRNOFF force fields using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-group.github.io/presto/latest/).
 
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
 the documentation and testing is incomplete, and the API may change without notice.*
@@ -33,7 +33,7 @@ Please note that the MACE-OFF models are released under the [Academic Software L
 
 Ensuring that you have pixi installed, run:
 ```bash
-git clone https://github.com/cole-lab/presto.git
+git clone https://github.com/cole-group/presto.git
 cd presto
 pixi install
 ```
@@ -63,7 +63,7 @@ presto write-default-yaml default.yaml
 presto train-from-yaml default.yaml
 ```
 
-For more details on the theory and implementation, please see the [documentation](https://cole-lab.github.io/presto/latest/).
+For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
 
 ## MACE-Model Use
 
