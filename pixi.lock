@@ -113,6 +113,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gmpy2-2.2.1-py313h86d8783_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/greenlet-3.3.0-py313h7033f15_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/griffe-1.15.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/griffe-pydantic-1.2.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/grpcio-1.73.1-py313h2b3948d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/h11-0.16.0-pyhcf101f3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/h2-4.3.0-pyhcf101f3_0.conda
@@ -628,6 +629,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gmpy2-2.2.1-py313h86d8783_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/greenlet-3.3.0-py313h7033f15_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/griffe-1.15.0-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/griffe-pydantic-1.2.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/grpcio-1.73.1-py313h2b3948d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/h11-0.16.0-pyhcf101f3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/h2-4.3.0-pyhcf101f3_0.conda
@@ -3846,6 +3848,17 @@ packages:
   - pkg:pypi/griffe?source=hash-mapping
   size: 114576
   timestamp: 1762806629967
+- conda: https://conda.anaconda.org/conda-forge/noarch/griffe-pydantic-1.2.0-pyhd8ed1ab_0.conda
+  sha256: e30bbe177decc68a0c12c0790b6662e55c981b5fed1b8ec2ddfdffad9a06aaca
+  md5: 60861459d67ccbd3ffd6ebd269af05fd
+  depends:
+  - griffe >=1.14
+  - python >=3.10
+  license: ISC
+  purls:
+  - pkg:pypi/griffe-pydantic?source=hash-mapping
+  size: 16375
+  timestamp: 1768399854372
 - conda: https://conda.anaconda.org/conda-forge/linux-64/grpcio-1.71.0-py313h751f5e6_1.conda
   sha256: 94e326461e70a721b7c0b470ea8faebc11df76031b1b656d938d4dd58b6b92f6
   md5: 372202eb4813ef10f550c1337927ebb6
@@ -8184,8 +8197,8 @@ packages:
   timestamp: 1765937577534
 - pypi: ./
   name: presto
-  version: 0.2.1.dev1+ged0f63efb.d20260126
-  sha256: 4bc20b3410c3c3a2354ec9e1b29872c2748def9ee005a4a7fc720cc2788d7c84
+  version: 0.3.1.dev3+g1779f80ff.d20260126
+  sha256: 263c0c9140d3ae9da465f5e6115535146f0bd85bef138fa33acd63f997ada1bb
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
   name: prettytable

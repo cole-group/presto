@@ -118,6 +118,9 @@ plugins:
           signature_crossrefs: true
           summary: true
           members_order: source
+          extensions:
+            - griffe_pydantic:
+                schema: true
 
 extra_javascript:
   - javascripts/mathjax.js

@@ -190,6 +190,7 @@ mkdocstrings = "*"
 "mkdocstrings-python" = "*"
 black = "*"
 mike = "*"
+"griffe-pydantic" = "*"
 
 [tool.pixi.feature.docs.pypi-dependencies]
 mkdocs-bibtex = "*"
