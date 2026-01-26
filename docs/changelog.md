@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Rename `bespokefit_smee` -> `presto` (Parameter Refinement Engine for Smirnoff Training / Optimisation)
+
 ## 0.2.0
 
 ### New Features
