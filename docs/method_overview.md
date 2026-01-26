@@ -1,12 +1,12 @@
-# Theory
+# Method overview
 
-The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. ``presto`` aims to generate accurate molecular mechanics force field parameters specifically for your molecule/ molecules of interest. This is done by fitting parameters to energies and forces from a machine learning potential, which loses little accuracy compared to the QM method it was trained on, but is orders of magnitude faster:
+The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. ``presto`` aims to generate accurate molecular mechanics force field parameters specifically for your molecule(s) of interest. This is done by fitting parameters to energies and forces from a machine learning potential (MLP) for molecular dynamics configurations for your molecule(s).  The MLP loses little accuracy compared to the QM method it was trained on, but is orders of magnitude faster:
 
 ![Alt text](images/workflow-summary.png)
 
 ## Initial force field
 
-The fit can be started from any standard OpenFF, force field. Only the valence parameters (bonds, angles, proper torsions, and improper torsions) are trained, while the Lennard-Jones terms and changes are left unaltered. The functional form of the valence terms are:
+The fit can be started from any standard OpenFF force field. Only the valence parameters (bonds, angles, proper torsions, and improper torsions) are trained, while the Lennard-Jones terms and charges are left unaltered. The functional form of the valence terms are:
 
 - Bonds and angles are defined by a harmonic function,
 $u(x;k,x_0)=\frac{k}{2}\left(x-x_0\right)^2$,
@@ -15,17 +15,19 @@ where the position of the minimum, $x_0$, and the magnitude, $k$, are the fittin
 $u_p(\phi;k,\phi_0)=k\left(1+\cos{\left(p\phi-\phi_0\right)}\right)$,
 where the phase, $\phi_0$, and the magnitude, $k$, are the fitted parameters. Here, proper torsions are expanded to include four periodicities, whereas improper torsions include only one. It is also noted that for symmetry, the phase $\phi_0$ is expected to be either 0 or $\pi$
 
+By default, we use the [modified Seminario method (MSM)](https://pubs.acs.org/doi/10.1021/acs.jctc.7b00785) to initialise bonds and angles from the MLP Hessian.
+
 ## Bespoke parameter generation
 
 The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest.
 
 ## Sampling
 
-The molecule is sampled using high-temperature molecular dynamics. By default, this is performed at 500 K, using the input molecular mechanics force field, well-tempered metadynamics is applied to all rotatable bonds to enhance sampling of diverse conformers and torsional barriers. The sampling is started from several different conformers generated with ``RDKit``'s ``ETKDG`` algorithm.
+The molecule is sampled using high-temperature molecular dynamics. By default, this is performed at 500 K using the input molecular mechanics force field. Well-tempered metadynamics is applied to all rotatable bonds to enhance sampling of diverse conformers and torsional barriers. The sampling is started from several different conformers generated with ``RDKit``'s ``ETKDG`` algorithm.
 
 ## Energy and force evaluation
 
-Snapshots are saved from the molecular dynamics and the energies and forces of each are computed using a machine-learning potential such as Egret-1 or AIMNet2. By default, energies are offset by their mean before training.
+Snapshots are saved from the molecular dynamics and the energies and forces of each are computed using a machine-learning potential such as (AceFF-2.0 is used by default). Energies are offset by their mean before training.
 
 ## Training
 
@@ -38,6 +40,10 @@ Optionally, the user can perform iterative fitting, where the molecular mechanic
 ## Final force field
 
 The bespoke parameters are added on to the end of the input force field and this is saved (see ``bespoke_ff.offxml`` in the relevant output directory). Because parameters lower down the ``.offxml`` file are given higher priority, these parameters are used instead of the original non-specific parameters from the input force field when you parameterise your molecule of interest.
+
+## Congeneric series fitting
+
+If more than one smiles is provided in the input file, samples will be generated seperately for each of the molecules, but all types will be trained together. If you use the default settings, completely bespoke types will be generated for each the result will be the same as running fits for each molecule in parallel. However, by changing the type generation settings (specifically `max_extend`, see [settings guide](settings_guide.md))to generate less specific types, parameters shared between the molecules will be trained together on all of the data.
 
 ---
 

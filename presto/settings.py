@@ -405,6 +405,10 @@ SamplingSettings = Union[
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     PreComputedDatasetSettings,
 ]
+"""Union type for all sampling settings. See the associated `sampling_protocol` field
+in each class for the string identifier which should be supplied to
+`training_sampling_settings` and `testing_sampling_settings` fields in
+`WorkflowSettings`."""
 
 
 def _get_default_regularised_parameters() -> dict[ValenceType, list[str]]:

@@ -19,7 +19,9 @@ extra:
 nav:
 - Home:
   - Overview: index.md
-- Theory: theory.md
+- Method overview : method_overview.md
+- Settings guide : settings_guide.md
+- Output guide: output_guide.md
 - Examples:
   - examples/README.md
   - examples/basic-walk-through-cli.ipynb

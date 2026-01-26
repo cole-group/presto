@@ -14,22 +14,61 @@ class OutputType(Enum):
     """An enumeration of the different types of outputs produced by bespoke fitting functions"""
 
     WORKFLOW_SETTINGS = "workflow_settings.yaml"
+    """The settings yaml file which is written if the user runs using `presto train`
+    (rather than `presto train-from-yaml <settings file>`). This provides a record of the
+    settings used and allows easy re-running of the workflow later."""
+
     ENERGIES_AND_FORCES = "energy_and_force_data"
+    """Directory containing energies and forces data files in HDF5 format."""
+
     TENSORBOARD = "tensorboard"
+    """Directory containing TensorBoard logs."""
+
     TRAINING_METRICS = "metrics.txt"
+    """File containing training metrics."""
+
     OFFXML = "bespoke_ff.offxml"
+    """The output OpenFF ForceField file containing the bespoke parameters.
+    One bespoke FF file is produced per training iteration."""
+
     SCATTER = "energies_and_forces.hdf5"
+    """HDF5 file containing scatter data for energies and forces."""
+
     PDB_TRAJECTORY = "trajectory.pdb"
+    """PDB trajectory file containing structures sampled during sampling."""
+
     METADYNAMICS_BIAS = "metadynamics_bias"
+    """Directory containing metadynamics bias files."""
+
     LOSS_PLOT = "loss.png"
+    """Plot of training and validation loss over training epochs."""
+
     ERROR_PLOT = "error_distributions.png"
+    """Plot of error distributions for energies and forces. These are with
+    respect to the 'test' data."""
+
     CORRELATION_PLOT = "correlation.png"
+    """Plot of predicted vs reference energies and forces. These are with respect
+    to the 'test' data."""
+
     FORCE_ERROR_BY_ATOM_INDEX_PLOT = "force_error_by_atom_index.png"
+    """Plot of force errors broken down by atom index. These are with respect to
+    the 'test' data."""
+
     PARAMETER_VALUES_PLOT = "parameter_values.png"
+    """Plot of parameter values before and after fitting. Note that the 'before' force field
+    is the one used for the initial sampling, after the MSM step."""
+
     PARAMETER_DIFFERENCES_PLOT = "parameter_differences.png"
+    """Plot of parameter differences (fitted - initial) after fitting. Note that the 'initial' force field
+    is the one used for the initial sampling, after the MSM step."""
+
     # PDB outputs for torsion-minimised structures
     ML_MINIMISED_PDB = "ml_minimised.pdb"
+    """PDB file containing structures minimised using the machine-learned potential."""
+
     MM_MINIMISED_PDB = "mm_minimised.pdb"
+    """PDB file containing structures minimised using the molecular mechanics potential."""
 
 
 # Output types that are generated per-molecule (one file/directory per molecule)
