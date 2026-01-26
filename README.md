@@ -1,11 +1,13 @@
 <h2 align="center">presto</h2>
 
+<p align="center"> Parameter Refinement Engine for Smirnoff Training / Optimisation</p>
+
 <p align="center">
-  <a href="https://github.com/fjclark/presto/actions/workflows/ci.yaml">
-    <img src="https://github.com/fjclark/presto/actions/workflows/ci.yaml/badge.svg" alt="CI" />
+  <a href="https://github.com/cole-lab/presto/actions/workflows/ci.yaml">
+    <img src="https://github.com/cole-lab/presto/actions/workflows/ci.yaml/badge.svg" alt="CI" />
   </a>
-  <a href="https://codecov.io/gh/fjclark/presto" >
-    <img src="https://codecov.io/gh/fjclark/presto/graph/badge.svg?token=IBZ2H0NL58"/>
+  <a href="https://codecov.io/gh/cole-lab/presto" >
+    <img src="https://codecov.io/gh/cole-lab/presto/graph/badge.svg?token=IBZ2H0NL58"/>
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img alt="license" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
@@ -20,22 +22,18 @@
 
 ---
 
-Generate a Bespoke Force-Field Parametrization Quickly and Reliably. Developed in the [Cole Group](https://blogs.ncl.ac.uk/danielcole/about-us/) at Newcastle University. Please see the [**documentation**](https://fjclark.github.io/presto/latest/).
+Train bespoke SMIRNOFF force fields using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-lab.github.io/presto/latest/).
 
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
 the documentation and testing is incomplete, and the API may change without notice.*
 
-Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default Egret-1 model and AIMNet-2 models do.
-
-## What is presto?
-
-presto is a Force-Field parametrization tool. For a given molecule, it will generate a data set of conformers using machine learning models in [OpenMM-ML](https://github.com/openmm/openmm-ml) simulations. This dataset is used to optimise the force field parameters.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AceFF-2.0 model (as well as Egret-1 and AIMNet-2) does.
 
 ## Installation
 
 Ensuring that you have pixi installed, run:
 ```bash
-git clone https://github.com/fjclark/presto.git
+git clone https://github.com/cole-lab/presto.git
 cd presto
 pixi install
 ```
@@ -65,7 +63,7 @@ presto write-default-yaml default.yaml
 presto train-from-yaml default.yaml
 ```
 
-For more details on the theory and implementation, please see the [documentation](https://fjclark.github.io/presto/latest/).
+For more details on the theory and implementation, please see the [documentation](https://cole-lab.github.io/presto/latest/).
 
 ## MACE-Model Use
 
@@ -85,4 +83,4 @@ This package includes models from other projects under the MIT license. See `pre
 
 ## Acknowledgements
 
-All early development was completed by Thomas James Pope. Many ideas taken from Simon Boothroyd's super helpful [python-template](https://github.com/SimonBoothroyd/python-template).
+Early development was completed by Thomas James Pope. Many ideas taken from Simon Boothroyd's super helpful [python-template](https://github.com/SimonBoothroyd/python-template).
