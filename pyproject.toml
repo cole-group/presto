@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = ["hatchling", "hatch-vcs"]
 
 [project]
-name = "bespokefit_smee"
+name = "presto"
 description = "Fast parameterisation of bespoke MM force fields using MLPs."
 authors = [
   {name = "Finlay Clark"},
@@ -16,31 +16,31 @@ requires-python = ">=3.11"
 classifiers = ["Programming Language :: Python :: 3"]
 
 [project.scripts]
-bespokefit_smee = "bespokefit_smee._cli:run_cli"
+presto = "presto._cli:run_cli"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["bespokefit_smee"]
-include = ["bespokefit_smee/models/*.pt"]
+packages = ["presto"]
+include = ["presto/models/*.pt"]
 
 [tool.ruff.lint]
 ignore = ["C901", "E501"]
 select = ["B","C","E","F","W","B9"]
 ignore-init-module-imports = true
-exclude = ["bespokefit_smee/models/compile_aimnet2_ens_models.py"]
+exclude = ["presto/models/compile_aimnet2_ens_models.py"]
 
 [tool.coverage.run]
-omit = ["**/tests/*", "**/_version.py", "bespokefit_smee/models/compile_aimnet2_ens_models.py"]
+omit = ["**/tests/*", "**/_version.py", "presto/models/compile_aimnet2_ens_models.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
 exclude = [
-  "bespokefit_smee/_version.py",
-  "bespokefit_smee/tests/",
-  "bespokefit_smee/metadynamics.py", # As mostly lifted from OpenMM
-  "bespokefit_smee/models/compile_aimnet2_ens_models.py"
+  "presto/_version.py",
+  "presto/tests/",
+  "presto/metadynamics.py", # As mostly lifted from OpenMM
+  "presto/models/compile_aimnet2_ens_models.py"
 ]
 
 [tool.coverage.report]
@@ -59,7 +59,7 @@ exclude_lines = [
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
-name = "bespokefit_smee"
+name = "presto"
 preview = ["pixi-build"]
 
 [tool.pixi.package]
@@ -115,7 +115,7 @@ ambertools = "*"
 descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 mace-torch = "*"
-bespokefit_smee ={ path = ".", editable = true }
+presto ={ path = ".", editable = true }
 
 # -----------------------------
 # GPU vs CPU toggle
@@ -224,15 +224,15 @@ mkdocs-bibtex = "*"
 install-pre-commit = { cmd = "pre-commit install" }
 
 # Linting requires dev
-lint = { cmd = "ruff check bespokefit_smee" }
-format = { cmd = "ruff format bespokefit_smee && ruff check --fix --select I bespokefit_smee" }
+lint = { cmd = "ruff check presto" }
+format = { cmd = "ruff format presto && ruff check --fix --select I presto" }
 
 # Testing requires dev + common + GPU/CPU
-test = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests" }
-"test-unit" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/unit" }
-"test-integration" = { cmd = "pytest -v --cov=bespokefit_smee --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes bespokefit_smee/tests/integration" }
+test = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests" }
+"test-unit" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/unit" }
+"test-integration" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/integration" }
 
-type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict bespokefit_smee" }
+type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict presto" }
 
 # Docs tasks require docs feature
 "docs-build" = { cmd = "mkdocs build" }

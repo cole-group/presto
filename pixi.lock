@@ -2757,11 +2757,6 @@ packages:
   - pkg:pypi/beautifulsoup4?source=hash-mapping
   size: 90399
   timestamp: 1764520638652
-- pypi: ./
-  name: bespokefit-smee
-  version: 0.1.2.dev52+ge8bba3330
-  sha256: fca7fa9fcd7cfddfa2cc725f621880609385014cb51000ca4e3817d6d4860983
-  requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/noarch/black-25.12.0-pyh866005b_0.conda
   sha256: b7d00a8b682f650ac547d8d70c6cd65f303011313b3d3608d3704f20b1dad5b6
   md5: 7b658ed81f14384c83f4c4f01959fdc2
@@ -8187,6 +8182,11 @@ packages:
   - pkg:pypi/pre-commit?source=hash-mapping
   size: 200827
   timestamp: 1765937577534
+- pypi: ./
+  name: presto
+  version: 0.2.1.dev1+ged0f63efb.d20260126
+  sha256: 4bc20b3410c3c3a2354ec9e1b29872c2748def9ee005a4a7fc720cc2788d7c84
+  requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
   name: prettytable
   version: 3.17.0

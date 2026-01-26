@@ -1,6 +1,6 @@
 # Theory
 
-The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. ``bespokefit_smee`` aims to generate accurate molecular mechanics force field parameters specifically for your molecule/ molecules of interest. This is done by fitting parameters to energies and forces from a machine learning potential, which loses little accuracy compared to the QM method it was trained on, but is orders of magnitude faster:
+The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. ``presto`` aims to generate accurate molecular mechanics force field parameters specifically for your molecule/ molecules of interest. This is done by fitting parameters to energies and forces from a machine learning potential, which loses little accuracy compared to the QM method it was trained on, but is orders of magnitude faster:
 
 ![Alt text](images/workflow-summary.png)
 
@@ -17,11 +17,11 @@ where the phase, $\phi_0$, and the magnitude, $k$, are the fitted parameters. He
 
 ## Bespoke parameter generation
 
-The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest. 
+The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest.
 
 ## Sampling
 
-The molecule is sampled using high-temperature molecular dynamics. By default, this is performed at 500 K, using the input molecular mechanics force field, well-tempered metadynamics is applied to all rotatable bonds to enhance sampling of diverse conformers and torsional barriers. The sampling is started from several different conformers generated with ``RDKit``'s ``ETKDG`` algorithm. 
+The molecule is sampled using high-temperature molecular dynamics. By default, this is performed at 500 K, using the input molecular mechanics force field, well-tempered metadynamics is applied to all rotatable bonds to enhance sampling of diverse conformers and torsional barriers. The sampling is started from several different conformers generated with ``RDKit``'s ``ETKDG`` algorithm.
 
 ## Energy and force evaluation
 

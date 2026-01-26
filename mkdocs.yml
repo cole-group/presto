@@ -1,9 +1,9 @@
-site_name: "bespokefit_smee"
+site_name: "presto"
 site_description: "Generate a Bespoke Force-Field Parametrization Quickly and Reliably"
-site_url: "https://github.com/fjclark/bespokefit_smee"
-repo_url: "https://github.com/fjclark/bespokefit_smee"
+site_url: "https://github.com/fjclark/presto"
+repo_url: "https://github.com/fjclark/presto"
 site_dir: "site"
-watch: [mkdocs.yml, README.md, bespokefit_smee/, docs]
+watch: [mkdocs.yml, README.md, presto/, docs]
 copyright: Copyright &copy; 2025 Thomas James Pope, Finlay Clark
 edit_uri: edit/main/docs/
 
@@ -96,7 +96,7 @@ plugins:
 - mkdocstrings:
     handlers:
       python:
-        paths: [bespokefit_smee/]
+        paths: [presto/]
         options:
           docstring_style: numpy
           docstring_options:
