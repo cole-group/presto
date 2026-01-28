@@ -1,7 +1,6 @@
 """Apply OpenFF parameters to molecule, cluster conformers by RMSD and train"""
 
 import functools
-import logging
 from pathlib import Path
 from typing import Protocol, TypedDict, Unpack
 
@@ -13,7 +12,13 @@ import loguru
 import smee
 import tensorboardX
 import torch
-from tqdm import tqdm
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 # from .sample import get_data_MLMD, get_data_MMMD
 from .loss import get_loss_closure_fn, prediction_loss
@@ -28,12 +33,6 @@ from .writers import (
     report,
     write_metrics,
 )
-
-logging.basicConfig(
-    level=logging.INFO,  # or logging.DEBUG for more detail
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logging.getLogger("descent").setLevel(logging.DEBUG)
 
 logger = loguru.logger
 
@@ -223,27 +222,19 @@ def train_adam(
                 {"optimizer": "Adam", "lr": settings.learning_rate}, {}
             ):
                 writer.file_writer.add_summary(v)
-            for i in tqdm(
-                range(settings.n_epochs),
-                leave=False,
-                colour="blue",
-                desc="Optimising MM parameters",
-            ):
-                losses_train = prediction_loss(
-                    datasets,
-                    trainable,
-                    trainable_parameters,
-                    initial_parameters,
-                    topologies,
-                    settings.regularisation_target,
-                    str(device),
-                )
-                tot_loss_train = sum(losses_train)
-
-                logger.info(f"Epoch {i}: Training Weighted Loss: {losses_train} ")
-                if i % 10 == 0:
-                    losses_test = prediction_loss(
-                        datasets_test,
+            progress = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TimeRemainingColumn(),
+            )
+            with progress:
+                for i in progress.track(
+                    range(settings.n_epochs),
+                    description="Optimising MM parameters",
+                ):
+                    losses_train = prediction_loss(
+                        datasets,
                         trainable,
                         trainable_parameters,
                         initial_parameters,
@@ -251,22 +242,40 @@ def train_adam(
                         settings.regularisation_target,
                         str(device),
                     )
+                    tot_loss_train = sum(losses_train)
 
-                    write_metrics(
-                        i,
-                        losses_train,
-                        losses_test,
-                        writer,
-                        metrics_file,
+                    logger.debug(
+                        f"Epoch {i}: Training Weighted Loss: "
+                        f"Energy={losses_train.energy.item():.4f} "
+                        f"Forces={losses_train.forces.item():.4f} "
+                        f"Reg={losses_train.regularisation.item():.4f}"
                     )
+                    if i % 10 == 0:
+                        losses_test = prediction_loss(
+                            datasets_test,
+                            trainable,
+                            trainable_parameters,
+                            initial_parameters,
+                            topologies,
+                            settings.regularisation_target,
+                            str(device),
+                        )
 
-                tot_loss_train.backward(retain_graph=False)  # type: ignore[union-attr]
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
-                trainable.clamp(trainable_parameters)
+                        write_metrics(
+                            i,
+                            losses_train,
+                            losses_test,
+                            writer,
+                            metrics_file,
+                        )
 
-                if i % settings.learning_rate_decay_step == 0:
-                    scheduler.step()
+                    tot_loss_train.backward(retain_graph=False)  # type: ignore[union-attr]
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    trainable.clamp(trainable_parameters)
+
+                    if i % settings.learning_rate_decay_step == 0:
+                        scheduler.step()
 
         # Required to avoid filling up the GPU memory between iterations
         # TODO: Find a better way to do this.

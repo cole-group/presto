@@ -84,6 +84,7 @@ mace-runtime = { features = ["common", "smee_descent", "gpu", "mace"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11"
+rich = ">=14.3.1,<15"
 
 # -----------------------------
 # Shared dependencies
@@ -215,7 +216,6 @@ mkdocs-bibtex = "*"
 "types-PyYAML" = "*"
 "types-requests" = "*"
 "types-tabulate" = "*"
-"types-tqdm" = "*"
 "pandas-stubs" = "*"
 
 # -----------------------------

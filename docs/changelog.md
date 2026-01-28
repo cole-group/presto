@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+### Improvements
+
+- Improve cleanliness/prettiness of CLI output
+
 ## 0.3.0
 
 - Renamed `bespokefit_smee` -> `presto` (Parameter Refinement Engine for Smirnoff Training / Optimisation)
