@@ -21,7 +21,7 @@ from openff.units import unit as off_unit
 from openmm import LangevinMiddleIntegrator
 from openmm.app import PDBFile, PDBReporter, Simulation
 from openmm.unit import Quantity, angstrom
-from tqdm import tqdm
+from rich.progress import track
 
 from . import mlp, settings
 from .data_utils import (
@@ -147,11 +147,9 @@ def _run_md(
             pdb_reporter_path, production_n_steps_per_snapshot_per_conformer
         )
 
-    for conf_idx, initial_positions in tqdm(
+    for conf_idx, initial_positions in track(
         enumerate(mol.conformers),
-        leave=False,
-        colour="green",
-        desc="Generating Snapshots",
+        description="[green]Generating Snapshots",
         total=len(mol.conformers),
     ):
         simulation.context.setPositions(initial_positions.to_openmm())
@@ -164,11 +162,10 @@ def _run_md(
         if pdb_reporter_path is not None:
             simulation.reporters.append(reporter)
 
-        for _ in tqdm(
+        for _ in track(
             range(production_n_snapshots_per_conformer),
-            leave=False,
-            colour="red",
-            desc=f"Running MD for conformer {conf_idx + 1}",
+            transient=True,
+            description=f"[red]Running MD for conformer {conf_idx + 1}",
         ):
             step_fn(production_n_steps_per_snapshot_per_conformer)
             state = simulation.context.getState(
@@ -186,10 +183,10 @@ def _run_md(
 
     # Return a Dataset with energies relative to the first snapshot
     smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-    coords_out = torch.tensor(np.array(coords))
+    coords_out = torch.as_tensor(np.array(coords))
     energy_0 = energy[0]
-    energy_out = torch.tensor(np.array([x - energy_0 for x in energy]))
-    forces_out = torch.tensor(np.array(forces))
+    energy_out = torch.as_tensor(np.array([x - energy_0 for x in energy]))
+    forces_out = torch.as_tensor(np.array(forces))
 
     return descent.targets.energy.create_dataset(
         [
@@ -254,11 +251,9 @@ def recalculate_energies_and_forces(
     n_conf = len(entry["energy"])
     coords = entry["coords"].reshape(n_conf, -1, 3)
 
-    for i in tqdm(
+    for i in track(
         range(n_conf),
-        leave=False,
-        colour="blue",
-        desc="Recalculating energies and forces",
+        description="[blue]Recalculating energies and forces",
     ):
         my_pos = Quantity(numpy.array(coords[i]), angstrom)
         simulation.context.setPositions(my_pos)
@@ -1036,11 +1031,9 @@ def generate_torsion_minimised_dataset(
     ml_coords_ml_energies = []
     ml_coords_ml_forces = []
 
-    for i in tqdm(
+    for i in track(
         range(n_snapshots),
-        leave=False,
-        colour="magenta",
-        desc="Generating torsion-minimised structures",
+        description="Generating torsion-minimised structures",
     ):
         # Step 1: Minimize with ML potential and frozen torsions
         ml_coords, ml_energy, ml_forces = _minimize_with_frozen_torsions(

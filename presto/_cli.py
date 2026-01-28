@@ -5,6 +5,7 @@ from pathlib import Path
 import loguru
 from pydantic import BaseModel, Field
 from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand
+from rich.logging import RichHandler
 
 from .analyse import analyse_workflow
 from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
@@ -13,6 +14,7 @@ from .settings import (
     ParameterisationSettings,
     WorkflowSettings,
 )
+from .utils._suppress_output import suppress_unwanted_output
 from .workflow import get_bespoke_force_field
 
 logger = loguru.logger
@@ -20,6 +22,17 @@ logger = loguru.logger
 _DEFAULT_WORKFLOW_SETTINGS_PATH = WorkflowPathManager(Path(".")).get_output_path(
     OutputStage(StageKind.BASE), OutputType.WORKFLOW_SETTINGS
 )
+
+
+def setup_logging_for_cli(log_level: str = "INFO") -> None:
+    """Set up logging for the CLI."""
+    logger.remove()
+    logger.add(
+        RichHandler(show_time=True, markup=True),
+        # format="{level} | {message}",
+        format="{message}",
+        level=log_level.upper(),
+    )
 
 
 class TrainFromCli(WorkflowSettings):
@@ -118,10 +131,15 @@ class CLI(BaseModel):
     )
 
     def cli_cmd(self) -> None:
+        suppress_unwanted_output()
+        setup_logging_for_cli()
+
         CliApp.run_subcommand(self)
 
 
 def run_cli() -> None:
+    suppress_unwanted_output()
+
     CliApp.run(
         CLI,
     )

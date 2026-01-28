@@ -34,19 +34,45 @@ def suppress_unwanted_output() -> None:
     # Suppress simtk.openmm deprecation warning
     warnings.filterwarnings(
         "ignore",
-        message="importing 'simtk.openmm' is deprecated",
+        message=".*simtk.openmm.*",
         category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*simtk.openmm.*",
+        category=UserWarning,
     )
 
     # Suppress torch.tensor() warning from descent
     warnings.filterwarnings(
         "ignore",
-        message="To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach()",
+        message="To copy construct from a tensor.*",
         category=UserWarning,
         module="descent.targets.energy",
+    )
+
+    # Suppress warnings from openff
+    warnings.filterwarnings(
+        "ignore",
+        category=UserWarning,
+        module="openff.toolkit",
     )
 
     # Suppress INFO logs from openff.interchange.smirnoff._nonbonded
     logging.getLogger("openff.interchange.smirnoff._nonbonded").setLevel(
         logging.WARNING
     )
+    # Suppress INFO logs from openff.nagl
+    logging.getLogger("openff.nagl").setLevel(logging.WARNING)
+
+    # Suppress httpx logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Suppress descent logs
+    logging.getLogger("descent").setLevel(logging.WARNING)
+
+    # Suppress presto.msm debug logs
+    logging.getLogger("presto.msm").setLevel(logging.INFO)
+
+    # Suppress huggingface_hub warnings
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)

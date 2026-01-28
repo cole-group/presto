@@ -76,13 +76,13 @@ def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
         [
             {
                 "smiles": entry["smiles"],
-                "coords": torch.tensor(entry["coords"]).flatten().tolist(),
-                "energy": torch.tensor(entry["energy"]).flatten().tolist(),
-                "forces": torch.tensor(entry["forces"]).flatten().tolist(),
-                "energy_weights": torch.tensor(entry["energy_weights"])
+                "coords": torch.as_tensor(entry["coords"]).flatten().tolist(),
+                "energy": torch.as_tensor(entry["energy"]).flatten().tolist(),
+                "forces": torch.as_tensor(entry["forces"]).flatten().tolist(),
+                "energy_weights": torch.as_tensor(entry["energy_weights"])
                 .flatten()
                 .tolist(),
-                "forces_weights": torch.tensor(entry["forces_weights"])
+                "forces_weights": torch.as_tensor(entry["forces_weights"])
                 .flatten()
                 .tolist(),
             }

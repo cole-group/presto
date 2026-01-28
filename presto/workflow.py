@@ -7,7 +7,14 @@ import datasets
 import loguru
 from descent.train import Trainable
 from openff.toolkit import ForceField
-from tqdm import tqdm
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from presto.convert import convert_to_smirnoff
 
@@ -18,12 +25,10 @@ from .outputs import OutputStage, OutputType, StageKind
 from .sample import _SAMPLING_FNS_REGISTRY, SampleFn, load_precomputed_dataset
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
-from .utils._suppress_output import suppress_unwanted_output
 from .writers import write_scatter
 
 logger = loguru.logger
-
-suppress_unwanted_output()
+console = Console()
 
 
 def get_bespoke_force_field(
@@ -51,8 +56,6 @@ def get_bespoke_force_field(
     ForceField
         The fitted bespoke force field.
     """
-    suppress_unwanted_output()
-
     path_manager = settings.get_path_manager()
     stage = OutputStage(StageKind.BASE)
     path_manager.mk_stage_dir(stage)
@@ -139,7 +142,7 @@ def get_bespoke_force_field(
             str(scatter_path_mol),
         )
         logger.info(
-            f"Molecule {mol_idx} initial force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e}, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e}"
+            f"Molecule {mol_idx} initial force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e} kcal/mol, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e} kcal/mol/Å"
         )
 
     off_ff = convert_to_smirnoff(
@@ -152,108 +155,115 @@ def get_bespoke_force_field(
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
 
     # Train the force field
-    for iteration in tqdm(
-        range(1, settings.n_iterations + 1),  # Start from 1 (0 is untrained)
-        leave=False,
-        colour="magenta",
-        desc="Iterating the Fit",
-    ):
-        stage = OutputStage(StageKind.TRAINING, iteration)
-        path_manager.mk_stage_dir(stage)
-        datasets_train = None  # Only None for the first iteration
-
-        datasets_train_new = train_sample_fn(
-            mols=off_mols,
-            off_ff=off_ff,
-            device=settings.device,
-            settings=settings.training_sampling_settings,
-            output_paths={
-                output_type: path_manager.get_output_path(stage, output_type)
-                for output_type in settings.training_sampling_settings.output_types
-            },
-        )
-
-        # Apply outlier filtering if configured
-        if settings.outlier_filter_settings is not None:
-            logger.info("Applying outlier filtering to training data")
-            datasets_train_new = [
-                filter_dataset_outliers(
-                    dataset=ds,
-                    force_field=tensor_ff,
-                    topology=tensor_top,
-                    settings=settings.outlier_filter_settings,
-                    device=str(settings.device),
-                )
-                for ds, tensor_top in zip(datasets_train_new, tensor_tops, strict=True)
-            ]
-
-        # Update training dataset: concatenate if memory is enabled and not the first iteration
-        if settings.memory and datasets_train is not None:
-            datasets_train = [
-                datasets.combine.concatenate_datasets([ds_old, ds_new])
-                for ds_old, ds_new in zip(
-                    datasets_train, datasets_train_new, strict=True
-                )
-            ]
-        else:
-            datasets_train = datasets_train_new
-
-        # Save each dataset
-        if train_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
-            for mol_idx, dataset_train in enumerate(datasets_train):
-                dataset_path_mol = path_manager.get_output_path_for_mol(
-                    stage, OutputType.ENERGIES_AND_FORCES, mol_idx
-                )
-                dataset_train.save_to_disk(str(dataset_path_mol))
-
-        train_output_paths = {
-            output_type: path_manager.get_output_path(stage, output_type)
-            for output_type in settings.training_settings.output_types
-        }
-
-        trainable_parameters, trainable = train_fn(
-            trainable_parameters=trainable_parameters,
-            initial_parameters=initial_parameters,
-            trainable=trainable,
-            topologies=tensor_tops,
-            datasets=datasets_train,
-            datasets_test=datasets_test,
-            settings=settings.training_settings,
-            output_paths=train_output_paths,
-            device=settings.device,
-        )
-
-        for potential_type in trainable._param_types:
-            tensor_ff.potentials_by_type[potential_type].parameters = copy.copy(
-                trainable.to_force_field(trainable_parameters)
-                .potentials_by_type[potential_type]
-                .parameters
-            )
-
-        off_ff = convert_to_smirnoff(
-            trainable.to_force_field(trainable_parameters), base=initial_off_ff
-        )
-        off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
-
-        # Write scatter plots for each molecule
-        for mol_idx, (dataset_test, tensor_top) in enumerate(
-            zip(datasets_test, tensor_tops, strict=True)
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+    )
+    with progress:
+        for iteration in progress.track(
+            range(1, settings.n_iterations + 1),  # Start from 1 (0 is untrained)
+            description="Iterating the Fit",
         ):
-            scatter_path_mol = path_manager.get_output_path_for_mol(
-                stage, OutputType.SCATTER, mol_idx
+            stage = OutputStage(StageKind.TRAINING, iteration)
+            path_manager.mk_stage_dir(stage)
+            datasets_train = None  # Only None for the first iteration
+
+            datasets_train_new = train_sample_fn(
+                mols=off_mols,
+                off_ff=off_ff,
+                device=settings.device,
+                settings=settings.training_sampling_settings,
+                output_paths={
+                    output_type: path_manager.get_output_path(stage, output_type)
+                    for output_type in settings.training_sampling_settings.output_types
+                },
             )
-            energy_mean_new, energy_sd_new, forces_mean_new, forces_sd_new = (
-                write_scatter(
-                    dataset_test,
-                    tensor_ff,
-                    tensor_top,
-                    str(settings.device),
-                    str(scatter_path_mol),
+
+            # Apply outlier filtering if configured
+            if settings.outlier_filter_settings is not None:
+                logger.info("Applying outlier filtering to training data")
+                datasets_train_new = [
+                    filter_dataset_outliers(
+                        dataset=ds,
+                        force_field=tensor_ff,
+                        topology=tensor_top,
+                        settings=settings.outlier_filter_settings,
+                        device=str(settings.device),
+                    )
+                    for ds, tensor_top in zip(
+                        datasets_train_new, tensor_tops, strict=True
+                    )
+                ]
+
+            # Update training dataset: concatenate if memory is enabled and not the first iteration
+            if settings.memory and datasets_train is not None:
+                datasets_train = [
+                    datasets.combine.concatenate_datasets([ds_old, ds_new])
+                    for ds_old, ds_new in zip(
+                        datasets_train, datasets_train_new, strict=True
+                    )
+                ]
+            else:
+                datasets_train = datasets_train_new
+
+            # Save each dataset
+            if train_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
+                for mol_idx, dataset_train in enumerate(datasets_train):
+                    dataset_path_mol = path_manager.get_output_path_for_mol(
+                        stage, OutputType.ENERGIES_AND_FORCES, mol_idx
+                    )
+                    dataset_train.save_to_disk(str(dataset_path_mol))
+
+            train_output_paths = {
+                output_type: path_manager.get_output_path(stage, output_type)
+                for output_type in settings.training_settings.output_types
+            }
+
+            trainable_parameters, trainable = train_fn(
+                trainable_parameters=trainable_parameters,
+                initial_parameters=initial_parameters,
+                trainable=trainable,
+                topologies=tensor_tops,
+                datasets=datasets_train,
+                datasets_test=datasets_test,
+                settings=settings.training_settings,
+                output_paths=train_output_paths,
+                device=settings.device,
+            )
+
+            for potential_type in trainable._param_types:
+                tensor_ff.potentials_by_type[potential_type].parameters = copy.copy(
+                    trainable.to_force_field(trainable_parameters)
+                    .potentials_by_type[potential_type]
+                    .parameters
                 )
+
+            off_ff = convert_to_smirnoff(
+                trainable.to_force_field(trainable_parameters), base=initial_off_ff
             )
-            logger.info(
-                f"Iteration {iteration} Molecule {mol_idx} force field statistics: Energy (Mean/SD): {energy_mean_new:.3e}/{energy_sd_new:.3e}, Forces (Mean/SD): {forces_mean_new:.3e}/{forces_sd_new:.3e}"
-            )
+            off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
+
+            # Write scatter plots for each molecule
+            for mol_idx, (dataset_test, tensor_top) in enumerate(
+                zip(datasets_test, tensor_tops, strict=True)
+            ):
+                scatter_path_mol = path_manager.get_output_path_for_mol(
+                    stage, OutputType.SCATTER, mol_idx
+                )
+                energy_mean_new, energy_sd_new, forces_mean_new, forces_sd_new = (
+                    write_scatter(
+                        dataset_test,
+                        tensor_ff,
+                        tensor_top,
+                        str(settings.device),
+                        str(scatter_path_mol),
+                    )
+                )
+                logger.info(
+                    f"Iteration {iteration} Molecule {mol_idx} force field statistics: Energy (Mean/SD): {energy_mean_new:.3e}/{energy_sd_new:.3e} kcal/mol, Forces (Mean/SD): {forces_mean_new:.3e}/{forces_sd_new:.3e} kcal/mol/Å"
+                )
 
     # Plot
     analyse_workflow(settings)

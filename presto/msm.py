@@ -26,7 +26,7 @@ from openff.toolkit.typing.engines.smirnoff import (
 )
 from openff.units import unit as off_unit
 from openmm.app import Simulation
-from tqdm import tqdm
+from rich.progress import track
 
 from .hessian import calculate_hessian
 from .sample import _copy_mol_and_add_conformers, _get_integrator, _get_ml_omm_system
@@ -712,10 +712,9 @@ def apply_msm_to_molecule(
         defaultdict(list)
     )
 
-    for conf_idx in tqdm(
+    for conf_idx in track(
         range(settings.n_conformers),
-        desc="Finding MSM parameters for conformers",
-        leave=False,
+        description="Finding MSM parameters for conformers",
     ):
         # Set positions for this conformer
         simulation.context.setPositions(
@@ -823,7 +822,7 @@ def apply_msm_to_molecules(
     bond_params_by_smirks: defaultdict[str, list[BondParams]] = defaultdict(list)
     angle_params_by_smirks: defaultdict[str, list[AngleParams]] = defaultdict(list)
 
-    for mol in tqdm(mols, desc="Applying MSM to molecules", leave=False):
+    for mol in track(mols, description="Applying MSM to molecules", transient=True):
         # Get parameter labels for this molecule
         labels = off_ff.label_molecules(mol.to_topology())[0]
 

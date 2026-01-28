@@ -188,7 +188,7 @@ def prediction_loss(
         regularisation_target,
     )
 
-    logger.info(
+    logger.debug(
         f"Loss: Energy={avg_energy_loss.item():.4f} Forces={avg_force_loss.item():.4f} Reg={regularisation_loss.item():.4f}"
     )
 

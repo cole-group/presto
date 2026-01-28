@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from openff.toolkit import ForceField, Molecule
 from PIL import Image
 from rdkit.Chem import Draw
-from tqdm import tqdm
+from rich.progress import track
 
 from .loss import LossRecord
 from .outputs import OutputStage, OutputType, StageKind, get_mol_path
@@ -526,8 +526,11 @@ def plot_all_ffs(
     logger.info(
         f"Plotting force field {plot_type} with {nrows} rows and {ncols} columns"
     )
-    for i, (potential_type, param_keys) in tqdm(
-        enumerate(pot_types_and_param_keys.items()), total=len(pot_types_and_param_keys)
+    for i, (potential_type, param_keys) in track(
+        enumerate(pot_types_and_param_keys.items()),
+        total=len(pot_types_and_param_keys),
+        description=f"Plotting {plot_type}",
+        transient=True,
     ):
         for j, param_key in enumerate(param_keys):
             plt_fn(fig, axs[j, i], force_fields, molecule, potential_type, param_key)
@@ -551,6 +554,11 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
     """Analyse the results of a BespokeFitSMEE workflow."""
 
     mols = workflow_settings.parameterisation_settings.molecules
+
+    # Suppress matplotlib categorical units warning by setting logger level
+    import logging
+
+    logging.getLogger("matplotlib.category").setLevel(logging.ERROR)
 
     with plt.style.context(PLT_STYLE):
         # Plot the losses

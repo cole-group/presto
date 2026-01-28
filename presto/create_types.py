@@ -26,7 +26,7 @@ def _add_parameter_with_overwrite(
         old_parameter = old_parameter[0]
         # Keep the old ID if overwriting
         new_parameter.id = old_parameter.id
-        logger.info(
+        logger.debug(
             f"Overwriting existing parameter with id {new_parameter.id} with smirks {parameter_dict['smirks']}."
         )
         idx = handler._index_of_parameter(old_parameter)
