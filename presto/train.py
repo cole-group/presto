@@ -21,7 +21,10 @@ from rich.progress import (
 )
 
 # from .sample import get_data_MLMD, get_data_MMMD
-from .loss import get_loss_closure_fn, prediction_loss
+from .loss import (
+    compute_overall_loss_and_grad,
+    get_loss_closure_fn,
+)
 from .outputs import OutputType
 from .settings import (
     TrainingSettings,
@@ -109,6 +112,12 @@ def train_levenberg_marquardt(
         tuple[torch.Tensor, descent.train.Trainable]
             The updated parameters and the trainable object.
     """
+    # Warn the user that LM needs more testing
+    logger.warning(
+        "Levenberg-Marquardt optimisation is an experimental feature and may not "
+        "work as expected."
+    )
+
     # Make sure we have all the required output paths and no others
     if set(output_paths.keys()) != settings.output_types:
         raise ValueError(
@@ -120,19 +129,12 @@ def train_levenberg_marquardt(
         mode="adaptive", n_convergence_criteria=2, max_steps=settings.n_epochs
     )
 
-    # Get loss weights - using default values
-    # TODO: Support getting these from protocol settings when available
-    loss_energy_weight = 1000.0
-    loss_force_weight = 0.1
-
     closure_fn = get_loss_closure_fn(
         datasets,
         trainable,
         trainable_parameters,
         initial_parameters,
         topologies,
-        loss_energy_weight,
-        loss_force_weight,
         settings.regularisation_target,
     )
 
@@ -210,6 +212,7 @@ def train_adam(
         )
 
     # run the ML training
+
     with open(output_paths[OutputType.TRAINING_METRICS], "w") as metrics_file:
         with open_writer(Path(output_paths[OutputType.TENSORBOARD])) as writer:
             optimizer = torch.optim.Adam(
@@ -233,7 +236,9 @@ def train_adam(
                     range(settings.n_epochs),
                     description="Optimising MM parameters",
                 ):
-                    losses_train = prediction_loss(
+                    # Memory optimisation: Use manual gradient computation which
+                    # computes gradients per-molecule and detaches immediately
+                    losses_train, gradient = compute_overall_loss_and_grad(
                         datasets,
                         trainable,
                         trainable_parameters,
@@ -242,7 +247,6 @@ def train_adam(
                         settings.regularisation_target,
                         str(device),
                     )
-                    tot_loss_train = sum(losses_train)
 
                     logger.debug(
                         f"Epoch {i}: Training Weighted Loss: "
@@ -251,7 +255,7 @@ def train_adam(
                         f"Reg={losses_train.regularisation.item():.4f}"
                     )
                     if i % 10 == 0:
-                        losses_test = prediction_loss(
+                        losses_test, _ = compute_overall_loss_and_grad(
                             datasets_test,
                             trainable,
                             trainable_parameters,
@@ -259,6 +263,7 @@ def train_adam(
                             topologies,
                             settings.regularisation_target,
                             str(device),
+                            compute_grad=False,
                         )
 
                         write_metrics(
@@ -269,7 +274,7 @@ def train_adam(
                             metrics_file,
                         )
 
-                    tot_loss_train.backward(retain_graph=False)  # type: ignore[union-attr]
+                    trainable_parameters.grad = gradient
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
                     trainable.clamp(trainable_parameters)
@@ -284,7 +289,7 @@ def train_adam(
             torch.cuda.empty_cache()
 
         # some book-keeping and outputting
-        losses_train = prediction_loss(
+        losses_train, _ = compute_overall_loss_and_grad(
             datasets,
             trainable,
             trainable_parameters,
@@ -292,8 +297,9 @@ def train_adam(
             topologies,
             settings.regularisation_target,
             str(device),
+            compute_grad=False,
         )
-        losses_test = prediction_loss(
+        losses_test, _ = compute_overall_loss_and_grad(
             datasets_test,
             trainable,
             trainable_parameters,
@@ -301,6 +307,7 @@ def train_adam(
             topologies,
             settings.regularisation_target,
             str(device),
+            compute_grad=False,
         )
 
         write_metrics(

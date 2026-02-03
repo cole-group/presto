@@ -91,9 +91,9 @@ def get_bespoke_force_field(
     trainable_parameters = trainable.to_values().to((settings.device))
 
     # Required for LM optimiser only
-    for tensor_top in tensor_tops:
-        for param in tensor_top.parameters.values():
-            param.assignment_matrix = param.assignment_matrix.to_dense()
+    # for tensor_top in tensor_tops:
+    #     for param in tensor_top.parameters.values():
+    #         param.assignment_matrix = param.assignment_matrix.to_dense()
 
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()
