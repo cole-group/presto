@@ -5,6 +5,7 @@
 ### Improvements
 
 - Improve cleanliness/prettiness of CLI output
+- Reduce memory use during congeneric series fitting in [#17](https://github.com/cole-group/presto/pull/17)
 
 ## 0.3.0
 
