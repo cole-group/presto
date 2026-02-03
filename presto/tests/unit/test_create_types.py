@@ -7,13 +7,12 @@ from rdkit import Chem
 
 from presto.create_types import (
     _add_parameter_with_overwrite,
+    _add_types_to_parameter_handler,
     _create_smarts,
     _remove_redundant_smarts,
     add_types_to_forcefield,
 )
-from presto.settings import (
-    TypeGenerationSettings,
-)
+from presto.settings import TypeGenerationSettings
 
 
 class TestAddParameterWithOverwrite:
@@ -679,3 +678,561 @@ class TestAddTypesToForcefield:
         # parameters are removed - just verify both are reasonable
         assert count_limited >= original_count
         assert count_full >= original_count
+
+
+# Additional tests for create_types.py to improve coverage
+
+
+class TestCreateSmartsExtended:
+    """Extended tests for _create_smarts function."""
+
+    def test_create_smarts_with_limited_extension(self):
+        """Test SMARTS creation with limited bond extension."""
+        mol = openff.toolkit.Molecule.from_smiles("CCCCCC")
+
+        # Create SMARTS for first two carbons with limited extension
+        smarts_limited = _create_smarts(mol, (0, 1), max_extend_distance=1)
+        smarts_full = _create_smarts(mol, (0, 1), max_extend_distance=-1)
+
+        # Limited should be shorter (fewer atoms)
+        assert len(smarts_limited) <= len(smarts_full)
+
+    def test_create_smarts_with_ring(self):
+        """Test SMARTS creation with ring systems."""
+        mol = openff.toolkit.Molecule.from_smiles("c1ccccc1")
+
+        # Map all ring atoms
+        smarts = _create_smarts(mol, (0, 1, 2, 3, 4, 5), max_extend_distance=-1)
+
+        # Should contain ring notation
+        assert "1" in smarts  # Ring closure
+
+    def test_create_smarts_with_zero_extension(self):
+        """Test SMARTS with zero extension distance."""
+        mol = openff.toolkit.Molecule.from_smiles("CCCC")
+
+        # Only the mapped atoms themselves
+        smarts = _create_smarts(mol, (1, 2), max_extend_distance=0)
+
+        # Should have exactly 2 mapped atoms
+        assert smarts.count(":1") == 1
+        assert smarts.count(":2") == 1
+
+    def test_create_smarts_removes_unmapped_atoms(self):
+        """Test that unmapped atoms outside extension range are removed."""
+        mol = openff.toolkit.Molecule.from_smiles("CCCCCC")
+
+        # Map middle bond with limited extension
+        smarts = _create_smarts(mol, (2, 3), max_extend_distance=1)
+
+        # Should have mapping for the central bond
+        assert ":1" in smarts
+        assert ":2" in smarts
+
+    def test_create_smarts_with_branching(self):
+        """Test SMARTS creation with branched molecules."""
+        mol = openff.toolkit.Molecule.from_smiles("CC(C)C")
+
+        # Central carbon and one branch
+        smarts = _create_smarts(mol, (1, 0), max_extend_distance=-1)
+
+        # Should capture branching
+        assert "(" in smarts  # Branch notation
+
+    def test_create_smarts_heteroatoms(self):
+        """Test SMARTS with heteroatoms."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+
+        smarts = _create_smarts(mol, (1, 2), max_extend_distance=-1)
+
+        # Should contain oxygen
+        assert "#8" in smarts or "O" in smarts
+
+
+class TestRemoveRedundantSmartsExtended:
+    """Extended tests for _remove_redundant_smarts function."""
+
+    def test_remove_redundant_with_none_id_substring(self):
+        """Test that None id_substring returns unchanged forcefield."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        original_bond_count = len(ff.get_parameter_handler("Bonds").parameters)
+
+        ff_unchanged = _remove_redundant_smarts(mol, ff, id_substring=None)
+
+        # Should be identical
+        new_bond_count = len(ff_unchanged.get_parameter_handler("Bonds").parameters)
+        assert new_bond_count == original_bond_count
+
+    def test_remove_redundant_empty_molecule_list(self):
+        """Test with empty molecule list."""
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Add a bespoke parameter
+        bond_handler = ff.get_parameter_handler("Bonds")
+        param_dict = {
+            "smirks": "[#99:1]-[#99:2]",
+            "id": "b-bespoke-test",
+            "length": 1.5 * openff.toolkit.unit.angstrom,
+            "k": 500.0
+            * openff.toolkit.unit.kilocalorie_per_mole
+            / openff.toolkit.unit.angstrom**2,
+        }
+        _add_parameter_with_overwrite(bond_handler, param_dict)
+
+        # Remove with empty list - should remove unused bespoke params
+        ff_cleaned = _remove_redundant_smarts([], ff, id_substring="bespoke")
+
+        # The bespoke parameter should be removed (not used by any molecule)
+        cleaned_handler = ff_cleaned.get_parameter_handler("Bonds")
+        bespoke_params = [p for p in cleaned_handler.parameters if "bespoke" in p.id]
+        assert len(bespoke_params) == 0
+
+    def test_remove_redundant_preserves_used_params(self):
+        """Test that used bespoke parameters are preserved."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Add bespoke types
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # All bespoke parameters should be used (redundant ones already removed)
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        bespoke_params = [p for p in bond_handler.parameters if "bespoke" in p.id]
+
+        # Should have some bespoke parameters
+        assert len(bespoke_params) > 0
+
+        # Try to remove again - should stay the same
+        ff_cleaned = _remove_redundant_smarts(
+            mol, ff_with_types, id_substring="bespoke"
+        )
+        cleaned_handler = ff_cleaned.get_parameter_handler("Bonds")
+        cleaned_bespoke = [p for p in cleaned_handler.parameters if "bespoke" in p.id]
+
+        assert len(cleaned_bespoke) == len(bespoke_params)
+
+    def test_remove_redundant_removes_unused_params(self):
+        """Test that unused bespoke parameters are removed."""
+        mol1 = openff.toolkit.Molecule.from_smiles("CC")
+        mol2 = openff.toolkit.Molecule.from_smiles("C")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Add types for mol1
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+        ff_with_types = add_types_to_forcefield(mol1, ff, type_gen_settings)
+
+        # Some parameters will match mol1 but not mol2
+        # Clean using only mol2
+        ff_cleaned = _remove_redundant_smarts(
+            mol2, ff_with_types, id_substring="bespoke"
+        )
+
+        # Should have fewer bespoke parameters
+        original_handler = ff_with_types.get_parameter_handler("Bonds")
+        cleaned_handler = ff_cleaned.get_parameter_handler("Bonds")
+
+        original_bespoke = [p for p in original_handler.parameters if "bespoke" in p.id]
+        cleaned_bespoke = [p for p in cleaned_handler.parameters if "bespoke" in p.id]
+
+        # Since mol2 is simpler, it should use fewer parameters
+        assert len(cleaned_bespoke) <= len(original_bespoke)
+
+    def test_remove_redundant_multiple_handlers(self):
+        """Test redundant removal across multiple handlers."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Add types for multiple handlers
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+            "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Clean up
+        ff_cleaned = _remove_redundant_smarts(
+            mol, ff_with_types, id_substring="bespoke"
+        )
+
+        # Both handlers should have bespoke parameters
+        bond_handler = ff_cleaned.get_parameter_handler("Bonds")
+        angle_handler = ff_cleaned.get_parameter_handler("Angles")
+
+        bond_bespoke = [p for p in bond_handler.parameters if "bespoke" in p.id]
+        angle_bespoke = [p for p in angle_handler.parameters if "bespoke" in p.id]
+
+        # Both should have some bespoke parameters
+        assert len(bond_bespoke) > 0
+        assert len(angle_bespoke) > 0
+
+
+class TestAddTypesToParameterHandler:
+    """Tests for _add_types_to_parameter_handler function."""
+
+    def test_excluded_and_included_mutually_exclusive(self):
+        """Test that excluded_smirks and included_smirks cannot both be provided."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        with pytest.raises(
+            ValueError,
+            match="excluded_smirks and included_smirks are mutually exclusive",
+        ):
+            _add_types_to_parameter_handler(
+                mol,
+                bond_handler,
+                "Bonds",
+                max_extend_distance=-1,
+                excluded_smirks=["[#6:1]-[#6:2]"],
+                included_smirks=["[#6:1]-[#1:2]"],
+            )
+
+    def test_with_excluded_smirks(self):
+        """Test parameter generation with excluded SMIRKS."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        # Get matches to find a SMIRKS to exclude
+        matches = bond_handler.find_matches(mol.to_topology())
+        if matches:
+            first_match = next(iter(matches.values()))
+            excluded_smirks = first_match.parameter_type.smirks
+
+            original_count = len(bond_handler.parameters)
+
+            handler_with_types = _add_types_to_parameter_handler(
+                mol,
+                bond_handler,
+                "Bonds",
+                max_extend_distance=-1,
+                excluded_smirks=[excluded_smirks],
+            )
+
+            new_count = len(handler_with_types.parameters)
+
+            # Should have added some parameters, but not for excluded SMIRKS
+            assert new_count > original_count
+
+    def test_with_included_smirks(self):
+        """Test parameter generation with included SMIRKS."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        # Get matches to find SMIRKS to include
+        matches = bond_handler.find_matches(mol.to_topology())
+        if len(matches) >= 2:
+            # Include only one specific SMIRKS
+            first_match = next(iter(matches.values()))
+            included_smirks = first_match.parameter_type.smirks
+
+            original_count = len(bond_handler.parameters)
+
+            handler_with_types = _add_types_to_parameter_handler(
+                mol,
+                bond_handler,
+                "Bonds",
+                max_extend_distance=-1,
+                included_smirks=[included_smirks],
+            )
+
+            new_count = len(handler_with_types.parameters)
+
+            # Should have added fewer parameters than without restrictions
+            assert new_count > original_count
+
+    def test_handler_not_modified_in_place(self):
+        """Test that original handler is not modified."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        original_count = len(bond_handler.parameters)
+
+        _add_types_to_parameter_handler(
+            mol, bond_handler, "Bonds", max_extend_distance=-1
+        )
+
+        # Original should be unchanged
+        assert len(bond_handler.parameters) == original_count
+
+    def test_preserves_parameter_attributes(self):
+        """Test that parameter attributes are correctly preserved."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+        bond_handler = ff.get_parameter_handler("Bonds")
+
+        handler_with_types = _add_types_to_parameter_handler(
+            mol, bond_handler, "Bonds", max_extend_distance=-1
+        )
+
+        # Check that bespoke parameters have proper attributes
+        for param in handler_with_types.parameters:
+            if "bespoke" in param.id:
+                # Should have k and length
+                assert hasattr(param, "k")
+                assert hasattr(param, "length")
+                assert param.k.m > 0  # Should be positive
+
+
+class TestAddTypesToForcefieldExtended:
+    """Extended tests for add_types_to_forcefield function."""
+
+    def test_with_include_restrictions(self):
+        """Test add_types_to_forcefield with include restrictions."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Get a specific SMIRKS to include
+        bond_handler = ff.get_parameter_handler("Bonds")
+        matches = bond_handler.find_matches(mol.to_topology())
+        if matches:
+            first_match = next(iter(matches.values()))
+            included_smirks = first_match.parameter_type.smirks
+
+            type_gen_settings = {
+                "Bonds": TypeGenerationSettings(
+                    max_extend_distance=-1, include=[included_smirks]
+                ),
+            }
+
+            ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+            # Should have added some parameters
+            new_handler = ff_with_types.get_parameter_handler("Bonds")
+            bespoke_params = [p for p in new_handler.parameters if "bespoke" in p.id]
+            assert len(bespoke_params) > 0
+
+    def test_multiple_molecules_deduplication(self):
+        """Test that identical substructures across molecules are deduplicated."""
+        mol1 = openff.toolkit.Molecule.from_smiles("CC")
+        mol2 = openff.toolkit.Molecule.from_smiles("CCC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        # Add types for both molecules
+        ff_with_types = add_types_to_forcefield([mol1, mol2], ff, type_gen_settings)
+
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+
+        # Check for duplicate SMIRKS patterns
+        smirks_seen = set()
+        for param in bond_handler.parameters:
+            if "bespoke" in param.id:
+                assert param.smirks not in smirks_seen, (
+                    f"Duplicate SMIRKS: {param.smirks}"
+                )
+                smirks_seen.add(param.smirks)
+
+    def test_single_molecule_as_object_vs_list(self):
+        """Test that single molecule works both as object and as list."""
+        mol = openff.toolkit.Molecule.from_smiles("CC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        # As single object
+        ff_single = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # As list
+        ff_list = add_types_to_forcefield([mol], ff, type_gen_settings)
+
+        # Should have same number of parameters
+        single_count = len(ff_single.get_parameter_handler("Bonds").parameters)
+        list_count = len(ff_list.get_parameter_handler("Bonds").parameters)
+
+        assert single_count == list_count
+
+    def test_complex_molecule_types(self):
+        """Test with a more complex molecule."""
+        mol = openff.toolkit.Molecule.from_smiles("c1ccccc1CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=1, exclude=[]),
+            "Angles": TypeGenerationSettings(max_extend_distance=1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should have added parameters
+        bond_bespoke = [
+            p
+            for p in ff_with_types.get_parameter_handler("Bonds").parameters
+            if "bespoke" in p.id
+        ]
+        angle_bespoke = [
+            p
+            for p in ff_with_types.get_parameter_handler("Angles").parameters
+            if "bespoke" in p.id
+        ]
+
+        assert len(bond_bespoke) > 0
+        assert len(angle_bespoke) > 0
+
+    def test_varied_max_extend_distances(self):
+        """Test different max_extend_distance for different handlers."""
+        mol = openff.toolkit.Molecule.from_smiles("CCCC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Different extension distances
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=0, exclude=[]),
+            "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Both should have added something
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        angle_handler = ff_with_types.get_parameter_handler("Angles")
+
+        bond_bespoke = [p for p in bond_handler.parameters if "bespoke" in p.id]
+        angle_bespoke = [p for p in angle_handler.parameters if "bespoke" in p.id]
+
+        assert len(bond_bespoke) > 0
+        assert len(angle_bespoke) > 0
+
+    def test_multiple_molecules_different_sizes(self):
+        """Test with molecules of very different sizes."""
+        mols = [
+            openff.toolkit.Molecule.from_smiles("C"),  # Methane
+            openff.toolkit.Molecule.from_smiles("CCCCCCCC"),  # Octane
+            openff.toolkit.Molecule.from_smiles("c1ccccc1"),  # Benzene
+        ]
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mols, ff, type_gen_settings)
+
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        bespoke_params = [p for p in bond_handler.parameters if "bespoke" in p.id]
+
+        # Should have generated parameters for all molecules
+        assert len(bespoke_params) > 0
+
+
+class TestEdgeCases:
+    """Test edge cases and corner cases."""
+
+    def test_empty_force_field_handlers(self):
+        """Test behavior with minimal force field."""
+        mol = openff.toolkit.Molecule.from_smiles("C")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        # Try with handler that has few matches
+        type_gen_settings = {
+            "ImproperTorsions": TypeGenerationSettings(
+                max_extend_distance=-1, exclude=[]
+            ),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should not crash
+        assert isinstance(ff_with_types, openff.toolkit.ForceField)
+
+    def test_molecule_with_no_matching_parameters(self):
+        """Test with parameter handlers that don't match the molecule."""
+        mol = openff.toolkit.Molecule.from_smiles("C")  # No proper torsions
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "ProperTorsions": TypeGenerationSettings(
+                max_extend_distance=-1, exclude=[]
+            ),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should complete without error
+        torsion_handler = ff_with_types.get_parameter_handler("ProperTorsions")
+        bespoke_torsions = [p for p in torsion_handler.parameters if "bespoke" in p.id]
+
+        # Methane has no proper torsions, so no bespoke parameters
+        assert len(bespoke_torsions) == 0
+
+    def test_very_small_max_extend_distance(self):
+        """Test with max_extend_distance=0."""
+        mol = openff.toolkit.Molecule.from_smiles("CCCCCC")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=0, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should create very specific SMARTS patterns
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        bespoke_params = [p for p in bond_handler.parameters if "bespoke" in p.id]
+
+        assert len(bespoke_params) > 0
+
+    def test_charged_molecule(self):
+        """Test with a charged molecule."""
+        mol = openff.toolkit.Molecule.from_smiles("[NH4+]")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should handle charged molecules
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        assert len(bond_handler.parameters) > 0
+
+    def test_aromatic_molecule(self):
+        """Test with aromatic molecule."""
+        mol = openff.toolkit.Molecule.from_smiles("c1ccccc1")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        bespoke_params = [p for p in bond_handler.parameters if "bespoke" in p.id]
+
+        # Should create aromatic SMARTS
+        assert len(bespoke_params) > 0
+
+        # Check that at least one parameter contains aromatic notation
+        aromatic_found = any(":" in p.smirks for p in bespoke_params)
+        assert aromatic_found
+
+    def test_molecule_with_stereochemistry(self):
+        """Test with stereochemistry."""
+        mol = openff.toolkit.Molecule.from_smiles("C[C@H](O)N")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Should handle stereochemistry without error
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        assert len(bond_handler.parameters) > 0

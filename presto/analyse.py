@@ -1,4 +1,4 @@
-"""Functionality for analysing the results of a BespokeFitSMEE run."""
+"""Functionality for analysing the results of a presto run."""
 
 import io
 from pathlib import Path
@@ -551,7 +551,7 @@ def plot_all_ffs(
 
 
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
-    """Analyse the results of a BespokeFitSMEE workflow."""
+    """Analyse the results of a presto workflow."""
 
     mols = workflow_settings.parameterisation_settings.molecules
 

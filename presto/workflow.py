@@ -161,6 +161,9 @@ def get_bespoke_force_field(
         MofNCompleteColumn(),
         TimeRemainingColumn(),
     )
+
+    datasets_train = None  # Only None for the first iteration
+
     with progress:
         for iteration in progress.track(
             range(1, settings.n_iterations + 1),  # Start from 1 (0 is untrained)
@@ -168,7 +171,6 @@ def get_bespoke_force_field(
         ):
             stage = OutputStage(StageKind.TRAINING, iteration)
             path_manager.mk_stage_dir(stage)
-            datasets_train = None  # Only None for the first iteration
 
             datasets_train_new = train_sample_fn(
                 mols=off_mols,

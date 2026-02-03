@@ -3,7 +3,7 @@
 import collections
 import copy
 import math
-from typing import Callable, cast
+from typing import Callable
 
 import loguru
 import openff.interchange
@@ -13,7 +13,6 @@ import smee.converters
 import torch
 from openff.units import Quantity
 from openff.units import unit as off_unit
-from rdkit import Chem
 
 from .create_types import (
     _add_parameter_with_overwrite,
@@ -174,109 +173,6 @@ def convert_to_smirnoff(
                         * reconstructed_units[col_idx]
                         for mult, parameter in parameters_by_mult.items()
                         for col_idx, col in enumerate(reconstructed_cols)
-                    }
-                )
-                _add_parameter_with_overwrite(handler, parameter_dict)
-        elif potential.type == "LinearProperTorsions":
-            assert potential.attribute_cols is None
-            parameters_by_smarts = collections.defaultdict(dict)
-            new_params = []
-            for param in potential.parameters:
-                k1 = param[0].item()
-                k2 = param[1].item()
-                periodicity = param[2].item()
-                # Params 3 and 4 are phase1 and phase2
-                idivf = param[5].item()
-                k = k1 + k2
-                if k == 0.0:
-                    phase = 0.0
-                else:
-                    phase = math.acos((k1 - k2) / k)
-                dt = param.dtype
-                new_params.append([k, periodicity, phase, idivf])
-            reconstructed_param = torch.tensor(new_params, dtype=dt)
-            reconstructed_torsion_units = (
-                _KCAL_PER_MOL,
-                _UNITLESS,
-                _RADIANS,
-                _UNITLESS,
-            )
-            reconstructed_torsion_cols = ("k", "periodicity", "phase", "idivf")
-            for parameter, parameter_key in zip(
-                reconstructed_param, potential.parameter_keys, strict=True
-            ):
-                assert parameter_key.mult not in parameters_by_smarts[parameter_key.id]
-                parameters_by_smarts[parameter_key.id][parameter_key.mult] = parameter
-            handler = ff_smirnoff.get_parameter_handler("ProperTorsions")
-            for smarts, parameters_by_mult in parameters_by_smarts.items():
-                mults = {*parameters_by_mult}
-                if None in mults and len(mults) > 1:
-                    raise NotImplementedError("unexpected parameters found")
-                if None not in mults and mults != {*range(len(mults))}:
-                    raise NotImplementedError("unexpected parameters found")
-                counter = len(handler.parameters) + 1
-                parameter_id = f"{potential.type[0].lower()}-bespoke-{counter}"
-                parameter_dict = {"smirks": smarts, "id": parameter_id}
-                parameter_dict.update(
-                    {
-                        (col if mult is None else f"{col}{mult + 1}"): float(
-                            parameter[col_idx]
-                        )
-                        * reconstructed_torsion_units[col_idx]
-                        for mult, parameter in parameters_by_mult.items()
-                        for col_idx, col in enumerate(reconstructed_torsion_cols)
-                    }
-                )
-                _add_parameter_with_overwrite(handler, parameter_dict)
-        elif potential.type == "LinearImproperTorsions":
-            assert potential.attribute_cols is None
-            parameters_by_smarts = collections.defaultdict(dict)
-            new_params = []
-            for param in potential.parameters:
-                k1 = param[0].item()
-                k2 = param[1].item()
-                periodicity = param[2].item()
-                # Params 3 and 4 are phase1 and phase2
-                idivf = param[5].item()
-                k = k1 + k2
-                if k == 0.0:
-                    phase = 0.0
-                else:
-                    phase = math.acos((k1 - k2) / k)
-                #                    phase = math.acos((k1 * math.cos(phase1) + k2 * math.cos(phase2))/k)
-                dt = param.dtype
-                new_params.append([k, periodicity, phase, idivf])
-            reconstructed_param = torch.tensor(new_params, dtype=dt)
-            reconstructed_torsion_units = (
-                _KCAL_PER_MOL,
-                _UNITLESS,
-                _RADIANS,
-                _UNITLESS,
-            )
-            reconstructed_torsion_cols = ("k", "periodicity", "phase", "idivf")
-            for parameter, parameter_key in zip(
-                reconstructed_param, potential.parameter_keys, strict=True
-            ):
-                assert parameter_key.mult not in parameters_by_smarts[parameter_key.id]
-                parameters_by_smarts[parameter_key.id][parameter_key.mult] = parameter
-            handler = ff_smirnoff.get_parameter_handler("ImproperTorsions")
-            for smarts, parameters_by_mult in parameters_by_smarts.items():
-                mults = {*parameters_by_mult}
-                if None in mults and len(mults) > 1:
-                    raise NotImplementedError("unexpected parameters found")
-                if None not in mults and mults != {*range(len(mults))}:
-                    raise NotImplementedError("unexpected parameters found")
-                counter = len(handler.parameters) + 1
-                parameter_id = f"{potential.type[0].lower()}-bespoke-{counter}"
-                parameter_dict = {"smirks": smarts, "id": parameter_id}
-                parameter_dict.update(
-                    {
-                        (col if mult is None else f"{col}{mult + 1}"): float(
-                            parameter[col_idx]
-                        )
-                        * reconstructed_torsion_units[col_idx]
-                        for mult, parameter in parameters_by_mult.items()
-                        for col_idx, col in enumerate(reconstructed_torsion_cols)
                     }
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
@@ -496,117 +392,6 @@ def parameterise(
     )
 
 
-def parameterise_old(
-    settings: ParameterisationSettings,
-    device: TorchDevice = "cuda",
-) -> tuple[
-    openff.toolkit.Molecule,
-    openff.toolkit.ForceField,
-    smee.TensorTopology,
-    smee.TensorForceField,
-]:
-    """Old implementation of parameterise using _prepare_potential.
-
-    This is kept for comparison/testing purposes.
-
-    Parameters
-    ----------
-    settings: ParameterisationSettings
-        The settings for the parameterisation.
-
-    device: TorchDevice, default "cuda"
-        The device to use for the force field and topology.
-
-    Returns
-    -------
-    mol: openff.toolkit.Molecule
-        The molecule that has been parameterised.
-    off_ff: openff.toolkit.ForceField
-        The original force field, used as a base for the bespoke force field.
-    tensor_top: smee.TensorTopology
-        The topology of the molecule.
-    tensor_ff: smee.TensorForceField
-        The force field with unique parameters for each topologically
-        symmetric term.
-    """
-    mol = openff.toolkit.Molecule.from_smiles(
-        settings.smiles,
-        allow_undefined_stereo=True,
-        hydrogens_are_explicit=False,
-    )
-    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
-
-    if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
-        logger.warning(
-            "The force field contains a constraint for [#1:1]-[*:2] which "
-            "is not supported. Removing this constraint."
-        )
-        del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
-
-    if settings.expand_torsions:
-        torsion_generation_settings = settings.type_generation_settings.get(
-            "ProperTorsions"
-        )
-        excluded_smirks = (
-            torsion_generation_settings.exclude
-            if torsion_generation_settings is not None
-            else None
-        )
-        off_ff = _expand_torsions(off_ff, excluded_smirks=excluded_smirks)
-
-    force_field, [topology] = smee.converters.convert_interchange(
-        openff.interchange.Interchange.from_smirnoff(off_ff, mol.to_topology())
-    )
-
-    # Move the force field and topology to the requested device
-    force_field = force_field.to(device)
-    topology = topology.to(device)
-
-    symmetries = list(Chem.CanonicalRankAtoms(mol.to_rdkit(), breakTies=False))
-    if topology.n_v_sites != 0:
-        raise NotImplementedError("virtual sites are not supported yet.")
-
-    for (
-        potential_type,
-        type_generation_settings,
-    ) in settings.type_generation_settings.items():
-        potential = force_field.potentials_by_type.get(potential_type)
-
-        if potential is None:
-            logger.warning(
-                f"No potential of type {potential_type} found in the "
-                f"force field. Skipping bespoke parameterisation for this "
-                f"type."
-            )
-            continue
-
-        parameter_map = topology.parameters[potential_type]
-
-        # Can only be a ValenceParameterMap here because we validate
-        # that we only have valence terms in the settings
-        parameter_map = cast(smee.ValenceParameterMap, parameter_map)
-
-        _prepare_potential(
-            mol,
-            symmetries,
-            potential,
-            parameter_map,
-            type_generation_settings.max_extend_distance,
-            type_generation_settings.exclude,
-        )
-
-    if settings.linearise_harmonics:
-        force_field = linearise_harmonics_force_field(force_field, device)
-        topology = linearise_harmonics_topology(topology, device)
-
-    return (
-        mol,
-        off_ff,
-        topology,
-        force_field,
-    )
-
-
 def _expand_torsions(
     ff: openff.toolkit.ForceField, excluded_smirks: list[str] | None = None
 ) -> openff.toolkit.ForceField:
@@ -791,12 +576,14 @@ def linearise_harmonics_topology(
     parameter maps instead of Bonds and Angles.
     """
     topology_copy = topology.to(device_type)
-    topology_copy.parameters["LinearBonds"] = copy.deepcopy(
-        topology_copy.parameters["Bonds"]
-    )
-    topology_copy.parameters["LinearAngles"] = copy.deepcopy(
-        topology.parameters["Angles"]
-    )
-    del topology_copy.parameters["Bonds"]
-    del topology_copy.parameters["Angles"]
+    if "Bonds" in topology_copy.parameters:
+        topology_copy.parameters["LinearBonds"] = copy.deepcopy(
+            topology_copy.parameters["Bonds"]
+        )
+        del topology_copy.parameters["Bonds"]
+    if "Angles" in topology_copy.parameters:
+        topology_copy.parameters["LinearAngles"] = copy.deepcopy(
+            topology_copy.parameters["Angles"]
+        )
+        del topology_copy.parameters["Angles"]
     return topology_copy

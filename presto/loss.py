@@ -87,7 +87,7 @@ def _compute_molecule_energy_force_loss(
     return energy_loss, force_loss
 
 
-def _compute_total_loss(
+def _compute_total_energy_force_loss(
     force_field: smee.TensorForceField,
     datasets_list: list[datasets.Dataset],
     topologies: list[smee.TensorTopology],
@@ -173,7 +173,7 @@ def prediction_loss(
     """
     force_field = trainable.to_force_field(trainable_parameters)
 
-    avg_energy_loss, avg_force_loss = _compute_total_loss(
+    avg_energy_loss, avg_force_loss = _compute_total_energy_force_loss(
         force_field,
         datasets_list,
         topologies,
@@ -277,11 +277,12 @@ def get_loss_closure_fn(
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         gradient, hessian = None, None
 
+        @torch.enable_grad()  # type: ignore[no-untyped-call]
         def loss_fn(_x: torch.Tensor) -> torch.Tensor:
             """Compute the total loss for the given trainable parameters."""
             ff = trainable.to_force_field(_x)
 
-            avg_energy_loss, avg_force_loss = _compute_total_loss(
+            avg_energy_loss, avg_force_loss = _compute_total_energy_force_loss(
                 ff,
                 datasets_list,
                 topologies,

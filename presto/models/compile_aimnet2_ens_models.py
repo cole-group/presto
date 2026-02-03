@@ -1,4 +1,4 @@
-"""Script to compile AIMNet2 ensemble models for use in BespokeFit."""
+"""Script to compile AIMNet2 ensemble models for use in presto."""
 
 import torch
 from torch import nn, Tensor
