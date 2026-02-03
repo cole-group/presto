@@ -699,3 +699,99 @@ class TestTrainingRegistry:
 
         for fn_name, fn in _TRAINING_FNS_REGISTRY.items():
             assert callable(fn), f"Function {fn_name} is not callable"
+
+
+class TestExcludedTorsionsNotTrained:
+    """Tests to verify that excluded torsions from TrainingSettings are not trained."""
+
+    @pytest.fixture
+    def butanenitrile_setup(self):
+        """Create force field setup for butanenitrile (CCC#N) which contains linear torsions."""
+        # CCC#N contains linear torsions around the C#N triple bond
+        mol = Molecule.from_smiles("CCC#N")
+        mol.generate_conformers(n_conformers=1)
+
+        # Create force field and interchange
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ff, mol.to_topology()
+        )
+
+        # Convert to tensor representation
+        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+
+        return {
+            "mol": mol,
+            "ff": ff,
+            "tensor_ff": tensor_ff,
+            "tensor_top": tensor_top,
+        }
+
+    def test_excluded_torsions_parameters_unchanged_after_training(
+        self, butanenitrile_setup
+    ):
+        """Test that excluded torsion parameters remain unchanged during parameter updates.
+
+        This test simulates a training step and verifies that parameters matching
+        excluded patterns (linear torsions) do not change even when we modify the
+        trainable parameters.
+        """
+        tensor_ff = butanenitrile_setup["tensor_ff"]
+        settings = TrainingSettings()
+
+        # Create trainable with default settings
+        pruned_parameter_configs = {
+            p_type: p_config
+            for p_type, p_config in settings.parameter_configs.items()
+            if p_type in tensor_ff.potentials_by_type
+        }
+
+        trainable = Trainable(
+            tensor_ff,
+            pruned_parameter_configs,
+            settings.attribute_configs,
+        )
+
+        # Get initial parameters
+        initial_params = trainable.to_values()
+
+        # Get initial force field
+        ff_initial = trainable.to_force_field(initial_params)
+        initial_proper_torsions = ff_initial.potentials_by_type.get("ProperTorsions")
+
+        assert initial_proper_torsions is not None, "No ProperTorsions in force field"
+
+        # Store initial k values and parameter keys
+        initial_k = initial_proper_torsions.parameters[
+            :, 0
+        ].clone()  # k is first column
+        parameter_keys = initial_proper_torsions.parameter_keys
+
+        # Simulate parameter update (modify the trainable parameters)
+        modified_params = (
+            initial_params + 0.1
+        )  # Add small offset to all trainable parameters
+
+        # Get modified force field
+        ff_modified = trainable.to_force_field(modified_params)
+        modified_proper_torsions = ff_modified.potentials_by_type.get("ProperTorsions")
+
+        # Get modified k values
+        modified_k = modified_proper_torsions.parameters[:, 0]  # k is first column
+
+        # Get excluded pattern IDs
+        excluded_patterns = [
+            item.id for item in settings.parameter_configs["ProperTorsions"].exclude
+        ]
+
+        # For each parameter, check if it's excluded
+        for idx, key in enumerate(parameter_keys):
+            if key.id in excluded_patterns:
+                # This is an excluded torsion - its parameters should not change
+                assert torch.allclose(initial_k[idx], modified_k[idx], atol=1e-10), (
+                    f"Excluded torsion {key.id} changed from k={initial_k[idx]} to k={modified_k[idx]}"
+                )
+            else:  # Check that it has changed
+                assert not torch.allclose(
+                    initial_k[idx], modified_k[idx], atol=1e-10
+                ), f"Non-excluded torsion {key.id} did not change as expected."
