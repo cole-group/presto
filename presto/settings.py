@@ -455,18 +455,18 @@ class TrainingSettings(_DefaultSettings):
                 exclude=[
                     {
                         "id": "[*:1]-[*:2]#[*:3]-[*:4]",
-                        "multiplicity": 1,
-                        "parameter_handler": "ProperTorsions",
+                        "mult": 0,
+                        "associated_handler": "ProperTorsions",
                     },
                     {
                         "id": "[*:1]~[*:2]-[*:3]#[*:4]",
-                        "multiplicity": 1,
-                        "parameter_handler": "ProperTorsions",
+                        "mult": 0,
+                        "associated_handler": "ProperTorsions",
                     },
                     {
                         "id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",
-                        "multiplicity": 1,
-                        "parameter_handler": "ProperTorsions",
+                        "mult": 0,
+                        "associated_handler": "propertorsions",
                     },
                 ],
             ),
