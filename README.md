@@ -1,11 +1,13 @@
-<h2 align="center">Bespokefit_smee</h2>
+<h2 align="center">presto</h2>
+
+<p align="center"> Parameter Refinement Engine for Smirnoff Training / Optimisation</p>
 
 <p align="center">
-  <a href="https://github.com/fjclark/bespokefit_smee/actions/workflows/ci.yaml">
-    <img src="https://github.com/fjclark/bespokefit_smee/actions/workflows/ci.yaml/badge.svg" alt="CI" />
+  <a href="https://github.com/cole-group/presto/actions/workflows/ci.yaml">
+    <img src="https://github.com/cole-group/presto/actions/workflows/ci.yaml/badge.svg" alt="CI" />
   </a>
-  <a href="https://codecov.io/gh/fjclark/bespokefit_smee" >
-    <img src="https://codecov.io/gh/fjclark/bespokefit_smee/graph/badge.svg?token=IBZ2H0NL58"/>
+  <a href="https://codecov.io/gh/cole-group/presto" >
+    <img src="https://codecov.io/gh/cole-group/presto/graph/badge.svg?token=IBZ2H0NL58"/>
   </a>
   <a href="https://opensource.org/licenses/MIT">
     <img alt="license" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
@@ -20,53 +22,65 @@
 
 ---
 
-Generate a Bespoke Force-Field Parametrization Quickly and Reliably. Developed in the [Cole Group](https://blogs.ncl.ac.uk/danielcole/about-us/) at Newcastle University. Please see the [**documentation**](https://fjclark.github.io/bespokefit_smee/latest/).
+Train bespoke SMIRNOFF force fields quickly using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-group.github.io/presto/latest/).
 
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
 the documentation and testing is incomplete, and the API may change without notice.*
 
-Please note that the MACE models currently used are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. We will incorporate MIT-licensed models soon.
-
-## What is Bespokefit_smee?
-
-Bespokefit_smee is a Force-Field parametrization tool. For a given molecule, it will generate a data set of conformers using machine learning models in [OpenMM-ML](https://github.com/openmm/openmm-ml) simulations. This dataset is used to optimise the force field parameters.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AceFF-2.0 model (as well as Egret-1 and AIMNet-2) does.
 
 ## Installation
 
-Ensuring that you have mamba installed, run:
+Ensuring that you have pixi installed, run:
 ```bash
-git clone https://github.com/fjclark/bespokefit_smee.git
-cd bespokefit_smee
-make install
+git clone https://github.com/cole-group/presto.git
+cd presto
+pixi install
 ```
 
 ## Usage
 
+First, start a shell in the current environment (this must be run from the `presto` base directory)
+```bash
+pixi shell
+```
+For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
+
 Run with command line arguments:
 ```bash
-bespokefit_smee train --parameterisation-settings.smiles "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
+presto train --parameterisation-settings.smiles "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
 
 Sensible defaults have been set, but all available options can be viewed with:
 ```bash
-bespokefit_smee train --help
+presto train --help
 ```
 
 Run from a yaml file:
 ```bash
-bespokefit_smee write-default-yaml default.yaml
+presto write-default-yaml default.yaml
 # Modify the yaml to set the desired smiles
-bespokefit_smee train-from-yaml default.yaml
+presto train-from-yaml default.yaml
 ```
 
-For more details on the theory and implementation, please see the [documentation](https://fjclark.github.io/bespokefit_smee/latest/).
+For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
+
+## MACE-Model Use
+
+To use models with the MACE architecture, run
+```
+pixi shell -e mace-runtime
+```
 
 ## Copyright
 
-Copyright (c) 2025, Thomas James Pope, Newcastle University, UK
+Copyright (c) 2025-2026, Finlay Clark, Newcastle University, UK
 
-Copyright (c) 2025, Finlay Clark, Newcastle University, UK
+Copyright (c) 2025-2026, Thomas James Pope, Newcastle University, UK
+
+
+This package includes models from other projects under the MIT license. See `presto/models/LICENSES.md` for details.
 
 ## Acknowledgements
 
-All early development was completed by Thomas James Pope. Many ideas taken from Simon Boothroyd's super helpful [python-template](https://github.com/SimonBoothroyd/python-template).
+Early development was completed by Thomas James Pope. Many ideas taken from Simon Boothroyd's super helpful [python-template](https://github.com/SimonBoothroyd/python-template).

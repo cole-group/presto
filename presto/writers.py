@@ -1,0 +1,259 @@
+"""
+WRITERS:
+
+Output functions for run-fit
+"""
+
+import contextlib
+import pathlib
+import typing
+from typing import TextIO
+
+import datasets
+import descent.train
+import h5py
+import loguru
+import pandas
+import smee
+import tensorboardX
+import torch
+
+from .loss import LossRecord, compute_overall_loss_and_grad, predict_with_weights
+from .utils.typing import PathLike
+
+logger = loguru.logger
+
+
+@contextlib.contextmanager
+def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
+    path.mkdir(parents=True, exist_ok=True)
+    with tensorboardX.SummaryWriter(str(path)) as writer:
+        yield writer
+
+
+def write_scatter(
+    dataset: datasets.Dataset,
+    force_field: smee.TensorForceField,
+    topology_in: smee.TensorTopology,
+    device_type: str,
+    filename: PathLike,
+) -> tuple[float, float, float, float]:
+    """Predict and save energies/forces to HDF5."""
+    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
+        predict_with_weights(
+            dataset,
+            force_field,
+            {dataset[0]["smiles"]: topology_in},
+            device_type=device_type,
+            normalize=False,
+        )
+    )
+
+    with torch.no_grad():
+        energy_diffs = energy_pred_all - energy_ref_all
+        force_diffs = forces_pred_all - forces_ref_all
+
+        # Save to HDF5
+        with h5py.File(filename, "w") as f:
+            f.create_dataset("energy_reference", data=energy_ref_all.cpu().numpy())
+            f.create_dataset("energy_predicted", data=energy_pred_all.cpu().numpy())
+            f.create_dataset("energy_differences", data=energy_diffs.cpu().numpy())
+
+            f.create_dataset("forces_reference", data=forces_ref_all.cpu().numpy())
+            f.create_dataset("forces_predicted", data=forces_pred_all.cpu().numpy())
+            f.create_dataset("forces_differences", data=force_diffs.cpu().numpy())
+
+            f.attrs["n_conformers"] = len(energy_ref_all)
+            f.attrs["n_atoms"] = forces_ref_all.shape[0] // len(energy_ref_all)
+
+        # Summary statistics
+        energy_mean = torch.mean(energy_diffs).item()
+        energy_std = torch.std(energy_diffs).item()
+        forces_mean = torch.mean(force_diffs).item()
+        forces_std = torch.std(force_diffs).item()
+
+        return energy_mean, energy_std, forces_mean, forces_std
+
+
+def report(
+    step: int,
+    x: torch.Tensor,
+    loss: torch.Tensor,
+    gradient: torch.Tensor,
+    hessian: torch.Tensor,
+    step_quality: float,
+    accept_step: bool,
+    trainable: descent.train.Trainable,
+    topologies: list[smee.TensorTopology],
+    datasets_train: list[datasets.Dataset],
+    datasets_test: list[datasets.Dataset],
+    initial_parameters: torch.Tensor,
+    regularisation_target: typing.Literal["initial", "zero"],
+    metrics_file: PathLike,
+    experiment_dir: pathlib.Path,
+) -> None:
+    """Report training progress for Levenberg-Marquardt optimizer.
+
+    This function computes training and test losses using the same loss
+    computation as train_adam (via compute_overall_loss_and_grad) to ensure
+    consistent metrics reporting.
+
+    Args:
+        step: Current optimization step.
+        x: Current trainable parameters.
+        loss: Loss value from the optimizer (not used, we recompute for consistency).
+        gradient: Gradient tensor (not used in reporting).
+        hessian: Hessian tensor (not used in reporting).
+        step_quality: Quality measure of the step (not used in reporting).
+        accept_step: Whether the step was accepted (not used in reporting).
+        trainable: The trainable object containing the force field.
+        topologies: List of topologies for all molecules.
+        datasets_train: List of training datasets for all molecules.
+        datasets_test: List of test datasets for all molecules.
+        initial_parameters: Initial parameters for regularization.
+        regularisation_target: Regularization target ('initial' or 'zero').
+        metrics_file: Path to the metrics output file.
+        experiment_dir: Path to the TensorBoard experiment directory.
+    """
+    with torch.enable_grad():  # type: ignore[no-untyped-call]
+        # Compute training loss using the same function as train_adam
+        loss_train, _ = compute_overall_loss_and_grad(
+            datasets_train,
+            trainable,
+            x,
+            initial_parameters,
+            topologies,
+            regularisation_target,
+            x.device.type,
+            compute_grad=False,
+        )
+
+        # Compute test loss using the same function as train_adam
+        loss_test, _ = compute_overall_loss_and_grad(
+            datasets_test,
+            trainable,
+            x,
+            initial_parameters,
+            topologies,
+            regularisation_target,
+            x.device.type,
+            compute_grad=False,
+        )
+
+        with open_writer(experiment_dir) as writer:
+            with open(metrics_file, "a") as f:
+                write_metrics(step, loss_train, loss_test, writer, f)
+
+
+def write_metrics(
+    i: int,
+    loss_train: LossRecord,
+    loss_test: LossRecord,
+    writer: tensorboardX.SummaryWriter,
+    outfile: TextIO,
+) -> None:
+    for loss_record in (loss_train, loss_test):
+        for field in loss_record._fields:
+            outfile.write(f"{getattr(loss_record, field).detach().item():.10f} ")
+            writer.add_scalar(
+                f"{'loss_train' if loss_record is loss_train else 'loss_test'}_{field}",
+                getattr(loss_record, field).detach().item(),
+                i,
+            )
+    outfile.write("\n")
+
+
+def get_potential_summary(potential: smee.TensorPotential) -> str:
+    output = [""]
+    parameter_rows = []
+    for key_id, value in enumerate(potential.parameters.detach()):
+        row: dict[str, int | str] = {"ID": key_id}
+        row.update(
+            {
+                f"{col}": (f"{value[idx].item():.4f}")
+                for idx, col in enumerate(potential.parameter_cols)
+            }
+        )
+        parameter_rows.append(row)
+
+    output.append(
+        f" {potential.type} ".center(88, "="),
+    )
+    output.append(f"fn={potential.fn}")
+
+    if potential.attributes is not None:
+        assert potential.attribute_units is not None, (
+            "Attribute units are None even though attributes are not None"
+        )
+        assert potential.attribute_cols is not None, (
+            "Attribute columns are None even though attributes are not None"
+        )
+        attribute_rows = [
+            {
+                f"{col}{potential.attribute_units[idx]}": (
+                    f"{potential.attributes[idx].item():.4f} "
+                )
+                for idx, col in enumerate(potential.attribute_cols)
+            }
+        ]
+        output.append("")
+        output.append("attributes=")
+        output.append("")
+        output.append(pandas.DataFrame(attribute_rows).to_string(index=False))
+
+    output.append("")
+    output.append("parameters=")
+    output.append("")
+    output.append(pandas.DataFrame(parameter_rows).to_string(index=False))
+
+    return "\n".join(output)
+
+
+def get_potential_comparison(
+    pot1: smee.TensorPotential, pot2: smee.TensorPotential
+) -> str:
+    output = [""]
+    parameter_rows = []
+    for key_id, value in enumerate(
+        zip(pot1.parameters.detach(), pot2.parameters.detach(), strict=False)
+    ):
+        row: dict[str, int | str] = {"ID": key_id}
+        row.update(
+            {
+                f"{col}": (f"{value[0][idx].item():.4f} --> {value[1][idx].item():.4f}")
+                for idx, col in enumerate(pot1.parameter_cols)
+            }
+        )
+        parameter_rows.append(row)
+
+    output.append(
+        f" {pot1.type} vs {pot2.type} ".center(88, "="),
+    )
+    output.append(f"fn={pot1.fn}")
+
+    if pot1.attributes is not None:
+        assert pot1.attribute_units is not None, (
+            "Attribute units are None even though attributes are not None"
+        )
+        assert pot1.attribute_cols is not None, (
+            "Attribute columns are None even though attributes are not None"
+        )
+        attribute_rows = [
+            {
+                f"{col}{pot1.attribute_units[idx]}": (
+                    f"{pot1.attributes[idx].item():.4f} "
+                )
+                for idx, col in enumerate(pot1.attribute_cols)
+            }
+        ]
+        output.append("")
+        output.append("attributes=")
+        output.append("")
+        output.append(pandas.DataFrame(attribute_rows).to_string(index=False))
+
+    output.append("")
+    output.append("parameters=")
+    output.append("")
+    output.append(pandas.DataFrame(parameter_rows).to_string(index=False))
+
+    return "\n".join(output)

@@ -1,9 +1,9 @@
-site_name: "bespokefit_smee"
+site_name: "presto"
 site_description: "Generate a Bespoke Force-Field Parametrization Quickly and Reliably"
-site_url: "https://github.com/fjclark/bespokefit_smee"
-repo_url: "https://github.com/fjclark/bespokefit_smee"
+site_url: "https://github.com/cole-group/presto"
+repo_url: "https://github.com/cole-group/presto"
 site_dir: "site"
-watch: [mkdocs.yml, README.md, bespokefit_smee/, docs]
+watch: [mkdocs.yml, README.md, presto/, docs]
 copyright: Copyright &copy; 2025 Thomas James Pope, Finlay Clark
 edit_uri: edit/main/docs/
 
@@ -19,7 +19,12 @@ extra:
 nav:
 - Home:
   - Overview: index.md
-- Theory: theory.md
+- Method overview : method_overview.md
+- Settings guide : settings_guide.md
+- Output guide: output_guide.md
+- Examples:
+  - examples/README.md
+  - examples/basic-walk-through-cli.ipynb
 - API reference: reference/
 - Development: development.md
 - Changelog: changelog.md
@@ -87,15 +92,21 @@ plugins:
     - docs/scripts/gen_ref_pages.py
 - literate-nav:
     nav_file: SUMMARY.md
+    implicit_index: true
+- mkdocs-jupyter:
+    include: [ "examples/*.ipynb" ]
 - mkdocstrings:
     handlers:
       python:
-        paths: [bespokefit_smee/]
+        paths: [presto/]
         options:
           docstring_style: numpy
           docstring_options:
             ignore_init_summary: true
           docstring_section_style: list
+          filters:
+            - "!^tests"
+            - "!^data"
           heading_level: 1
           inherited_members: true
           merge_init_into_class: true
@@ -109,6 +120,9 @@ plugins:
           signature_crossrefs: true
           summary: true
           members_order: source
+          extensions:
+            - griffe_pydantic:
+                schema: true
 
 extra_javascript:
   - javascripts/mathjax.js

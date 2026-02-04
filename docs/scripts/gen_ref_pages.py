@@ -5,10 +5,10 @@ import pathlib
 import mkdocs_gen_files
 
 nav = mkdocs_gen_files.Nav()
-src = pathlib.Path(__file__).parent.parent.parent / "bespokefit_smee"
+src = pathlib.Path(__file__).parent.parent.parent / "presto"
 
 for path in sorted(src.rglob("*.py")):
-    if "tests" in str(path):
+    if "tests" in str(path) or "data" in str(path):
         continue
 
     module_path = path.relative_to(src.parent).with_suffix("")

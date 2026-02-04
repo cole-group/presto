@@ -2,27 +2,21 @@ name: Publish Documentation
 
 on:
   push:
-    branches: ["devel"]
+    branches: ["main"]
     tags: ["*"]
 
 jobs:
   deploy-docs:
 
     runs-on: ubuntu-latest
-    container: condaforge/mambaforge:latest
-
     steps:
-    - name: Prepare container
-      run: |
-        apt update && apt install -y git make
-
     - name: Checkout
       uses: actions/checkout@v4
 
     - name: Determine Version
       shell: bash
       run: |
-        if [ "$GITHUB_REF" = "refs/heads/devel" ]; then
+        if [ "$GITHUB_REF" = "refs/heads/main" ]; then
           echo "VERSION=latest" >> $GITHUB_ENV
         elif [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
           VERSION=$(echo $GITHUB_REF | sed 's/refs\/tags\///')
@@ -31,6 +25,12 @@ jobs:
           echo "Invalid ref: $GITHUB_REF"
           exit 1
         fi
+
+    - uses: prefix-dev/setup-pixi@v0.9.2
+      with:
+        pixi-version: v0.63.2
+        cache: true
+        environments: cpu
 
     - name: Build and Deploy Documentation
       run: |
@@ -41,7 +41,4 @@ jobs:
 
         git fetch --all --prune
 
-        export BESPOKEFIT_SMEE_CPU_INSTALL=1
-        make env
-
-        make docs-deploy VERSION="$VERSION"
+        pixi run -e cpu docs-deploy VERSION="$VERSION"

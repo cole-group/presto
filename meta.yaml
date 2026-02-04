@@ -1,4 +1,4 @@
-{% set name = "bespokefit_smee" %}
+{% set name = "presto" %}
 {% set version = "0.1.1" %}
 
 package:
@@ -6,7 +6,7 @@ package:
   version: {{ version }}
 
 source:
-  url: https://github.com/thomasjamespope/bespokefit_smee/archive/{{ version }}.tar.gz
+  url: https://github.com/thomasjamespope/presto/archive/{{ version }}.tar.gz
   sha256: 085b8702c32bfe45ebda2d47547e447105e085892e0da2f11803d3707672f706
 
 build:
@@ -36,7 +36,7 @@ requirements:
 
 test:
   imports:
-    - bespokefit_smee
+    - presto
 
 about:
   summary: Generate a Force-Field Parameterization from Single-Molecule MD.

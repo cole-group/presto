@@ -1,0 +1,149 @@
+version: 0.1.2
+output_dir: .
+device_type: cpu
+n_iterations: 2
+memory: false
+parameterisation_settings:
+    smiles: "N#CCC(=O)C"
+    initial_force_field: openff_unconstrained-2.3.0.offxml
+    expand_torsions: true
+    linearise_harmonics: true
+    type_generation_settings:
+        Bonds:
+            max_extend_distance: -1
+            include: []
+            exclude: []
+        Angles:
+            max_extend_distance: -1
+            include: []
+            exclude: []
+        ProperTorsions:
+            max_extend_distance: -1
+            include: []
+            exclude:
+            - '[*:1]-[*:2]#[*:3]-[*:4]'
+            - '[*:1]~[*:2]-[*:3]#[*:4]'
+            - '[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]'
+        ImproperTorsions:
+            max_extend_distance: -1
+            include: []
+            exclude: []
+training_sampling_settings:
+    sampling_protocol: mm_md_metadynamics_torsion_minimisation
+    ml_potential: egret-1
+    timestep: 1 fs
+    temperature: 500 K
+    snapshot_interval: 400 fs
+    n_conformers: 10
+    equilibration_sampling_time_per_conformer: 0.1 ps
+    production_sampling_time_per_conformer: 20 ps
+    loss_energy_weight: 1000.0
+    loss_force_weight: 0.1
+    metadynamics_bias_factor: 10.0
+    bias_width: 0.3141592653589793
+    bias_factor: 10.0
+    bias_height: 2.0 kJ * mol**-1
+    bias_frequency: 0.5 ps
+    bias_save_frequency: 1.0 ps
+    ml_minimisation_steps: 10
+    mm_minimisation_steps: 10
+    torsion_restraint_force_constant: 0.0 kJ * rad**-2 * mol**-1
+    loss_energy_weight_mmmd: 1000.0
+    loss_force_weight_mmmd: 0.1
+    map_ml_coords_energy_to_mm_coords_energy: true
+    loss_energy_weight_mm_torsion_min: 1000.0
+    loss_force_weight_mm_torsion_min: 0.1
+    loss_energy_weight_ml_torsion_min: 1000.0
+    loss_force_weight_ml_torsion_min: 0.1
+testing_sampling_settings:
+    sampling_protocol: ml_md
+    ml_potential: egret-1
+    timestep: 1 fs
+    temperature: 500 K
+    snapshot_interval: 40 fs
+    n_conformers: 10
+    equilibration_sampling_time_per_conformer: 0.1 ps
+    production_sampling_time_per_conformer: 2 ps
+    loss_energy_weight: 1000.0
+    loss_force_weight: 0.1
+training_settings:
+    optimiser: adam
+    parameter_configs:
+        LinearBonds:
+            cols:
+            - k1
+            - k2
+            scales:
+                k1: 0.0028
+                k2: 0.0028
+            limits:
+                k1:
+                - 1.0e-08
+                - null
+                k2:
+                - 1.0e-08
+                - null
+            regularize: {}
+            include: null
+            exclude: null
+        LinearAngles:
+            cols:
+            - k1
+            - k2
+            scales:
+                k1: 0.012
+                k2: 0.011
+            limits:
+                k1:
+                - 1.0e-08
+                - null
+                k2:
+                - 1.0e-08
+                - null
+            regularize: {}
+            include: null
+            exclude: null
+        ProperTorsions:
+            cols:
+            - k
+            scales:
+                k: 1.3
+            limits:
+                k:
+                - null
+                - null
+            regularize:
+                k: 1.0
+            include: null
+            exclude:
+            -   id: '[*:1]-[*:2]#[*:3]-[*:4]'
+                mult: null
+                associated_handler: null
+                bond_order: null
+            -   id: '[*:1]~[*:2]-[*:3]#[*:4]'
+                mult: null
+                associated_handler: null
+                bond_order: null
+            -   id: '[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]'
+                mult: null
+                associated_handler: null
+                bond_order: null
+        ImproperTorsions:
+            cols:
+            - k
+            scales:
+                k: 0.12
+            limits:
+                k:
+                - 0.0
+                - null
+            regularize:
+                k: 1.0
+            include: null
+            exclude: null
+    attribute_configs: {}
+    n_epochs: 1000
+    learning_rate: 0.01
+    learning_rate_decay: 1.0
+    learning_rate_decay_step: 10
+    regularisation_target: initial
