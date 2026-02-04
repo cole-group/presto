@@ -71,7 +71,7 @@ class WriteDefaultYAML(BaseModel):
         # with a placeholder value before writing the file
         param_settings = ParameterisationSettings(smiles="O")
         # Bypass validation
-        object.__setattr__(param_settings, "smiles", _DEFAULT_SMILES_PLACEHOLDER)
+        object.__setattr__(param_settings, "smiles", [_DEFAULT_SMILES_PLACEHOLDER])
         WorkflowSettings(parameterisation_settings=param_settings).to_yaml(
             self.file_name
         )
