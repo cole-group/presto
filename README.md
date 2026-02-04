@@ -31,25 +31,26 @@ Please note that the MACE-OFF models are released under the [Academic Software L
 
 ## Installation
 
-Ensuring that you have pixi installed, run:
+Ensuring that you have pixi installed, install and start a shell with the current environment with:
 ```bash
 git clone https://github.com/cole-group/presto.git
 cd presto
-pixi install
-```
-
-## Usage
-
-First, start a shell in the current environment (this must be run from the `presto` base directory)
-```bash
 pixi shell
 ```
+By default, this will create an environment with CUDA 12.9. If your version is older, but >= 12.6 (check with `nvidia-smi`), then run
+```bash
+pixi shell -e gpu-py313-cuda126
+```
+
 For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
+
+## Usage
 
 Run with command line arguments:
 ```bash
 presto train --parameterisation-settings.smiles "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
+then see the bespoke force field at `training_iteration_2/bespoke_ff.offxml`.
 
 Sensible defaults have been set, but all available options can be viewed with:
 ```bash
@@ -69,8 +70,9 @@ For more details on the theory and implementation, please see the [documentation
 
 To use models with the MACE architecture, run
 ```
-pixi shell -e mace-runtime
+pixi shell -e gpu-py313-cuda129-mace
 ```
+(or the equivalent CUDA 12.6 version)
 
 ## Copyright
 

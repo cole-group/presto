@@ -30,7 +30,7 @@ jobs:
       with:
         pixi-version: v0.63.2
         cache: true
-        environments: cpu
+        environments: cpu-py313
 
     - name: Build and Deploy Documentation
       run: |
