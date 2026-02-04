@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 import h5py
 import loguru
+import mdtraj
 import numpy as np
 import numpy.typing as npt
 import openff.units as units
@@ -18,6 +19,11 @@ from PIL import Image
 from rdkit.Chem import Draw
 from rich.progress import track
 
+from .find_torsions import (
+    _TORSIONS_TO_EXCLUDE_SMARTS,
+    _TORSIONS_TO_INCLUDE_SMARTS,
+    get_rot_torsions_by_rot_bond,
+)
 from .loss import LossRecord
 from .outputs import OutputStage, OutputType, StageKind, get_mol_path
 from .settings import WorkflowSettings
@@ -550,6 +556,169 @@ def plot_all_ffs(
     return fig, axs
 
 
+def calculate_dihedrals_for_trajectory(
+    pdb_path: Path,
+    torsions: dict[tuple[int, int], tuple[int, int, int, int]],
+) -> dict[tuple[int, int, int, int], npt.NDArray[np.float64]]:
+    """Calculate dihedral angles for all torsions across all frames using MDTraj.
+
+    Parameters
+    ----------
+    pdb_path : Path
+        Path to the PDB trajectory file.
+    torsions : dict[tuple[int, int], tuple[int, int, int, int]]
+        Dictionary mapping rotatable bonds to torsion atom indices.
+
+    Returns
+    -------
+    dict[tuple[int, int, int, int], npt.NDArray[np.float64]]
+        Dictionary mapping torsion atom indices to array of dihedral angles (in degrees)
+        for each frame.
+    """
+
+    trajectory = mdtraj.load(str(pdb_path))
+    dihedrals = {}
+
+    for torsion_atoms in torsions.values():
+        # MDTraj expects indices as a 2D array with shape (n_dihedrals, 4)
+        indices = np.array([torsion_atoms])
+        # compute_dihedrals returns angles in radians
+        angles_rad = mdtraj.compute_dihedrals(trajectory, indices)
+        # Convert to degrees and flatten (we only have one dihedral)
+        dihedrals[torsion_atoms] = np.degrees(angles_rad.flatten())
+
+    return dihedrals
+
+
+def plot_torsion_dihedrals(
+    fig: Figure,
+    axs: npt.NDArray[Any],
+    dihedrals_by_iteration: dict[
+        int, dict[tuple[int, int, int, int], npt.NDArray[np.float64]]
+    ],
+    mol: Molecule,
+) -> None:
+    """Plot dihedral angles for all rotatable torsions during trajectories.
+
+    Each torsion gets its own subplot.
+
+    Parameters
+    ----------
+    fig : Figure
+        Matplotlib figure.
+    axs : npt.NDArray[Any]
+        Array of matplotlib axes (one for each torsion).
+    dihedrals_by_iteration : dict
+        Dictionary mapping iteration to dictionary of torsion dihedrals.
+        Inner dict maps torsion atom indices to array of dihedral angles.
+    mol : Molecule
+        The molecule being analyzed.
+    """
+    # Get molecule image with atom indices
+    mol_image = get_mol_image_with_atom_idxs(mol, width=1800, height=600)
+
+    # Create an inset axes above the main plot for the molecule
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+    # Place molecule image above the first subplot
+    ax_inset = inset_axes(
+        axs.flat[0],
+        width="400%",
+        height="120%",
+        loc="upper center",
+        bbox_to_anchor=(0, 1.15, 1, 0.3),
+        bbox_transform=axs.flat[0].transAxes,
+    )
+    ax_inset.imshow(mol_image)
+    ax_inset.axis("off")
+
+    # Get all unique torsions across all iterations
+    all_torsions: set[tuple[int, int, int, int]] = set()
+    for dihedrals in dihedrals_by_iteration.values():
+        all_torsions.update(dihedrals.keys())
+    all_torsions_list = sorted(all_torsions)
+
+    # Plot dihedrals for each iteration
+    colours = plt.colormaps["viridis"](
+        np.linspace(0, 1, len(dihedrals_by_iteration) + 1)
+    )
+
+    # Create one subplot per torsion
+    for torsion_idx, torsion_atoms in enumerate(all_torsions_list):
+        ax = axs.flat[torsion_idx]
+
+        # Collect angles by iteration
+        angles_by_iteration = {}
+
+        for iteration_idx, (iteration, dihedrals) in enumerate(
+            dihedrals_by_iteration.items()
+        ):
+            if torsion_atoms in dihedrals:
+                angles = dihedrals[torsion_atoms]
+                angles_by_iteration[iteration] = (angles, iteration_idx)
+
+                # Create frame numbers as x-axis
+                frames = np.arange(len(angles))
+
+                # Label with iteration
+                label = f"Iteration {iteration}"
+
+                ax.plot(
+                    frames,
+                    angles,
+                    label=label,
+                    alpha=0.5,
+                    color=colours[iteration_idx],
+                    linewidth=1.5,
+                )
+
+        ax.set_xlabel("Frame Number")
+        ax.set_ylabel("Dihedral Angle / degrees")
+        ax.set_title(
+            f"Torsion [{torsion_atoms[0]}-{torsion_atoms[1]}-{torsion_atoms[2]}-{torsion_atoms[3]}]"
+        )
+        ax.axhline(y=0, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
+        ax.axhline(y=180, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
+        ax.axhline(y=-180, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
+        ax.set_ylim(-180, 180)
+
+        # Add legend
+        _add_legend_if_labels(ax, loc="best", fontsize="small")
+
+        # Add histogram as inset on the right side
+        if angles_by_iteration:
+            ax_hist = inset_axes(
+                ax,
+                width="20%",
+                height="100%",
+                loc="center right",
+                bbox_to_anchor=(0.15, 0, 1, 1),
+                bbox_transform=ax.transAxes,
+            )
+
+            # Create histogram for each iteration with matching colors
+            for _iteration, (angles, iteration_idx) in angles_by_iteration.items():
+                ax_hist.hist(
+                    angles,
+                    bins=36,
+                    orientation="horizontal",
+                    range=(-180, 180),
+                    alpha=0.5,
+                    color=colours[iteration_idx],
+                    edgecolor="black",
+                    linewidth=0.3,
+                )
+
+            ax_hist.set_ylim(-180, 180)
+            ax_hist.set_xlabel("Count", fontsize=8)
+            ax_hist.tick_params(axis="both", labelsize=7)
+            ax_hist.yaxis.set_visible(False)
+
+    # Hide unused subplots
+    for idx in range(len(all_torsions), len(axs.flat)):
+        axs.flat[idx].axis("off")
+
+
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
     """Analyse the results of a BespokeFitSMEE workflow."""
 
@@ -630,6 +799,58 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             force_error_plot_path_mol = get_mol_path(force_error_plot_path, mol_idx)
             fig.savefig(str(force_error_plot_path_mol), dpi=300, bbox_inches="tight")
             plt.close(fig)
+
+            # Plot torsion dihedrals if trajectory files exist
+            pdb_traj_paths_by_mol = output_paths_by_type_by_mol.get(
+                OutputType.PDB_TRAJECTORY, {}
+            )
+            if mol_idx in pdb_traj_paths_by_mol:
+                # Get rotatable torsions for this molecule
+                torsions = get_rot_torsions_by_rot_bond(
+                    mol,
+                    include_smarts=_TORSIONS_TO_INCLUDE_SMARTS,
+                    exclude_smarts=_TORSIONS_TO_EXCLUDE_SMARTS,
+                )
+
+                if torsions:
+                    # Read trajectories and calculate dihedrals for each iteration
+                    dihedrals_by_iteration = {}
+                    pdb_paths_for_mol = pdb_traj_paths_by_mol[mol_idx]
+                    if not isinstance(pdb_paths_for_mol, list):
+                        pdb_paths_for_mol = [pdb_paths_for_mol]
+
+                    # Include initial statistics (iteration 0) and training iterations
+                    for iter_idx, pdb_path in enumerate(pdb_paths_for_mol):
+                        if pdb_path.exists():
+                            try:
+                                dihedrals = calculate_dihedrals_for_trajectory(
+                                    pdb_path, torsions
+                                )
+                                dihedrals_by_iteration[iter_idx] = dihedrals
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to read trajectory at {pdb_path}: {e}"
+                                )
+
+                    if dihedrals_by_iteration:
+                        # Determine figure layout based on number of torsions
+                        n_torsions = len(torsions)
+                        # Create a grid layout - 2 columns for better layout
+                        ncols = min(2, n_torsions)
+                        nrows = (n_torsions + ncols - 1) // ncols
+                        fig, axs = plt.subplots(
+                            nrows, ncols, figsize=(8 * ncols, 5 * nrows), squeeze=False
+                        )
+                        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, mol)
+                        torsion_plot_path = path_manager.get_output_path(
+                            stage, OutputType.TORSION_DIHEDRALS_PLOT
+                        )
+                        torsion_plot_path_mol = get_mol_path(torsion_plot_path, mol_idx)
+                        fig.tight_layout()
+                        fig.savefig(
+                            str(torsion_plot_path_mol), dpi=300, bbox_inches="tight"
+                        )
+                        plt.close(fig)
 
         # Plot the force field changes for each molecule
         offxml_paths = output_paths_by_type.get(OutputType.OFFXML, [])

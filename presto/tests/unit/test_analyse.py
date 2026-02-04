@@ -12,6 +12,7 @@ from openff.toolkit import ForceField, Molecule
 from PIL import Image
 
 from presto.analyse import (
+    calculate_dihedrals_for_trajectory,
     get_mol_image_with_atom_idxs,
     load_force_fields,
     plot_all_ffs,
@@ -24,6 +25,7 @@ from presto.analyse import (
     plot_loss,
     plot_mean_errors,
     plot_rmse_of_errors,
+    plot_torsion_dihedrals,
     read_errors,
     read_losses,
 )
@@ -499,4 +501,96 @@ class TestPlotAllFfs:
         fig, axs = plot_all_ffs(force_fields, test_molecule, "differences")
         assert fig is not None
         assert axs is not None
+        plt.close(fig)
+
+
+class TestCalculateDihedralsForTrajectory:
+    """Tests for calculate_dihedrals_for_trajectory function."""
+
+    def test_calculate_dihedrals_for_trajectory(self, tmp_path: Path) -> None:
+        """Test calculating dihedrals for a simple trajectory using MDTraj."""
+        import mdtraj
+
+        # Create a simple 3-frame trajectory with proper non-colinear geometry
+        n_frames = 3
+        n_atoms = 4
+        topology = mdtraj.Topology()
+        chain = topology.add_chain()
+        residue = topology.add_residue("MOL", chain)
+        for _ in range(n_atoms):
+            topology.add_atom("C", mdtraj.element.carbon, residue)
+
+        # Create trajectory positions (in nanometers for MDTraj)
+        positions = np.zeros((n_frames, n_atoms, 3))
+
+        # Frame 0: zig-zag pattern
+        positions[0] = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+                [0.20, 0.10, 0.0],
+                [0.35, 0.10, 0.0],
+            ]
+        )
+
+        # Frame 1: rotated around central bond
+        positions[1] = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+                [0.20, 0.10, 0.0],
+                [0.35, 0.10, 0.05],
+            ]
+        )
+
+        # Frame 2: more rotated
+        positions[2] = np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [0.15, 0.0, 0.0],
+                [0.20, 0.10, 0.0],
+                [0.35, 0.10, 0.10],
+            ]
+        )
+
+        # Create trajectory and save as PDB
+        traj = mdtraj.Trajectory(positions, topology)
+        pdb_path = tmp_path / "test_trajectory.pdb"
+        traj.save_pdb(str(pdb_path))
+
+        torsions = {(1, 2): (0, 1, 2, 3)}
+        dihedrals = calculate_dihedrals_for_trajectory(pdb_path, torsions)
+
+        assert (0, 1, 2, 3) in dihedrals
+        assert len(dihedrals[(0, 1, 2, 3)]) == n_frames
+        # Check that angles change across frames
+        angles = dihedrals[(0, 1, 2, 3)]
+        assert not np.allclose(angles[0], angles[1])
+
+
+class TestPlotTorsionDihedrals:
+    """Tests for plot_torsion_dihedrals function."""
+
+    def test_plot_torsion_dihedrals_creates_plot(self, test_molecule: Molecule) -> None:
+        """Test that plot_torsion_dihedrals creates a plot without errors."""
+        # Create mock dihedral data
+        n_frames = 10
+        dihedrals_by_iteration = {
+            0: {
+                (0, 1, 2, 3): np.linspace(-180, 180, n_frames),
+                (1, 2, 3, 4): np.linspace(0, 90, n_frames),
+            },
+            1: {
+                (0, 1, 2, 3): np.linspace(-90, 90, n_frames),
+                (1, 2, 3, 4): np.linspace(45, 135, n_frames),
+            },
+        }
+
+        # Create subplots for 2 torsions
+        fig, axs = plt.subplots(1, 2, figsize=(16, 5), squeeze=False)
+        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, test_molecule)
+
+        # Check that each subplot has content
+        for ax in axs.flat:
+            assert ax.get_xlabel() != "" or not ax.get_visible()
         plt.close(fig)
