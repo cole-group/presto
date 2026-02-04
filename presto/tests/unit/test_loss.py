@@ -18,45 +18,43 @@ from presto.data_utils import (
 from presto.loss import (
     compute_overall_loss_and_grad,
     compute_regularisation_loss,
-    predict,
     predict_with_weights,
 )
 
 
+@pytest.fixture
+def simple_trainable_and_params():
+    """Create a simple trainable and parameters for testing."""
+    mol = Molecule.from_smiles("CCO")
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+    import openff.interchange
+
+    interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+
+    tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+
+    # Create a minimal trainable with regularization settings
+    parameter_configs = {
+        "Bonds": ParameterConfig(
+            cols=["k", "length"],
+            scales={"k": 1.0, "length": 1.0},
+            limits={"k": (None, None), "length": (None, None)},
+            regularize={"k": 100.0, "length": 100.0},
+            include=None,
+            exclude=None,
+        ),
+    }
+
+    trainable = Trainable(tensor_ff, parameter_configs, {})
+    trainable_parameters = trainable.to_values()
+    n_atoms = mol.n_atoms
+
+    return trainable, trainable_parameters, n_atoms
+
+
 class TestComputeRegularisationPenalty:
     """Tests for compute_regularisation_loss function."""
-
-    @pytest.fixture
-    def simple_trainable_and_params(self):
-        """Create a simple trainable and parameters for testing."""
-        mol = Molecule.from_smiles("CCO")
-        ff = ForceField("openff_unconstrained-2.3.0.offxml")
-
-        import openff.interchange
-
-        interchange = openff.interchange.Interchange.from_smirnoff(
-            ff, mol.to_topology()
-        )
-
-        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
-
-        # Create a minimal trainable with regularization settings
-        parameter_configs = {
-            "Bonds": ParameterConfig(
-                cols=["k", "length"],
-                scales={"k": 1.0, "length": 1.0},
-                limits={"k": (None, None), "length": (None, None)},
-                regularize={"k": 100.0, "length": 100.0},
-                include=None,
-                exclude=None,
-            ),
-        }
-
-        trainable = Trainable(tensor_ff, parameter_configs, {})
-        trainable_parameters = trainable.to_values()
-        n_atoms = mol.n_atoms
-
-        return trainable, trainable_parameters, n_atoms
 
     def test_returns_tensor(self, simple_trainable_and_params):
         """Test that function returns a tensor."""
@@ -89,7 +87,10 @@ class TestComputeRegularisationPenalty:
         modified_params = modified_params + 0.1
 
         penalty_original = compute_regularisation_loss(
-            trainable, params, initial_params, "initial"
+            trainable,
+            params,
+            initial_parameters=initial_params,
+            regularisation_target="initial",
         )
         penalty_modified = compute_regularisation_loss(
             trainable, modified_params, initial_params, "initial"
@@ -165,7 +166,7 @@ class TestComputeRegularisationPenalty:
             "Bonds": ParameterConfig(
                 cols=["k", "length"],
                 scales={"k": 1.0, "length": 1.0},
-                regularization_strengths={"k": 0.0, "length": 0.0},
+                regularize={"k": 0.0, "length": 0.0},
             ),
         }
         trainable_zero = Trainable(trainable._force_field, parameter_configs_zero, {})
@@ -183,46 +184,46 @@ class TestComputeRegularisationPenalty:
         assert result.item() == 0.0
 
 
+@pytest.fixture
+def ethanol_ff_and_topology():
+    """Create ethanol force field and topology for testing."""
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=3)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+    interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+
+    tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+    return tensor_ff, tensor_top, mol
+
+
+@pytest.fixture
+def weighted_ethanol_dataset(ethanol_ff_and_topology):
+    """Create a weighted dataset for ethanol."""
+    tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+    n_confs = 3
+    n_atoms = mol.n_atoms
+
+    # Generate fake coordinates
+    coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64) * 0.5 + 0.5
+    energy = torch.rand(n_confs, dtype=torch.float64)
+    forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+
+    smiles = mol.to_smiles(mapped=True)
+
+    dataset = create_dataset_with_uniform_weights(
+        smiles=smiles,
+        coords=coords,
+        energy=energy,
+        forces=forces,
+        energy_weight=1000.0,
+        forces_weight=0.1,
+    )
+    return dataset, tensor_ff, tensor_top, smiles
+
+
 class TestPredictWithWeights:
     """Tests for predict_with_weights function."""
-
-    @pytest.fixture
-    def ethanol_ff_and_topology(self):
-        """Create ethanol force field and topology for testing."""
-        mol = Molecule.from_smiles("CCO")
-        mol.generate_conformers(n_conformers=3)
-        ff = ForceField("openff_unconstrained-2.3.0.offxml")
-
-        interchange = openff.interchange.Interchange.from_smirnoff(
-            ff, mol.to_topology()
-        )
-
-        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
-        return tensor_ff, tensor_top, mol
-
-    @pytest.fixture
-    def weighted_ethanol_dataset(self, ethanol_ff_and_topology):
-        """Create a weighted dataset for ethanol."""
-        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
-        n_confs = 3
-        n_atoms = mol.n_atoms
-
-        # Generate fake coordinates
-        coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64) * 0.5 + 0.5
-        energy = torch.rand(n_confs, dtype=torch.float64)
-        forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-
-        smiles = mol.to_smiles(mapped=True)
-
-        dataset = create_dataset_with_uniform_weights(
-            smiles=smiles,
-            coords=coords,
-            energy=energy,
-            forces=forces,
-            energy_weight=1000.0,
-            forces_weight=0.1,
-        )
-        return dataset, tensor_ff, tensor_top, smiles
 
     def test_returns_correct_number_of_outputs(self, weighted_ethanol_dataset):
         """Test that function returns 6 outputs."""
@@ -271,60 +272,59 @@ class TestPredictWithWeights:
         )
 
 
+@pytest.fixture
+def ethanol_trainable_and_dataset():
+    """Create ethanol trainable and weighted dataset for testing."""
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=3)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+    interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+
+    tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+
+    # Create trainable
+    parameter_configs = {
+        "Bonds": ParameterConfig(
+            cols=["k", "length"],
+            scales={"k": 1.0, "length": 1.0},
+            regularize={"k": 1.0, "length": 1.0},
+        ),
+    }
+    trainable = Trainable(tensor_ff, parameter_configs, {})
+    trainable_params = trainable.to_values()
+    initial_params = trainable_params.clone()
+
+    # Create weighted dataset with real conformer coordinates
+    n_confs = mol.n_conformers
+    coords_list = [
+        torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
+        for i in range(n_confs)
+    ]
+    coords = torch.cat(coords_list, dim=0).requires_grad_(True)
+
+    # Compute reference energies and forces using the force field
+    energy_ref = smee.compute_energy(tensor_top, tensor_ff, coords)
+    forces_ref = -torch.autograd.grad(
+        energy_ref.sum(), coords, create_graph=True, retain_graph=True
+    )[0]
+
+    smiles = mol.to_smiles(mapped=True)
+
+    dataset = create_dataset_with_uniform_weights(
+        smiles=smiles,
+        coords=coords.detach(),
+        energy=energy_ref.detach(),
+        forces=forces_ref.detach(),
+        energy_weight=1000.0,
+        forces_weight=0.1,
+    )
+
+    return trainable, trainable_params, initial_params, [dataset], [tensor_top]
+
+
 class TestPredictionLossWithWeights:
     """Tests for prediction_loss function with weighted datasets."""
-
-    @pytest.fixture
-    def ethanol_trainable_and_dataset(self):
-        """Create ethanol trainable and weighted dataset for testing."""
-        mol = Molecule.from_smiles("CCO")
-        mol.generate_conformers(n_conformers=3)
-        ff = ForceField("openff_unconstrained-2.3.0.offxml")
-
-        interchange = openff.interchange.Interchange.from_smirnoff(
-            ff, mol.to_topology()
-        )
-
-        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
-
-        # Create trainable
-        parameter_configs = {
-            "Bonds": ParameterConfig(
-                cols=["k", "length"],
-                scales={"k": 1.0, "length": 1.0},
-                regularize={"k": 1.0, "length": 1.0},
-            ),
-        }
-        trainable = Trainable(tensor_ff, parameter_configs, {})
-        trainable_params = trainable.to_values()
-        initial_params = trainable_params.clone()
-
-        # Create weighted dataset with real conformer coordinates
-        n_confs = mol.n_conformers
-        coords_list = [
-            torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
-            for i in range(n_confs)
-        ]
-        coords = torch.cat(coords_list, dim=0).requires_grad_(True)
-
-        # Compute reference energies and forces using the force field
-        energy_ref = smee.compute_energy(tensor_top, tensor_ff, coords)
-        forces_ref = -torch.autograd.grad(
-            energy_ref.sum(), coords, create_graph=True, retain_graph=True
-        )[0]
-
-        smiles = mol.to_smiles(mapped=True)
-
-        dataset = create_dataset_with_uniform_weights(
-            smiles=smiles,
-            coords=coords.detach(),
-            energy=energy_ref.detach(),
-            forces=forces_ref.detach(),
-            energy_weight=1000.0,
-            forces_weight=0.1,
-        )
-
-        return trainable, trainable_params, initial_params, [dataset], [tensor_top]
 
     def test_prediction_loss_returns_loss_record(self, ethanol_trainable_and_dataset):
         """Test that prediction_loss returns a LossRecord."""
@@ -494,94 +494,62 @@ class TestPredictionLossWithWeights:
         assert result.forces.item() == 0.0
 
 
-class TestPredictFunction:
-    """Tests for predict function."""
+@pytest.fixture
+def ethanol_setup():
+    """Create ethanol setup for testing."""
+    from openff.units import unit
 
-    @pytest.fixture
-    def ethanol_setup(self):
-        """Create ethanol setup for testing."""
-        from openff.units import unit
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=2, rms_cutoff=0.0 * unit.angstrom)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
-        mol = Molecule.from_smiles("CCO")
-        mol.generate_conformers(n_conformers=2, rms_cutoff=0.0 * unit.angstrom)
-        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+    interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
 
-        interchange = openff.interchange.Interchange.from_smirnoff(
-            ff, mol.to_topology()
-        )
+    tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
 
-        tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+    n_confs = len(mol.conformers)
+    if n_confs < 1:
+        # Generate at least one conformer
+        mol.generate_conformers(n_conformers=1)
+        n_confs = 1
 
-        n_confs = len(mol.conformers)
-        if n_confs < 1:
-            # Generate at least one conformer
-            mol.generate_conformers(n_conformers=1)
-            n_confs = 1
+    coords_list = [
+        torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
+        for i in range(n_confs)
+    ]
+    coords = torch.cat(coords_list, dim=0).requires_grad_(True)
 
-        coords_list = [
-            torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
-            for i in range(n_confs)
+    energy = smee.compute_energy(tensor_top, tensor_ff, coords)
+    forces = -torch.autograd.grad(
+        energy.sum(), coords, create_graph=True, retain_graph=True
+    )[0]
+
+    smiles = mol.to_smiles(mapped=True)
+
+    # Create unweighted dataset
+    schema = pyarrow.schema(
+        [
+            ("smiles", pyarrow.string()),
+            ("coords", pyarrow.list_(pyarrow.float64())),
+            ("energy", pyarrow.list_(pyarrow.float64())),
+            ("forces", pyarrow.list_(pyarrow.float64())),
         ]
-        coords = torch.cat(coords_list, dim=0).requires_grad_(True)
+    )
+    table = pyarrow.Table.from_pylist(
+        [
+            {
+                "smiles": smiles,
+                "coords": coords.detach().flatten().tolist(),
+                "energy": energy.detach().tolist(),
+                "forces": forces.detach().flatten().tolist(),
+            }
+        ],
+        schema=schema,
+    )
+    dataset = datasets.Dataset(datasets.table.InMemoryTable(table))
+    dataset.set_format("torch")
 
-        energy = smee.compute_energy(tensor_top, tensor_ff, coords)
-        forces = -torch.autograd.grad(
-            energy.sum(), coords, create_graph=True, retain_graph=True
-        )[0]
-
-        smiles = mol.to_smiles(mapped=True)
-
-        # Create unweighted dataset
-        schema = pyarrow.schema(
-            [
-                ("smiles", pyarrow.string()),
-                ("coords", pyarrow.list_(pyarrow.float64())),
-                ("energy", pyarrow.list_(pyarrow.float64())),
-                ("forces", pyarrow.list_(pyarrow.float64())),
-            ]
-        )
-        table = pyarrow.Table.from_pylist(
-            [
-                {
-                    "smiles": smiles,
-                    "coords": coords.detach().flatten().tolist(),
-                    "energy": energy.detach().tolist(),
-                    "forces": forces.detach().flatten().tolist(),
-                }
-            ],
-            schema=schema,
-        )
-        dataset = datasets.Dataset(datasets.table.InMemoryTable(table))
-        dataset.set_format("torch")
-
-        return dataset, tensor_ff, tensor_top, smiles
-
-    def test_predict_returns_four_tensors(self, ethanol_setup):
-        """Test that predict returns 4 tensors."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        result = predict(dataset, tensor_ff, {smiles: tensor_top})
-        assert len(result) == 4
-
-    def test_predict_energy_shapes(self, ethanol_setup):
-        """Test that predicted energies have correct shape."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        energy_ref, energy_pred, _, _ = predict(
-            dataset, tensor_ff, {smiles: tensor_top}
-        )
-        assert energy_ref.shape == energy_pred.shape
-        # Just check we have some conformations
-        assert len(energy_ref) >= 1
-
-    def test_predict_forces_shapes(self, ethanol_setup):
-        """Test that predicted forces have correct shape."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        _, _, forces_ref, forces_pred = predict(
-            dataset, tensor_ff, {smiles: tensor_top}
-        )
-        assert forces_ref.shape == forces_pred.shape
+    return dataset, tensor_ff, tensor_top, smiles
 
 
 class TestPredictWithWeightsMultipleEntries:
@@ -699,3 +667,95 @@ class TestPredictWithWeightsMultipleEntries:
         # relative to their own mean/min, so we can't easily verify entry-level
         # min=0. But we can verify the function runs without error.
         assert energy_ref is not None
+
+
+class TestGetLossClosure:
+    """Tests for get_loss_closure_fn function."""
+
+    def test_get_loss_closure_fn_basic(
+        self, simple_trainable_and_params, ethanol_ff_and_topology
+    ):
+        from presto.data_utils import create_dataset_with_uniform_weights
+        from presto.loss import get_loss_closure_fn
+
+        trainable, params, n_atoms = simple_trainable_and_params
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+
+        # Create a minimal dataset
+        dataset = create_dataset_with_uniform_weights(
+            smiles=mol.to_smiles(mapped=True),
+            coords=torch.zeros(1, n_atoms, 3),
+            energy=torch.zeros(1),
+            forces=torch.zeros(1, n_atoms, 3),
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        closure = get_loss_closure_fn(
+            datasets_list=[dataset],
+            trainable=trainable,
+            trainable_parameters=params,
+            initial_parameters=params.clone(),
+            topologies=[tensor_top],
+            regularisation_target="initial",
+        )
+
+        # Test closure with gradient
+        x = params.clone().requires_grad_(True)
+        loss, grad, hess = closure(x, compute_gradient=True, compute_hessian=False)
+        assert isinstance(loss, torch.Tensor)
+        assert isinstance(grad, torch.Tensor)
+        assert hess is None
+        assert grad.shape == params.shape
+
+    def test_get_loss_closure_fn_no_grad(
+        self, simple_trainable_and_params, ethanol_ff_and_topology
+    ):
+        from presto.data_utils import create_dataset_with_uniform_weights
+        from presto.loss import get_loss_closure_fn
+
+        trainable, params, n_atoms = simple_trainable_and_params
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+
+        dataset = create_dataset_with_uniform_weights(
+            smiles=mol.to_smiles(mapped=True),
+            coords=torch.zeros(1, n_atoms, 3),
+            energy=torch.zeros(1),
+            forces=torch.zeros(1, n_atoms, 3),
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        closure = get_loss_closure_fn(
+            datasets_list=[dataset],
+            trainable=trainable,
+            trainable_parameters=params,
+            initial_parameters=params.clone(),
+            topologies=[tensor_top],
+            regularisation_target="initial",
+        )
+
+        loss, grad, hess = closure(
+            params, compute_gradient=False, compute_hessian=False
+        )
+        assert isinstance(loss, torch.Tensor)
+        assert grad is None
+        assert hess is None
+
+    def test_predict_with_weights_reference_min(self, weighted_ethanol_dataset):
+        from presto.loss import predict_with_weights
+
+        dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
+        res = predict_with_weights(
+            dataset, tensor_ff, {smiles: tensor_top}, reference="min"
+        )
+        assert len(res) == 6
+
+    def test_predict_with_weights_reference_median(self, weighted_ethanol_dataset):
+        from presto.loss import predict_with_weights
+
+        dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
+        res = predict_with_weights(
+            dataset, tensor_ff, {smiles: tensor_top}, reference="median"
+        )
+        assert len(res) == 6

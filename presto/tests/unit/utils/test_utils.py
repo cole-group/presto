@@ -104,12 +104,6 @@ class TestSuppressOutput:
         # Should not raise
         suppress_unwanted_output()
 
-    def test_suppress_output_is_callable(self):
-        """Test that suppress_unwanted_output is callable."""
-        from presto.utils._suppress_output import suppress_unwanted_output
-
-        assert callable(suppress_unwanted_output)
-
 
 class TestPathLike:
     """Tests for PathLike type."""

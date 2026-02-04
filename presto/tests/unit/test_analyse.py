@@ -594,3 +594,130 @@ class TestPlotTorsionDihedrals:
         for ax in axs.flat:
             assert ax.get_xlabel() != "" or not ax.get_visible()
         plt.close(fig)
+
+
+def test_add_legend_if_labels_no_labels():
+    from presto.analyse import _add_legend_if_labels
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])  # No label
+    _add_legend_if_labels(ax)
+    assert ax.get_legend() is None
+    plt.close(fig)
+
+
+def test_plot_loss_with_regularisation(losses_data):
+    from presto.analyse import plot_loss
+
+    fig, ax = plt.subplots()
+    # Add a regularisation loss column
+    losses_with_reg = losses_data.copy()
+    losses_with_reg["loss_test_regularisation"] = 0.1
+    plot_loss(fig, ax, losses_with_reg)
+    # Check that it didn't crash
+    plt.close(fig)
+
+
+def test_plot_ff_differences_empty(force_fields, test_molecule):
+    from presto.analyse import plot_ff_differences
+
+    fig, ax = plt.subplots()
+    # Use a parameter key that doesn't exist
+    res = plot_ff_differences(
+        fig, ax, force_fields, test_molecule, "Bonds", "non-existent"
+    )
+    assert res == {}
+    plt.close(fig)
+
+
+def test_plot_ff_differences_mismatched_ids(test_molecule):
+    from unittest.mock import MagicMock, PropertyMock
+
+    from presto.analyse import plot_ff_differences
+
+    # Mock parameter objects
+    p1 = MagicMock()
+    type(p1).id = PropertyMock(return_value="b1")
+    p2 = MagicMock()
+    type(p2).id = PropertyMock(return_value="b2")
+
+    # Mock force fields with different IDs
+    ff1 = MagicMock()
+    ff1.label_molecules.return_value = [{"Bonds": {"(0,1)": p1}}]
+    ff2 = MagicMock()
+    ff2.label_molecules.return_value = [{"Bonds": {"(0,1)": p2}}]
+
+    ffs = {0: ff1, 1: ff2}
+    fig, ax = plt.subplots()
+    with pytest.raises(ValueError, match="Force field has different Bonds ids"):
+        plot_ff_differences(fig, ax, ffs, test_molecule, "Bonds", "k")
+    plt.close(fig)
+
+
+def test_plot_ff_values_empty(force_fields, test_molecule):
+    from presto.analyse import plot_ff_values
+
+    fig, ax = plt.subplots()
+    # Use a potential type that doesn't exist
+    plot_ff_values(fig, ax, force_fields, test_molecule, "vdW", "epsilon")
+    plt.close(fig)
+
+
+def test_plot_ff_values_mismatched_ids(test_molecule):
+    from unittest.mock import MagicMock, PropertyMock
+
+    from presto.analyse import plot_ff_values
+
+    # Mock parameter objects
+    p1 = MagicMock()
+    type(p1).id = PropertyMock(return_value="b1")
+    val1 = MagicMock()
+    val1.units = "kcal/mol"
+    # val1 / units.unit.degrees should work
+    val1.__truediv__.return_value = 1.0
+    p1.to_dict.return_value = {"k": val1}
+
+    p2 = MagicMock()
+    type(p2).id = PropertyMock(return_value="b2")
+    val2 = MagicMock()
+    val2.units = "kcal/mol"
+    val2.__truediv__.return_value = 1.1
+    p2.to_dict.return_value = {"k": val2}
+
+    # Mock force fields with different IDs
+    ff1 = MagicMock()
+    ff1.label_molecules.return_value = [{"Bonds": {"(0,1)": p1}}]
+    ff2 = MagicMock()
+    ff2.label_molecules.return_value = [{"Bonds": {"(0,1)": p2}}]
+
+    ffs = {0: ff1, 1: ff2}
+    fig, ax = plt.subplots()
+    with pytest.raises(
+        ValueError, match="Force field at iteration 1 has different Bonds ids"
+    ):
+        plot_ff_values(fig, ax, ffs, test_molecule, "Bonds", "k")
+    plt.close(fig)
+
+
+def test_read_errors_multiple_iterations(tmp_path):
+    import h5py
+
+    from presto.analyse import read_errors
+
+    path1 = tmp_path / "iter0.h5"
+    path2 = tmp_path / "iter1.h5"
+
+    for p in [path1, path2]:
+        with h5py.File(p, "w") as f:
+            f.create_dataset("energy_reference", data=[1.0])
+            f.create_dataset("energy_predicted", data=[1.1])
+            f.create_dataset("energy_differences", data=[0.1])
+            f.create_dataset("forces_reference", data=[[[0.1, 0.1, 0.1]]])
+            f.create_dataset("forces_predicted", data=[[[0.11, 0.11, 0.11]]])
+            f.create_dataset("forces_differences", data=[[[0.01, 0.01, 0.01]]])
+            f.attrs["n_atoms"] = 1
+            f.attrs["n_conformers"] = 1
+
+    paths = {0: path1, 1: path2}
+    res = read_errors(paths)
+    assert len(res["energy_reference"]) == 2

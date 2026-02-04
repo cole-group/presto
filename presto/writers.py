@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import LossRecord, compute_overall_loss_and_grad, predict
+from .loss import LossRecord, compute_overall_loss_and_grad, predict_with_weights
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -31,97 +31,6 @@ def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
         yield writer
 
 
-# def write_scatter(
-#     dataset: datasets.Dataset,
-#     force_field: smee.TensorForceField,
-#     topology_in: smee.TensorTopology,
-#     device_type: str,
-#     filename: str,
-# ) -> tuple[float, float, float, float]:
-#     energy_ref_all, energy_prd_all = [], []
-#     for entry in dataset:
-#         energy_ref = entry["energy"].to(device_type)
-#         forces_ref = entry["forces"].reshape(len(energy_ref), -1, 3).to(device_type)
-#         coords_ref = (
-#             entry["coords"]
-#             .reshape(len(energy_ref), -1, 3)
-#             .to(device_type)
-#             .detach()
-#             .requires_grad_(True)
-#         )
-#         topology = copy.deepcopy(topology_in)
-#         energy_prd = smee.compute_energy(topology, force_field, coords_ref)
-#         forces_prd = -torch.autograd.grad(
-#             energy_prd.sum(),
-#             coords_ref,
-#             create_graph=True,
-#             retain_graph=True,
-#             # allow_unused=True,
-#         )[0]
-#         energy_prd_0 = energy_prd.detach()[0]
-#         energy_ref_all.append(energy_ref)
-#         energy_prd_all.append(energy_prd - energy_prd_0)
-#     energy_out_ref = torch.cat(energy_ref_all).detach()
-#     energy_out_prd = torch.cat(energy_prd_all).detach()
-#     forces_out_ref = (forces_ref.detach()).sum(dim=(1, 2))
-#     forces_out_prd = (forces_prd.detach()).sum(dim=(1, 2))
-#     print_array = numpy.c_[
-#         energy_out_ref.cpu()[:],
-#         energy_out_prd.cpu()[:],
-#         forces_out_ref.cpu()[:],
-#         forces_out_prd.cpu()[:],
-#     ]
-#     with open(filename, "w") as out_file:
-#         numpy.savetxt(out_file, print_array, delimiter=" ", newline="\n")
-#     energy_summary = torch.std_mean(energy_out_prd - energy_out_ref)
-#     forces_summary = torch.std_mean(forces_out_prd - forces_out_ref)
-#     return (
-#         energy_summary[1].item(),
-#         energy_summary[0].item(),
-#         forces_summary[1].item(),
-#         forces_summary[0].item(),
-#     )
-
-
-# def write_scatter(
-#     dataset: datasets.Dataset,
-#     force_field: smee.TensorForceField,
-#     topology_in: smee.TensorTopology,
-#     device_type: str,
-#     filename: PathLike,
-# ) -> tuple[float, float, float, float]:
-#     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
-#         dataset,
-#         force_field,
-#         {dataset[0]["smiles"]: topology_in},
-#         device_type=device_type,
-#         normalize=False,
-#     )
-#     with torch.no_grad():
-#         # Write out the pre-conformer differences
-#         energy_diffs = energy_pred_all - energy_ref_all
-#         # Flatten forces to 1D for easier handling
-#         force_diffs = (forces_pred_all - forces_ref_all).reshape(-1)
-#         # Pad the energy differences to match the forces, with nan
-#         energy_diffs_padded = torch.full(
-#             force_diffs.shape, float("nan"), device=energy_diffs.device
-#         )
-#         energy_diffs_padded[: energy_diffs.numel()] = energy_diffs.reshape(-1)
-
-#         print_array = numpy.c_[energy_diffs_padded.cpu()[:], force_diffs.cpu()[:]]
-
-#         with open(filename, "w") as out_file:
-#             numpy.savetxt(out_file, print_array, delimiter=" ", newline="\n")
-#         energy_summary = torch.std_mean(energy_diffs)
-#         forces_summary = torch.std_mean(force_diffs)
-#         return (
-#             energy_summary[1].item(),
-#             energy_summary[0].item(),
-#             forces_summary[1].item(),
-#             forces_summary[0].item(),
-#         )
-
-
 def write_scatter(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
@@ -130,12 +39,14 @@ def write_scatter(
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
-    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
-        dataset,
-        force_field,
-        {dataset[0]["smiles"]: topology_in},
-        device_type=device_type,
-        normalize=False,
+    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
+        predict_with_weights(
+            dataset,
+            force_field,
+            {dataset[0]["smiles"]: topology_in},
+            device_type=device_type,
+            normalize=False,
+        )
     )
 
     with torch.no_grad():
@@ -250,12 +161,6 @@ def write_metrics(
                 i,
             )
     outfile.write("\n")
-
-
-def _format_parameter_id(id_: typing.Any) -> str:
-    """Format a parameter ID for display in a table."""
-    id_str = id_ if "EP" not in id_ else id_[: id_.index("EP") + 2]
-    return str(id_str[:60] + (id_str[60:] and "..."))
 
 
 def get_potential_summary(potential: smee.TensorPotential) -> str:

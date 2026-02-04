@@ -1,11 +1,16 @@
 # Changelog
 
-## 0.3.1
+## 0.4.0
 
 ### Improvements
 
 - Improve cleanliness/prettiness of CLI output
 - Reduce memory use during congeneric series fitting in [#17](https://github.com/cole-group/presto/pull/17)
+- Improve test quality, speed, and coverage in [#19](https://github.com/cole-group/presto/pull/19)
+- Update environments with explicit python and cuda versions and document installation with different cuda versions
+
+### Fixes
+
 - Update ParameterConfig defaults so that linear torsions are not trained in [#18](https://github.com/cole-group/presto/pull/18)
 
 ## 0.3.0

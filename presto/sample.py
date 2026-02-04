@@ -47,8 +47,8 @@ _OMM_PS = openmm.unit.picosecond
 _OMM_ANGS = openmm.unit.angstrom
 _OMM_KCAL_PER_MOL = openmm.unit.kilocalorie_per_mole
 _OMM_KCAL_PER_MOL_ANGS = openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom
-_KJ_PER_MOL = openmm.unit.kilojoules_per_mole
-_RADIAN = openmm.unit.radian
+_OMM_KJ_PER_MOL = openmm.unit.kilojoules_per_mole
+_OMM_RADIAN = openmm.unit.radian
 
 
 class SampleFnArgs(TypedDict):
@@ -1349,7 +1349,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 ml_min_simulation,
                 mm_min_simulation,
                 torsion_restraint_force_constant=settings.torsion_restraint_force_constant.value_in_unit(
-                    _KJ_PER_MOL / _RADIAN**2
+                    _OMM_KJ_PER_MOL / _OMM_RADIAN**2
                 ),
                 ml_minimisation_steps=settings.ml_minimisation_steps,
                 mm_minimisation_steps=settings.mm_minimisation_steps,

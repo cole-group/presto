@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches:
-      - "devel"
+      - "main"
   pull_request:
     branches:
-      - "devel"
+      - "main"
   schedule:
     # Weekly tests run by default:
     #   Scheduled workflows run on the latest commit on the default or base branch.
@@ -17,6 +17,14 @@ jobs:
   test:
     name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+        include:
+          - python-version: "3.12"
+            pixi-environment: "cpu-py312"
+          - python-version: "3.13"
+            pixi-environment: "cpu-py313"
 
     steps:
       - uses: actions/checkout@v4
@@ -32,19 +40,19 @@ jobs:
         with:
           pixi-version: v0.63.2
           cache: true
-          environments: cpu
+          environments: ${{ matrix.pixi-environment }}
 
       - name: Lint
         run: |
-          pixi run -e cpu lint
+          pixi run -e ${{ matrix.pixi-environment }} lint
 
       - name: Type check
         run: |
-          pixi run -e cpu type-check
+          pixi run -e ${{ matrix.pixi-environment }} type-check
 
       - name: Run tests
         run: |
-          pixi run -e cpu test
+          pixi run -e ${{ matrix.pixi-environment }} test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4

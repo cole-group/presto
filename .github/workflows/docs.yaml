@@ -2,7 +2,7 @@ name: Publish Documentation
 
 on:
   push:
-    branches: ["devel"]
+    branches: ["main"]
     tags: ["*"]
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     - name: Determine Version
       shell: bash
       run: |
-        if [ "$GITHUB_REF" = "refs/heads/devel" ]; then
+        if [ "$GITHUB_REF" = "refs/heads/main" ]; then
           echo "VERSION=latest" >> $GITHUB_ENV
         elif [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
           VERSION=$(echo $GITHUB_REF | sed 's/refs\/tags\///')
@@ -30,7 +30,7 @@ jobs:
       with:
         pixi-version: v0.63.2
         cache: true
-        environments: cpu
+        environments: cpu-py313
 
     - name: Build and Deploy Documentation
       run: |

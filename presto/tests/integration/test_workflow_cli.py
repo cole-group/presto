@@ -5,8 +5,8 @@ import subprocess
 from ...settings import WorkflowSettings
 
 
-def test_integration_cli(tmp_cwd) -> None:
-    """Test running bespokefit smee via CLI with ethanol, and analysing."""
+def test_workflow_cli(tmp_cwd) -> None:
+    """Test running presto via CLI with ethanol, and analysing."""
 
     # Run the command
     args = [
