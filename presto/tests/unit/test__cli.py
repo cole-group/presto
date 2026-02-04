@@ -52,9 +52,10 @@ class TestWriteDefaultYAML:
         cmd = WriteDefaultYAML(file_name=yaml_path)
         cmd.cli_cmd()
 
-        # Modify the SMILES to a valid one
+        # Modify the SMILES to a valid one and set device_type to cpu
         content = yaml_path.read_text()
         content = content.replace(_DEFAULT_SMILES_PLACEHOLDER, "CCO")
+        content = content.replace("device_type: cuda", "device_type: cpu")
         yaml_path.write_text(content)
 
         # Should be able to load now
@@ -87,6 +88,7 @@ class TestClean:
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(smiles="CCO"),
             output_dir=tmp_path,
+            device_type="cpu",
         )
         yaml_path = tmp_path / "settings.yaml"
         settings.to_yaml(yaml_path)

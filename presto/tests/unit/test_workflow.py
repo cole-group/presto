@@ -64,6 +64,7 @@ class TestWorkflowSettingsPersistence:
             output_dir=tmp_path,
             n_iterations=3,
             memory=True,
+            device_type="cpu",
         )
 
         yaml_path = tmp_path / "test_settings.yaml"
