@@ -12,8 +12,14 @@ authors = [
 license = { text = "MIT" }
 dynamic = ["version"]
 readme = "README.md"
-requires-python = ">=3.11"
-classifiers = ["Programming Language :: Python :: 3"]
+requires-python = ">=3.11,<3.15"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14"
+]
 
 [project.scripts]
 presto = "presto._cli:run_cli"
@@ -66,7 +72,7 @@ preview = ["pixi-build"]
 name = {workspace = true}
 
 [tool.pixi.package.build-dependencies]
-python = ">=3.11"
+python = ">=3.11,<3.15"
 
 [tool.pixi.package.host-dependencies]
 hatchling = "*"
@@ -77,14 +83,49 @@ version = "*"
 channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff"] }
-cpu = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff"] }
-runtime = { features = ["common", "smee_descent", "gpu", "aceff"] }
-mace-runtime = { features = ["common", "smee_descent", "gpu", "mace"] }
+# Default is equivalent to gpu-py313-cuda129
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
+gpu-py313-cuda126 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda126"] }
+gpu-py313-cuda129-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda129"] }
+gpu-py313-cuda126-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda126"] }
+# Different Python versions for testing in CI
+cpu-py311 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py311"] }
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py313"] }
 
 [tool.pixi.dependencies]
-python = ">=3.11"
+python = ">=3.11,<3.15"
 rich = ">=14.3.1,<15"
+
+# -----------------------------
+# Python version features
+# -----------------------------
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+# -----------------------------
+# CUDA version features
+# -----------------------------
+[tool.pixi.feature.cuda129.system-requirements]
+cuda = "12.9"
+
+[tool.pixi.feature.cuda129.dependencies]
+cuda-version = "12.9.*"
+pytorch-gpu = "*"
+
+[tool.pixi.feature.cuda126.system-requirements]
+cuda = "12.6"
+
+[tool.pixi.feature.cuda126.dependencies]
+cuda-version = "12.6.*"
+pytorch-gpu = "*"
 
 # -----------------------------
 # Shared dependencies
