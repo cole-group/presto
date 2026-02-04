@@ -30,7 +30,7 @@ def test_write_scatter(tmp_path):
     filename = tmp_path / "scatter.h5"
 
     # Mock predict function from presto.loss
-    with patch("presto.writers.predict") as mock_predict:
+    with patch("presto.writers.predict_with_weights") as mock_predict:
         # Returns: energy_ref, energy_pred, forces_ref, forces_pred
         mock_predict.return_value = (
             torch.zeros(n_conf),

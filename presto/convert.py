@@ -16,7 +16,6 @@ from openff.units import unit as off_unit
 
 from .create_types import (
     _add_parameter_with_overwrite,
-    _create_smarts,
     add_types_to_forcefield,
 )
 from .msm import apply_msm_to_molecules
@@ -178,122 +177,6 @@ def convert_to_smirnoff(
                 _add_parameter_with_overwrite(handler, parameter_dict)
 
     return ff_smirnoff
-
-
-def _prepare_potential(
-    mol: openff.toolkit.Molecule,
-    symmetries: list[int],
-    potential: smee.TensorPotential,
-    parameter_map: smee.ValenceParameterMap,
-    max_extend_distance: int = -1,
-    excluded_smirks: list[str] | None = None,
-) -> None:
-    """Prepare a potential to use bespoke parameters for each 'slot'."""
-
-    if not max_extend_distance == -1:
-        raise NotImplementedError("max_extend_distance is not implemented yet.")
-
-    excluded_smirks = excluded_smirks or []
-
-    is_indexed = any(key.mult is not None for key in potential.parameter_keys)
-
-    ids_to_parameter_idxs = collections.defaultdict(set)
-    ids_to_particle_idxs = collections.defaultdict(set)
-
-    ids_to_smarts = {}
-
-    excluded_smirks_to_ids = {}
-
-    for particle_idxs, assignment_row in zip(
-        parameter_map.particle_idxs,
-        parameter_map.assignment_matrix.to_dense(),
-        strict=True,
-    ):
-        particle_idxs = tuple(int(idx) for idx in particle_idxs)
-        particle_ids = tuple(symmetries[idx] for idx in particle_idxs)
-
-        if potential.type != "ImproperTorsions" and particle_ids[-1] < particle_ids[0]:
-            particle_ids = particle_ids[::-1]
-
-        parameter_idxs = [
-            parameter_idx
-            for parameter_idx, value in enumerate(assignment_row)
-            if int(value) != 0
-        ]
-        assert len(parameter_idxs) == 1
-
-        initial_smarts = potential.parameter_keys[parameter_idxs[0]].id
-
-        if initial_smarts in excluded_smirks:
-            if initial_smarts not in excluded_smirks_to_ids:
-                excluded_smirks_to_ids[initial_smarts] = particle_ids
-            else:
-                particle_ids = excluded_smirks_to_ids[initial_smarts]
-
-        ids_to_parameter_idxs[particle_ids].add(parameter_idxs[0])
-        ids_to_particle_idxs[particle_ids].add(particle_idxs)
-
-        if potential.type == "ImproperTorsions":
-            particle_idxs = (
-                particle_idxs[1],
-                particle_idxs[0],
-                particle_idxs[2],
-                particle_idxs[3],
-            )
-
-        if initial_smarts in excluded_smirks:
-            ids_to_smarts[particle_ids] = initial_smarts
-        else:
-            ids_to_smarts[particle_ids] = _create_smarts(mol, particle_idxs)
-
-    sorted_ids_to_parameter_idxs = {
-        particle_ids: sorted(parameter_idxs)
-        for particle_ids, parameter_idxs in ids_to_parameter_idxs.items()
-    }
-
-    parameter_ids = [
-        (particle_ids, parameter_idx)
-        for particle_ids, parameter_idxs in sorted_ids_to_parameter_idxs.items()
-        for parameter_idx in parameter_idxs
-    ]
-    potential.parameters = potential.parameters[
-        [parameter_idx for _, parameter_idx in parameter_ids]
-    ]
-    potential.parameter_keys = [
-        openff.interchange.models.PotentialKey(
-            id=ids_to_smarts[particle_ids],
-            mult=(
-                sorted_ids_to_parameter_idxs[particle_ids].index(parameter_idx)
-                if is_indexed
-                else None
-            ),
-            associated_handler=potential.type,
-            bond_order=None,
-            virtual_site_type=None,
-            cosmetic_attributes={},
-        )
-        for particle_ids, parameter_idx in parameter_ids
-    ]
-
-    assignment_matrix = smee.utils.zeros_like(
-        (len(parameter_map.particle_idxs), len(potential.parameters)),
-        parameter_map.assignment_matrix,
-    )
-
-    particle_idxs_updated: list[tuple[int, ...]] = []
-
-    for particle_ids, particle_idxs in ids_to_particle_idxs.items():
-        for particle_idx in particle_idxs:
-            for parameter_idx in sorted_ids_to_parameter_idxs[particle_ids]:
-                j = parameter_ids.index((particle_ids, parameter_idx))
-
-                assignment_matrix[len(particle_idxs_updated), j] = 1
-                particle_idxs_updated.append(particle_idx)
-
-    parameter_map.particle_idxs = smee.utils.tensor_like(
-        particle_idxs_updated, parameter_map.particle_idxs
-    )
-    parameter_map.assignment_matrix = assignment_matrix.to_sparse()
 
 
 def parameterise(

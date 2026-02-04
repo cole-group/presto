@@ -15,8 +15,10 @@ from openmm.unit import is_quantity, kelvin, kilojoules_per_mole, picosecond
 from presto.metadynamics import Metadynamics
 
 
+# Adapted from https://github.com/openmm/openmm/blob/8eeee16de9bc772321ae2b87672700b076913b56/wrappers/python/tests/TestMetadynamics.py#L6
 def test_harmonic_oscillator():
-    """Test running metadynamics on a harmonic oscillator."""
+    """Check we haven't messed up the independentCVs=False case by testing
+    running metadynamics on a harmonic oscillator with dependent CVs."""
     system = System()
     system.addParticle(1.0)
     system.addParticle(1.0)
@@ -38,7 +40,15 @@ def test_harmonic_oscillator():
     height = 5.0 * kilojoules_per_mole
     frequency = 10
 
-    meta = Metadynamics(system, [bias], temperature, bias_factor, height, frequency)
+    meta = Metadynamics(
+        system,
+        [bias],
+        temperature,
+        bias_factor,
+        height,
+        frequency,
+        independentCVs=False,
+    )
 
     integrator = LangevinIntegrator(temperature, 10 / picosecond, 0.001 * picosecond)
     integrator.setRandomNumberSeed(4321)
@@ -57,7 +67,7 @@ def test_harmonic_oscillator():
 
     # Run simulation
     meta.step(
-        simulation, 20000
+        simulation, 200000
     )  # Reduced steps for speed, but let's see if 20000 is enough
 
     fe = meta.getFreeEnergy()

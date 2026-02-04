@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import LossRecord, compute_overall_loss_and_grad, predict
+from .loss import LossRecord, compute_overall_loss_and_grad, predict_with_weights
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -39,12 +39,14 @@ def write_scatter(
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
-    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all = predict(
-        dataset,
-        force_field,
-        {dataset[0]["smiles"]: topology_in},
-        device_type=device_type,
-        normalize=False,
+    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
+        predict_with_weights(
+            dataset,
+            force_field,
+            {dataset[0]["smiles"]: topology_in},
+            device_type=device_type,
+            normalize=False,
+        )
     )
 
     with torch.no_grad():

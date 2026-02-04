@@ -149,68 +149,63 @@ class TestGetMlp:
 class TestSupportsCharges:
     """Tests for supports_charges function."""
 
-    def test_aimnet2_models_support_charges(self):
-        """Test that AIMNet2 models support charges."""
-        assert supports_charges("aimnet2_b973c_d3_ens")
-        assert supports_charges("aimnet2_wb97m_d3_ens")
+    @pytest.mark.parametrize(
+        "model_name",
+        ["aimnet2_b973c_d3_ens", "aimnet2_wb97m_d3_ens", "aceff-2.0"],
+    )
+    def test_models_that_support_charges(self, model_name):
+        """Test that charge-supporting models return True."""
+        assert supports_charges(model_name)
+        assert model_name in _CHARGE_SUPPORTING_MODELS
 
-    def test_aceff_supports_charges(self):
-        """Test that ACEFF-2.0 supports charges."""
-        assert supports_charges("aceff-2.0")
+    @pytest.mark.parametrize(
+        "model_name",
+        ["egret-1", "mace-off23-small", "mace-off23-medium", "mace-off23-large"],
+    )
+    def test_models_that_do_not_support_charges(self, model_name):
+        """Test that non-charge-supporting models return False."""
+        assert not supports_charges(model_name)
 
-    def test_other_models_do_not_support_charges(self):
-        """Test that other models do not support charges."""
-        assert not supports_charges("egret-1")
-        assert not supports_charges("mace-off23-small")
-        assert not supports_charges("mace-off23-medium")
-        assert not supports_charges("mace-off23-large")
-
-    def test_charge_supporting_models_set(self):
-        """Test that the charge supporting models set is correct."""
-        assert "aimnet2_b973c_d3_ens" in _CHARGE_SUPPORTING_MODELS
-        assert "aimnet2_wb97m_d3_ens" in _CHARGE_SUPPORTING_MODELS
-        assert "aceff-2.0" in _CHARGE_SUPPORTING_MODELS
+    def test_charge_supporting_models_count(self):
+        """Test that the charge supporting models set has the correct count."""
         assert len(_CHARGE_SUPPORTING_MODELS) == 3
 
 
 class TestValidateModelChargeCompatibility:
     """Tests for validate_model_charge_compatibility function."""
 
-    def test_neutral_molecule_with_any_model(self):
+    @pytest.mark.parametrize(
+        "model_name",
+        ["egret-1", "mace-off23-small", "aceff-2.0", "aimnet2_b973c_d3_ens"],
+    )
+    def test_neutral_molecule_with_any_model(self, model_name):
         """Test that neutral molecules work with any model."""
         mol = Molecule.from_smiles("CCO")  # Neutral ethanol
         # Should not raise for any model
-        validate_model_charge_compatibility("egret-1", mol)
-        validate_model_charge_compatibility("mace-off23-small", mol)
-        validate_model_charge_compatibility("aceff-2.0", mol)
-        validate_model_charge_compatibility("aimnet2_b973c_d3_ens", mol)
+        validate_model_charge_compatibility(model_name, mol)
 
-    def test_charged_molecule_with_aimnet2(self):
-        """Test that charged molecules work with AIMNet2."""
+    @pytest.mark.parametrize(
+        "model_name",
+        ["aimnet2_b973c_d3_ens", "aimnet2_wb97m_d3_ens", "aceff-2.0"],
+    )
+    def test_charged_molecule_with_supporting_model(self, model_name):
+        """Test that charged molecules work with charge-supporting models."""
         mol = Molecule.from_smiles("[NH4+]")  # Ammonium cation
         # Should not raise
-        validate_model_charge_compatibility("aimnet2_b973c_d3_ens", mol)
-        validate_model_charge_compatibility("aimnet2_wb97m_d3_ens", mol)
+        validate_model_charge_compatibility(model_name, mol)
 
-    def test_charged_molecule_with_aceff(self):
-        """Test that charged molecules work with ACEFF-2.0."""
-        mol = Molecule.from_smiles("[Cl-]")  # Chloride anion
-        # Should not raise
-        validate_model_charge_compatibility("aceff-2.0", mol)
-
-    def test_charged_molecule_with_unsupported_model_raises(self):
+    @pytest.mark.parametrize(
+        "model_name",
+        ["egret-1", "mace-off23-small"],
+    )
+    def test_charged_molecule_with_unsupported_model_raises(self, model_name):
         """Test that charged molecules with unsupported models raise an error."""
         mol = Molecule.from_smiles("[NH4+]")  # Ammonium cation
 
         with pytest.raises(
             InvalidSettingsError, match="does not support charged molecules"
         ):
-            validate_model_charge_compatibility("egret-1", mol)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            validate_model_charge_compatibility("mace-off23-small", mol)
+            validate_model_charge_compatibility(model_name, mol)
 
     def test_error_message_contains_charge_value(self):
         """Test that the error message contains the charge value."""

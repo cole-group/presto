@@ -18,7 +18,6 @@ from presto.data_utils import (
 from presto.loss import (
     compute_overall_loss_and_grad,
     compute_regularisation_loss,
-    predict,
     predict_with_weights,
 )
 
@@ -553,37 +552,6 @@ def ethanol_setup():
     return dataset, tensor_ff, tensor_top, smiles
 
 
-class TestPredictFunction:
-    """Tests for predict function."""
-
-    def test_predict_returns_four_tensors(self, ethanol_setup):
-        """Test that predict returns 4 tensors."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        result = predict(dataset, tensor_ff, {smiles: tensor_top})
-        assert len(result) == 4
-
-    def test_predict_energy_shapes(self, ethanol_setup):
-        """Test that predicted energies have correct shape."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        energy_ref, energy_pred, _, _ = predict(
-            dataset, tensor_ff, {smiles: tensor_top}
-        )
-        assert energy_ref.shape == energy_pred.shape
-        # Just check we have some conformations
-        assert len(energy_ref) >= 1
-
-    def test_predict_forces_shapes(self, ethanol_setup):
-        """Test that predicted forces have correct shape."""
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-
-        _, _, forces_ref, forces_pred = predict(
-            dataset, tensor_ff, {smiles: tensor_top}
-        )
-        assert forces_ref.shape == forces_pred.shape
-
-
 class TestPredictWithWeightsMultipleEntries:
     """Tests for predict_with_weights with multiple entries in a dataset."""
 
@@ -773,20 +741,6 @@ class TestGetLossClosure:
         assert isinstance(loss, torch.Tensor)
         assert grad is None
         assert hess is None
-
-    def test_predict_reference_min(self, ethanol_setup):
-        from presto.loss import predict
-
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-        res = predict(dataset, tensor_ff, {smiles: tensor_top}, reference="min")
-        assert len(res) == 4
-
-    def test_predict_reference_invalid(self, ethanol_setup):
-        from presto.loss import predict
-
-        dataset, tensor_ff, tensor_top, smiles = ethanol_setup
-        with pytest.raises(NotImplementedError):
-            predict(dataset, tensor_ff, {smiles: tensor_top}, reference="invalid")
 
     def test_predict_with_weights_reference_min(self, weighted_ethanol_dataset):
         from presto.loss import predict_with_weights

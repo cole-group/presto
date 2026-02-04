@@ -1,10 +1,13 @@
 """Unit tests for CLI module."""
 
 import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from presto._cli import (
     Analyse,
     Clean,
+    TrainFromCli,
     TrainFromYAML,
     WriteDefaultYAML,
 )
@@ -17,11 +20,6 @@ from presto.settings import (
 
 class TestWriteDefaultYAML:
     """Tests for WriteDefaultYAML command."""
-
-    def test_default_file_name(self):
-        """Test that default file name is set."""
-        cmd = WriteDefaultYAML()
-        assert cmd.file_name is not None
 
     def test_cli_cmd_creates_file(self, tmp_path, monkeypatch):
         """Test that cli_cmd creates a YAML file."""
@@ -66,19 +64,50 @@ class TestWriteDefaultYAML:
 class TestTrainFromYAML:
     """Tests for TrainFromYAML command."""
 
-    def test_default_settings_yaml_path(self):
-        """Test that default settings YAML path is set."""
-        cmd = TrainFromYAML()
-        assert cmd.settings_yaml is not None
+    def test_train_from_yaml_calls_workflow(self):
+        """Test that TrainFromYAML loads settings and calls get_bespoke_force_field."""
+        with (
+            patch("presto._cli.WorkflowSettings.from_yaml") as mock_from_yaml,
+            patch("presto._cli.get_bespoke_force_field") as mock_get_ff,
+        ):
+            mock_settings = MagicMock()
+            mock_from_yaml.return_value = mock_settings
+
+            cmd = TrainFromYAML(settings_yaml=Path("fake.yaml"))
+            cmd.cli_cmd()
+
+            mock_from_yaml.assert_called_once_with(Path("fake.yaml"))
+            mock_get_ff.assert_called_once_with(mock_settings, write_settings=False)
+
+
+class TestTrainFromCli:
+    """Tests for TrainFromCli command."""
+
+    def test_train_from_args_calls_workflow(self):
+        """Test that TrainFromCli calls get_bespoke_force_field with settings."""
+        with patch("presto._cli.get_bespoke_force_field") as mock_get_ff:
+            cmd = TrainFromCli(
+                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+                device_type="cpu",
+            )
+            cmd.cli_cmd()
+            mock_get_ff.assert_called_once()
 
 
 class TestClean:
     """Tests for Clean command."""
 
-    def test_default_settings_yaml_path(self):
-        """Test that default settings YAML path is set."""
-        cmd = Clean()
-        assert cmd.settings_yaml is not None
+    def test_clean_calls_path_manager(self):
+        """Test that Clean loads settings and calls path manager clean."""
+        with patch("presto._cli.WorkflowSettings.from_yaml") as mock_from_yaml:
+            mock_settings = MagicMock()
+            mock_from_yaml.return_value = mock_settings
+
+            cmd = Clean(settings_yaml=Path("fake.yaml"))
+            cmd.cli_cmd()
+
+            mock_from_yaml.assert_called_once_with(Path("fake.yaml"))
+            mock_settings.get_path_manager.return_value.clean.assert_called_once()
 
     def test_cli_cmd_cleans_output(self, tmp_path, monkeypatch):
         """Test that cli_cmd cleans output directory."""
@@ -115,14 +144,24 @@ class TestClean:
 class TestAnalyse:
     """Tests for Analyse command."""
 
-    def test_default_settings_yaml_path(self):
-        """Test that default settings YAML path is set."""
-        cmd = Analyse()
-        assert cmd.settings_yaml is not None
+    def test_analyse_calls_analyse_workflow(self):
+        """Test that Analyse loads settings and calls analyse_workflow."""
+        with (
+            patch("presto._cli.WorkflowSettings.from_yaml") as mock_from_yaml,
+            patch("presto._cli.analyse_workflow") as mock_analyse,
+        ):
+            mock_settings = MagicMock()
+            mock_from_yaml.return_value = mock_settings
+
+            cmd = Analyse(settings_yaml=Path("fake.yaml"))
+            cmd.cli_cmd()
+
+            mock_from_yaml.assert_called_once_with(Path("fake.yaml"))
+            mock_analyse.assert_called_once_with(mock_settings)
 
 
-class TestCLIIntegration:
-    """Integration tests for CLI."""
+class TestCLISubprocess:
+    """Test the CLI via subprocess calls."""
 
     def test_cli_help(self):
         """Test that CLI help works."""

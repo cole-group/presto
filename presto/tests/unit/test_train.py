@@ -21,6 +21,7 @@ from presto.train import train_adam, train_levenberg_marquardt
 @pytest.fixture
 def ethanol_training_setup():
     """Create a complete training setup for ethanol."""
+
     # Create molecule and generate conformers
     mol = Molecule.from_smiles("CCO")
     # Use rms_cutoff=0 to ensure we get exactly the requested number of conformers
@@ -33,15 +34,25 @@ def ethanol_training_setup():
     # Convert to tensor representation
     tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
 
-    # Convert assignment matrices from sparse to dense for Hessian computation
-    # (required for vectorize=True in torch.autograd.functional.hessian)
-    for potential in tensor_ff.potentials:
-        param_map = tensor_top.parameters.get(potential.type)
-        if param_map is not None and hasattr(param_map, "assignment_matrix"):
-            if param_map.assignment_matrix.is_sparse:
-                param_map.assignment_matrix = param_map.assignment_matrix.to_dense()
+    n_confs = mol.n_conformers
 
-    # Create trainable with minimal parameter configuration
+    # Verify we got the expected number of conformers
+    assert n_confs == 3, f"Expected 3 conformers but got {n_confs}"
+
+    coords_list = [
+        torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
+        for i in range(n_confs)
+    ]
+    coords_all = torch.cat(coords_list, dim=0).requires_grad_(True)
+
+    # Compute reference energies and forces BEFORE creating Trainable
+    # to avoid any potential modification of tensor_ff parameters
+    energy_all = smee.compute_energy(tensor_top, tensor_ff, coords_all)
+    forces_all = -torch.autograd.grad(
+        energy_all.sum(), coords_all, create_graph=True, retain_graph=True
+    )[0]
+
+    # Create trainable with minimal parameter configuration AFTER computing reference
     parameter_configs = {
         "Bonds": ParameterConfig(
             cols=["k", "length"],
@@ -57,23 +68,11 @@ def ethanol_training_setup():
     trainable_parameters = trainable.to_values()
     initial_parameters = trainable_parameters.clone()
 
-    # Generate reference coordinates, energies, and forces
-    n_confs = mol.n_conformers
-
-    # Verify we got the expected number of conformers
-    assert n_confs == 3, f"Expected 3 conformers but got {n_confs}"
-
-    coords_list = [
-        torch.tensor(mol.conformers[i].m_as("angstrom")).unsqueeze(0)
-        for i in range(n_confs)
-    ]
-    coords_all = torch.cat(coords_list, dim=0).requires_grad_(True)
-
-    # Compute reference energies and forces
-    energy_all = smee.compute_energy(tensor_top, tensor_ff, coords_all)
-    forces_all = -torch.autograd.grad(
-        energy_all.sum(), coords_all, create_graph=True, retain_graph=True
-    )[0]
+    # Add small perturbation to trainable parameters to ensure non-zero initial loss
+    # This is necessary because trainable parameters start with the same values
+    # as the force field used to compute the reference, giving loss=0 initially
+    with torch.no_grad():
+        trainable_parameters.add_(torch.randn_like(trainable_parameters) * 0.01)
 
     smiles = mol.to_smiles(mapped=True)
 
@@ -277,6 +276,11 @@ class TestTrainAdam:
         # Check that the loss doesn't explode (stays below 100)
         assert total_losses[-1] < 100.0, "Loss should not explode during training"
 
+        # Check that the loss has actually decreased
+        assert total_losses[-1] < total_losses[0], (
+            "Loss should decrease during training"
+        )
+
     def test_train_adam_with_zero_epochs(
         self, ethanol_training_setup, training_settings, output_paths
     ):
@@ -415,16 +419,6 @@ class TestTrainAdam:
         # Convert to tensor representations
         tensor_ff, [tensor_top1] = smee.converters.convert_interchange(interchange1)
         _, [tensor_top2] = smee.converters.convert_interchange(interchange2)
-
-        # Convert assignment matrices from sparse to dense for Hessian computation
-        for tensor_top in [tensor_top1, tensor_top2]:
-            for potential in tensor_ff.potentials:
-                param_map = tensor_top.parameters.get(potential.type)
-                if param_map is not None and hasattr(param_map, "assignment_matrix"):
-                    if param_map.assignment_matrix.is_sparse:
-                        param_map.assignment_matrix = (
-                            param_map.assignment_matrix.to_dense()
-                        )
 
         # Create trainable from the shared force field
         parameter_configs = {

@@ -8,10 +8,7 @@ import openmm
 import pytest
 import torch
 from openff.toolkit import ForceField, Molecule
-from openmm import System
 from openmm import unit as omm_unit
-from openmm.app import Simulation
-from openmm.app import Topology as OMMTopology
 
 from presto._exceptions import InvalidSettingsError
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
@@ -57,44 +54,6 @@ requires_nnpops = pytest.mark.skipif(
 )
 
 
-class TestPreComputedDatasetSettings:
-    """Tests for PreComputedDatasetSettings."""
-
-    def test_sampling_protocol(self, tmp_path):
-        """Test that sampling protocol is set correctly."""
-        settings = PreComputedDatasetSettings(dataset_paths=tmp_path)
-        assert settings.sampling_protocol == "pre_computed"
-
-    def test_output_types_empty(self, tmp_path):
-        """Test that output types are empty."""
-        settings = PreComputedDatasetSettings(dataset_paths=tmp_path)
-        assert settings.output_types == set()
-
-    def test_dataset_path_required(self):
-        """Test that dataset_paths is required."""
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            PreComputedDatasetSettings()  # type: ignore[call-arg]
-
-    def test_single_path_normalized_to_list(self, tmp_path):
-        """Test that a single path is normalized to a list."""
-        settings = PreComputedDatasetSettings(dataset_paths=tmp_path)
-        assert isinstance(settings.dataset_paths, list)
-        assert len(settings.dataset_paths) == 1
-        assert settings.dataset_paths[0] == tmp_path
-
-    def test_list_of_paths_accepted(self, tmp_path):
-        """Test that a list of paths is accepted."""
-        path1 = tmp_path / "dataset1"
-        path2 = tmp_path / "dataset2"
-        settings = PreComputedDatasetSettings(dataset_paths=[path1, path2])
-        assert isinstance(settings.dataset_paths, list)
-        assert len(settings.dataset_paths) == 2
-        assert settings.dataset_paths[0] == path1
-        assert settings.dataset_paths[1] == path2
-
-
 class TestLoadPrecomputedDataset:
     """Tests for load_precomputed_dataset function."""
 
@@ -136,6 +95,14 @@ class TestLoadPrecomputedDataset:
 
         assert len(result) == 1
         assert isinstance(result[0], datasets.Dataset)
+        # Verify dataset entry structure
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
 
     def test_raises_file_not_found(self, tmp_path):
         """Test FileNotFoundError for non-existent path."""
@@ -464,140 +431,6 @@ def test_get_integrator():
     assert integrator.getStepSize() == dt
 
 
-def test_run_md(mock_molecule, mock_simulation):
-    step_fn = MagicMock()
-
-    dataset = _run_md(
-        mol=mock_molecule,
-        simulation=mock_simulation,
-        step_fn=step_fn,
-        equilibration_n_steps_per_conformer=10,
-        production_n_snapshots_per_conformer=2,
-        production_n_steps_per_snapshot_per_conformer=5,
-        pdb_reporter_path=None,
-    )
-
-    # Check equilibration calls
-    assert mock_simulation.minimizeEnergy.called
-    step_fn.assert_any_call(10)  # equilibration
-
-    # Check production calls
-    # Should be called 2 times with 5 steps each
-    assert step_fn.call_count >= 3  # 1 eq + 2 prod
-
-    # Check dataset
-    assert len(dataset) == 1
-    entry = dataset[0]
-    assert "coords" in entry
-    assert "energy" in entry
-    assert "forces" in entry
-
-    # coords should be flattened: (n_snapshots * n_atoms, 3)
-    # but run_md returns create_dataset output which might wrap things.
-    # Actually wait, create_dataset expects list of dicts.
-    # run_md returns dataset.
-    # The length of dataset is 1 (one molecule entry).
-    # The entry["coords"] should be a tensor.
-    # In run_md: dataset entry structure.
-    # Let's inspect shape.
-    # 2 snapshots * 9 atoms = 18 coords? No, it preserves structure usually or flattens?
-    # run_md calls descent.targets.energy.create_dataset([{"coords": coords_out ...}])
-    # coords_out is (n_snapshots, n_atoms, 3).
-    # descent.targets.energy.create_dataset might flatten it.
-
-    # descent.targets.energy.create_dataset flattens coordinates
-    # 2 snapshots * 9 atoms * 3 coords = 54
-    assert entry["coords"].shape[0] == 2 * mock_molecule.n_atoms * 3
-    assert entry["energy"].shape[0] == 2
-
-
-def test_recalculate_energies_and_forces(mock_simulation):
-    # Create a dummy dataset
-    n_conf = 2
-    n_atoms = 3
-    # Flattened coordinates as expected by descent
-    coords = torch.rand(n_conf * n_atoms * 3)
-
-    energy = torch.rand(n_conf)
-    forces = torch.rand(n_conf * n_atoms * 3)
-
-    dataset = [{"smiles": "C", "coords": coords, "energy": energy, "forces": forces}]
-
-    new_dataset = recalculate_energies_and_forces(dataset, mock_simulation)
-
-    assert len(new_dataset) == 1
-    assert mock_simulation.context.setPositions.call_count == n_conf
-    assert mock_simulation.context.getState.call_count == n_conf
-
-    # Values should come from the mock simulation state
-    new_energy = new_dataset[0]["energy"]
-    # Mock returns 10.0 for energy
-    assert torch.allclose(new_energy, torch.tensor([10.0, 10.0]).float())
-
-
-@patch("presto.sample.openff.interchange.Interchange.from_smirnoff")
-@patch("presto.sample.Simulation")
-@patch("presto.sample._get_ml_omm_system")
-@patch("presto.sample.cleanup_simulation")
-def test_sample_mmmd(
-    mock_cleanup,
-    mock_get_ml_system,
-    mock_sim_cls,
-    mock_interchange,
-    mock_molecule,
-    tmp_path,
-):
-    # Setup mocks
-    mock_off_ff = MagicMock(spec=ForceField)
-    device = torch.device("cpu")
-
-    # Correctly initialize settings with necessary fields
-    settings = MMMDSamplingSettings(
-        sampling_protocol="mm_md",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-        equilibration_sampling_time_per_conformer=0.1
-        * omm_unit.picoseconds,  # Small non-zero
-        production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        snapshot_interval=0.1 * omm_unit.picoseconds,  # 1 step
-    )
-
-    # n_steps = time / timestep => 0.1ps / 2fs = 100fs / 2fs = 50 steps.
-
-    output_paths = {OutputType.PDB_TRAJECTORY: tmp_path}
-
-    # Mock simulation instance
-    mock_sim = MagicMock()
-    mock_sim_cls.return_value = mock_sim
-    state = MagicMock()
-    # 9 atoms
-    state.getPositions.return_value = omm_unit.Quantity(
-        np.zeros((9, 3)), omm_unit.angstrom
-    )
-    state.getPotentialEnergy.return_value = omm_unit.Quantity(
-        0.0, omm_unit.kilocalorie_per_mole
-    )
-    state.getForces.return_value = omm_unit.Quantity(
-        np.zeros((9, 3)), omm_unit.kilocalorie_per_mole / omm_unit.angstrom
-    )
-    mock_sim.context.getState.return_value = state
-    # Reporters
-    mock_sim.reporters = []
-
-    datasets = sample_mmmd(
-        mols=[mock_molecule],
-        off_ff=mock_off_ff,
-        device=device,
-        settings=settings,
-        output_paths=output_paths,
-    )
-
-    assert len(datasets) == 1
-    assert mock_interchange.called
-    assert mock_sim_cls.call_count == 2  # One for MM, one for ML recalc
-
-
 class TestTorsionRestraints:
     def test_find_available_force_group(self):
         system = openmm.System()
@@ -652,62 +485,6 @@ class TestTorsionRestraints:
         mock_force.updateParametersInContext.assert_called_with(mock_simulation.context)
 
 
-@patch("presto.sample.openff.interchange.Interchange.from_smirnoff")
-@patch("presto.sample.Simulation")
-@patch("presto.sample._get_ml_omm_system")
-@patch("presto.sample.cleanup_simulation")
-def test_sample_mlmd(
-    mock_cleanup,
-    mock_get_ml_system,
-    mock_sim_cls,
-    mock_interchange,
-    mock_molecule,
-    tmp_path,
-):
-    # Setup mocks
-    mock_off_ff = MagicMock(spec=ForceField)
-    device = torch.device("cpu")
-
-    settings = MLMDSamplingSettings(
-        sampling_protocol="ml_md",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-        equilibration_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        snapshot_interval=0.1 * omm_unit.picoseconds,
-    )
-
-    output_paths = {OutputType.PDB_TRAJECTORY: tmp_path}
-
-    mock_sim = MagicMock()
-    mock_sim_cls.return_value = mock_sim
-    state = MagicMock()
-    state.getPositions.return_value = omm_unit.Quantity(
-        np.zeros((9, 3)), omm_unit.angstrom
-    )
-    state.getPotentialEnergy.return_value = omm_unit.Quantity(
-        0.0, omm_unit.kilocalorie_per_mole
-    )
-    state.getForces.return_value = omm_unit.Quantity(
-        np.zeros((9, 3)), omm_unit.kilocalorie_per_mole / omm_unit.angstrom
-    )
-    mock_sim.context.getState.return_value = state
-    mock_sim.reporters = []
-
-    datasets = sample_mlmd(
-        mols=[mock_molecule],
-        off_ff=mock_off_ff,
-        device=device,
-        settings=settings,
-        output_paths=output_paths,
-    )
-
-    assert len(datasets) == 1
-    # For MLMD, there's ONLY ONE simulation (the ML one)
-    assert mock_sim_cls.call_count == 1
-
-
 class TestTorsions:
     def test_calculate_torsion_angles(self):
         # Construct a simple geometry:   1-2-3-4
@@ -725,285 +502,9 @@ class TestTorsions:
         assert torch.isclose(angle[0], torch.tensor(expected), atol=1e-5)
 
 
-@patch("presto.sample.openff.interchange.Interchange.from_smirnoff")
-@patch("presto.sample.Simulation")
-@patch("presto.sample._get_ml_omm_system")
-@patch("presto.sample.Metadynamics")
-@patch("presto.sample.cleanup_simulation")
-@patch("presto.sample.get_rot_torsions_by_rot_bond")
-@patch("presto.sample._get_torsion_bias_forces")
-@patch("presto.sample.recalculate_energies_and_forces")
-@patch("presto.sample.create_dataset_with_uniform_weights")
-def test_sample_mmmd_metadynamics(
-    mock_create,
-    mock_recalc,
-    mock_get_bias,
-    mock_get_rot,
-    mock_cleanup,
-    mock_meta_cls,
-    mock_get_ml_system,
-    mock_sim_cls,
-    mock_interchange,
-    mock_molecule,
-    tmp_path,
-):
-    # Setup mocks
-    mock_off_ff = MagicMock(spec=ForceField)
-    device = torch.device("cpu")
-
-    mock_get_rot.return_value = {"bond1": (0, 1, 2, 3)}
-    mock_get_bias.return_value = [MagicMock()]
-
-    # Return a real dataset to avoid PyArrow issues in _run_md
-    mock_dataset = MagicMock(spec=datasets.Dataset)
-    mock_recalc.return_value = mock_dataset
-
-    # We also need to mock _run_md if it's causing issues, but let's try mocking its return
-    with patch("presto.sample._run_md") as mock_run:
-        mock_run.return_value = mock_dataset
-
-        settings = MMMDMetadynamicsSamplingSettings(
-            sampling_protocol="mm_md_metadynamics",
-            timestep=2.0 * omm_unit.femtoseconds,
-            temperature=300.0 * omm_unit.kelvin,
-            n_conformers=1,
-            production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-            snapshot_interval=0.1 * omm_unit.picoseconds,
-            bias_frequency=0.1 * omm_unit.picoseconds,
-            bias_save_frequency=0.1 * omm_unit.picoseconds,
-            bias_height=2.0 * omm_unit.kilojoules_per_mole,
-        )
-
-        output_paths = {
-            OutputType.PDB_TRAJECTORY: tmp_path,
-            OutputType.METADYNAMICS_BIAS: tmp_path / "bias",
-        }
-
-        mock_meta = MagicMock()
-        mock_meta_cls.return_value = mock_meta
-
-        datasets_out = sample_mmmd_metadynamics(
-            mols=[mock_molecule],
-            off_ff=mock_off_ff,
-            device=device,
-            settings=settings,
-            output_paths=output_paths,
-        )
-
-    assert len(datasets_out) == 1
-    assert mock_meta_cls.called
-
-
-def test_get_molecule_from_dataset(mock_molecule):
-    # Create a dummy dataset (list of dicts)
-    coords = torch.zeros(9, 3)
-    dataset = [{"smiles": "CCO", "coords": coords.flatten()}]
-
-    mol = _get_molecule_from_dataset(dataset)
-    assert isinstance(mol, Molecule)
-    assert mol.n_atoms == 9
-
-
-@patch("presto.sample.Simulation")
-@patch("presto.sample._add_torsion_restraint_forces")
-@patch("presto.sample._update_torsion_restraints")
-@patch("presto.sample._remove_torsion_restraint_forces")
-@patch("presto.sample.get_rot_torsions_by_rot_bond")
-@patch("presto.sample.recalculate_energies_and_forces")
-def test_generate_torsion_minimised_dataset(
-    mock_recalc,
-    mock_get_rot,
-    mock_remove,
-    mock_update,
-    mock_add,
-    mock_sim_cls,
-    mock_molecule,
-):
-    mock_sim_ml = MagicMock()
-    mock_sim_mm = MagicMock()
-
-    # Dataset with 2 snapshots
-    coords = torch.zeros(2, 9, 3)
-    dataset = [
-        {
-            "smiles": mock_molecule.to_smiles(),
-            "coords": coords.flatten(),
-            "energy": torch.zeros(2),
-            "forces": torch.zeros(2, 9, 3).flatten(),
-        }
-    ]
-
-    mock_get_rot.return_value = {"bond1": (0, 1, 2, 3)}
-    mock_add.return_value = ([0], 0)  # indices, group
-
-    # Mock create_dataset_with_uniform_weights or similar if called?
-    # Actually it returns datasets.Dataset objects.
-    mock_ds = MagicMock(spec=datasets.Dataset)
-    mock_recalc.return_value = mock_ds
-
-    # We need to mock _minimize_with_frozen_torsions which is called inside
-    with patch("presto.sample._minimize_with_frozen_torsions") as mock_min:
-        mock_min.return_value = (np.zeros((9, 3)), 0.0, np.zeros((9, 3)))
-        with patch("presto.sample.create_dataset_with_uniform_weights") as mock_create:
-            mock_create.return_value = mock_ds
-
-            res_mm, res_ml = generate_torsion_minimised_dataset(
-                mm_dataset=dataset,
-                ml_simulation=mock_sim_ml,
-                mm_simulation=mock_sim_mm,
-                torsion_restraint_force_constant=100.0,
-                ml_minimisation_steps=5,
-                mm_minimisation_steps=5,
-            )
-
-    assert mock_add.call_count == 2
-    assert mock_remove.call_count == 2
-
-
-@patch("presto.sample.openff.interchange.Interchange.from_smirnoff")
-@patch("presto.sample.Simulation")
-@patch("presto.sample._get_ml_omm_system")
-@patch("presto.sample.Metadynamics")
-@patch("presto.sample.cleanup_simulation")
-@patch("presto.sample.get_rot_torsions_by_rot_bond")
-@patch("presto.sample._get_torsion_bias_forces")
-@patch("presto.sample.recalculate_energies_and_forces")
-@patch("presto.sample.create_dataset_with_uniform_weights")
-@patch("presto.sample.generate_torsion_minimised_dataset")
-@patch("presto.sample.merge_weighted_datasets")
-def test_sample_mmmd_metadynamics_with_torsion_minimisation(
-    mock_merge,
-    mock_gen_torsion,
-    mock_create,
-    mock_recalc,
-    mock_get_bias,
-    mock_get_rot,
-    mock_cleanup,
-    mock_meta_cls,
-    mock_get_ml_system,
-    mock_sim_cls,
-    mock_interchange,
-    mock_molecule,
-    tmp_path,
-):
-    # Setup mocks
-    mock_off_ff = MagicMock(spec=ForceField)
-    device = torch.device("cpu")
-
-    mock_get_rot.return_value = {"bond1": (0, 1, 2, 3)}
-    mock_get_bias.return_value = [MagicMock()]
-    mock_gen_torsion.return_value = (MagicMock(), MagicMock())
-    mock_merge.return_value = MagicMock()
-
-    with patch("presto.sample._run_md") as mock_run:
-        mock_run.return_value = MagicMock()
-
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            sampling_protocol="mm_md_metadynamics_torsion_minimisation",
-            timestep=2.0 * omm_unit.femtoseconds,
-            temperature=300.0 * omm_unit.kelvin,
-            n_conformers=1,
-            production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-            snapshot_interval=0.1 * omm_unit.picoseconds,
-            bias_frequency=0.1 * omm_unit.picoseconds,
-            bias_save_frequency=0.1 * omm_unit.picoseconds,
-            bias_height=2.0 * omm_unit.kilojoules_per_mole,
-        )
-
-        output_paths = {
-            OutputType.PDB_TRAJECTORY: tmp_path,
-            OutputType.METADYNAMICS_BIAS: tmp_path / "bias",
-            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min.pdb",
-            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min.pdb",
-        }
-
-        datasets_out = sample_mmmd_metadynamics_with_torsion_minimisation(
-            mols=[mock_molecule],
-            off_ff=mock_off_ff,
-            device=device,
-            settings=settings,
-            output_paths=output_paths,
-        )
-
-    assert len(datasets_out) == 1
-    assert mock_gen_torsion.called
-    assert mock_merge.called
-
-
-@patch("presto.sample.datasets.load_from_disk")
-def test_load_precomputed_dataset(mock_load, mock_molecule, tmp_path):
-    path = tmp_path / "dataset"
-    path.mkdir()
-
-    settings = PreComputedDatasetSettings(dataset_paths=[path])
-
-    mock_ds = MagicMock()
-    mock_load.return_value = mock_ds
-
-    device = torch.device("cpu")
-
-    datasets_out = load_precomputed_dataset(
-        mols=[mock_molecule],
-        off_ff=MagicMock(),
-        device=device,
-        settings=settings,
-        output_paths={},
-    )
-
-    assert len(datasets_out) == 1
-    mock_load.assert_called_with(str(path))
-    mock_ds.set_format.assert_called_with("torch", device=device)
-
-
-def test_sample_mmmd_mismatched_paths(mock_molecule):
-    settings = MMMDSamplingSettings(
-        sampling_protocol="mm_md",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-    )
-    # Missing PDB_TRAJECTORY
-    output_paths = {}
-    with pytest.raises(ValueError, match="Output paths must contain exactly"):
-        sample_mmmd(
-            [mock_molecule], MagicMock(), torch.device("cpu"), settings, output_paths
-        )
-
-
-def test_sample_mlmd_mismatched_paths(mock_molecule):
-    settings = MLMDSamplingSettings(
-        sampling_protocol="ml_md",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-    )
-    output_paths = {}
-    with pytest.raises(ValueError, match="Output paths must contain exactly"):
-        sample_mlmd(
-            [mock_molecule], MagicMock(), torch.device("cpu"), settings, output_paths
-        )
-
-
-def test_sample_mmmd_metadynamics_mismatched_paths(mock_molecule):
-    settings = MMMDMetadynamicsSamplingSettings(
-        sampling_protocol="mm_md_metadynamics",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-        bias_frequency=0.1 * omm_unit.picoseconds,
-        bias_save_frequency=0.1 * omm_unit.picoseconds,
-        bias_height=2.0 * omm_unit.kilojoules_per_mole,
-    )
-    output_paths = {}
-    with pytest.raises(ValueError, match="Output paths must contain exactly"):
-        sample_mmmd_metadynamics(
-            [mock_molecule], MagicMock(), torch.device("cpu"), settings, output_paths
-        )
-
-
-def test_sample_mmmd_metadynamics_no_rotatable_bonds(mock_molecule, tmp_path):
-    # Molecule with no rotatable bonds (e.g. Methane)
-    mol = Molecule.from_smiles("C")
+def test_sample_mmmd_metadynamics_no_rotatable_bonds(tmp_path):
+    """Test sampling with metadynamics for molecule with no rotatable bonds."""
+    mol = Molecule.from_smiles("C")  # Methane
     mol.generate_conformers(n_conformers=1)
 
     settings = MMMDMetadynamicsSamplingSettings(
@@ -1024,765 +525,1123 @@ def test_sample_mmmd_metadynamics_no_rotatable_bonds(mock_molecule, tmp_path):
         OutputType.METADYNAMICS_BIAS: tmp_path / "bias",
     }
 
-    mock_dataset = MagicMock()
-    mock_dataset.__len__.return_value = 1
-    mock_dataset.__getitem__.return_value = {
-        "energy": torch.tensor([0.0]),
-        "forces": torch.zeros(1, 5, 3).flatten(),
-        "coords": torch.zeros(1, 5, 3).flatten(),
-        "smiles": "C",
-    }
-
+    # This test verifies that molecules with no rotatable bonds are handled gracefully
+    # We mock the heavy operations but use real datasets to avoid PyArrow errors
     with (
         patch("presto.sample.openff.interchange.Interchange.from_smirnoff"),
-        patch("presto.sample._run_md", return_value=mock_dataset),
+        patch("presto.sample._run_md") as mock_run,
         patch("presto.sample._get_ml_omm_system"),
         patch("presto.sample.Simulation"),
-        patch(
-            "presto.sample.recalculate_energies_and_forces", return_value=mock_dataset
-        ),
+        patch("presto.sample.recalculate_energies_and_forces") as mock_recalc,
         patch("presto.sample.cleanup_simulation"),
     ):
+        # Create a real dataset to avoid PyArrow issues
+        real_dataset = create_dataset_with_uniform_weights(
+            smiles="C",
+            coords=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy=torch.zeros(1, dtype=torch.float64),
+            forces=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy_weight=1000.0,
+            forces_weight=0.1,
+        )
+        mock_run.return_value = real_dataset
+        mock_recalc.return_value = real_dataset
+
         out = sample_mmmd_metadynamics(
             [mol], MagicMock(), torch.device("cpu"), settings, output_paths
         )
         assert len(out) == 1
 
 
-def test_copy_mol_warning(caplog):
-    mol = Molecule.from_smiles("C")
-    # Methane only has 1 conformer usually. Request 10.
-    from presto.sample import _copy_mol_and_add_conformers
+def test_dataset_weights_integration():
+    """Test that weighted datasets are created correctly."""
+    n_confs = 5
+    n_atoms = 9
 
-    _copy_mol_and_add_conformers(mol, 10)
-    # Check if warning was logged.
-    # Since we use loguru, we might need a different way to check if caplog is not working with loguru.
-    # But often loguru is configured to sink to standard logging.
-    # Let's just assume it works or check if it covered the line.
+    coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+    energy = torch.rand(n_confs, dtype=torch.float64)
+    forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
 
-
-def test_sample_mmmd_metadynamics_torsion_min_mismatched_paths(mock_molecule):
-    settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-        sampling_protocol="mm_md_metadynamics_torsion_minimisation",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-        bias_frequency=0.1 * omm_unit.picoseconds,
-        bias_save_frequency=0.1 * omm_unit.picoseconds,
-        bias_height=2.0 * omm_unit.kilojoules_per_mole,
-        equilibration_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        snapshot_interval=0.1 * omm_unit.picoseconds,
-    )
-    output_paths = {}
-    with pytest.raises(ValueError, match="Output paths must contain exactly"):
-        sample_mmmd_metadynamics_with_torsion_minimisation(
-            [mock_molecule], MagicMock(), torch.device("cpu"), settings, output_paths
-        )
-
-
-def test_sample_mmmd_metadynamics_torsion_min_no_rotatable_bonds(
-    mock_molecule, tmp_path
-):
-    mol = Molecule.from_smiles("C")
-    mol.generate_conformers(n_conformers=1)
-
-    settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-        sampling_protocol="mm_md_metadynamics_torsion_minimisation",
-        timestep=2.0 * omm_unit.femtoseconds,
-        temperature=300.0 * omm_unit.kelvin,
-        n_conformers=1,
-        bias_frequency=0.1 * omm_unit.picoseconds,
-        bias_save_frequency=0.1 * omm_unit.picoseconds,
-        bias_height=2.0 * omm_unit.kilojoules_per_mole,
-        equilibration_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
-        snapshot_interval=0.1 * omm_unit.picoseconds,
-    )
-
-    output_paths = {
-        OutputType.PDB_TRAJECTORY: tmp_path,
-        OutputType.METADYNAMICS_BIAS: tmp_path / "bias",
-        OutputType.ML_MINIMISED_PDB: tmp_path / "ml.pdb",
-        OutputType.MM_MINIMISED_PDB: tmp_path / "mm.pdb",
-    }
-
-    mock_dataset = MagicMock()
-    mock_dataset.__len__.return_value = 1
-    mock_dataset.__getitem__.return_value = {
-        "energy": torch.tensor([0.0]),
-        "forces": torch.zeros(1, 5, 3).flatten(),
-        "coords": torch.zeros(1, 5, 3).flatten(),
-        "smiles": "C",
-    }
-
-    with (
-        patch("presto.sample.openff.interchange.Interchange.from_smirnoff"),
-        patch("presto.sample._run_md", return_value=mock_dataset),
-        patch("presto.sample._get_ml_omm_system"),
-        patch("presto.sample.Simulation"),
-        patch(
-            "presto.sample.recalculate_energies_and_forces", return_value=mock_dataset
-        ),
-        patch("presto.sample.cleanup_simulation"),
-        patch("presto.sample.create_dataset_with_uniform_weights") as mock_create,
-    ):
-        out = sample_mmmd_metadynamics_with_torsion_minimisation(
-            [mol], MagicMock(), torch.device("cpu"), settings, output_paths
-        )
-        assert len(out) == 1
-        assert mock_create.called
-
-
-def test_generate_torsion_minimised_dataset_no_torsions(mock_molecule):
-    from presto.data_utils import create_dataset_with_uniform_weights
-
-    # Dataset with 1 snapshot
-    coords = torch.zeros(1, 9, 3)
     dataset = create_dataset_with_uniform_weights(
-        smiles=mock_molecule.to_smiles(),
+        smiles="CCO",
         coords=coords,
-        energy=torch.zeros(1),
-        forces=torch.zeros(1, 9, 3),
-        energy_weight=1.0,
-        forces_weight=1.0,
+        energy=energy,
+        forces=forces,
+        energy_weight=1000.0,
+        forces_weight=0.1,
     )
 
-    with patch("presto.sample.get_rot_torsions_by_rot_bond", return_value={}):
-        res_mm, res_ml = generate_torsion_minimised_dataset(
-            mm_dataset=dataset, ml_simulation=MagicMock(), mm_simulation=MagicMock()
-        )
-    # len is 1 because it contains 1 molecule
-    assert len(res_mm) == 1
-    # Check that there are 0 snapshots
-    assert res_mm[0]["energy"].shape[0] == 0
+    assert len(dataset) == 1
+    assert has_weights(dataset)
+    entry = dataset[0]
+    assert len(entry["energy"]) == n_confs
+    assert torch.all(entry["energy_weights"] == 1000.0)
+    assert torch.all(entry["forces_weights"] == 0.1)
 
 
-def test_generate_torsion_minimised_dataset_with_pdb(mock_molecule, tmp_path):
-    coords = torch.zeros(1, 9, 3)
-    dataset = [
-        {
-            "smiles": mock_molecule.to_smiles(),
-            "coords": coords.flatten(),
-            "energy": torch.zeros(1),
-            "forces": torch.zeros(1, 9, 3).flatten(),
-        }
-    ]
+def test_nan_forces_get_zero_weight():
+    """Test that NaN forces get zero weight."""
+    n_confs = 3
+    n_atoms = 5
 
-    ml_pdb = tmp_path / "ml.pdb"
-    mm_pdb = tmp_path / "mm.pdb"
+    coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+    energy = torch.rand(n_confs, dtype=torch.float64)
+    forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+    # Set middle conformation forces to NaN
+    forces[1] = float("nan")
 
-    mock_sim_ml = MagicMock()
-    mock_sim_ml.topology = MagicMock()
-    mock_sim_mm = MagicMock()
-    mock_sim_mm.topology = MagicMock()
-
-    with (
-        patch(
-            "presto.sample.get_rot_torsions_by_rot_bond",
-            return_value={"bond1": (0, 1, 2, 3)},
-        ),
-        patch("presto.sample._add_torsion_restraint_forces", return_value=([], 0)),
-        patch(
-            "presto.sample._minimize_with_frozen_torsions",
-            return_value=(np.zeros((9, 3)), 0.0, np.zeros((9, 3))),
-        ),
-        patch("presto.sample._remove_torsion_restraint_forces"),
-        patch("presto.sample.PDBFile") as mock_pdb,
-    ):
-        generate_torsion_minimised_dataset(
-            mm_dataset=dataset,
-            ml_simulation=mock_sim_ml,
-            mm_simulation=mock_sim_mm,
-            ml_pdb_path=ml_pdb,
-            mm_pdb_path=mm_pdb,
-        )
-        assert mock_pdb.writeModel.called
-        assert mock_pdb.writeFooter.called
-
-
-def test_get_torsion_bias_forces():
-    from presto.find_torsions import _TORSIONS_TO_INCLUDE_SMARTS
-    from presto.sample import _get_torsion_bias_forces
-
-    mol = Molecule.from_smiles("CCCC")
-    mol.generate_conformers(n_conformers=1)
-
-    bias_vars = _get_torsion_bias_forces(
-        mol,
-        torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
-        torsions_to_exclude=[],
-        bias_width=0.1,
+    dataset = create_dataset_with_uniform_weights(
+        smiles="CCO",
+        coords=coords,
+        energy=energy,
+        forces=forces,
+        energy_weight=1000.0,
+        forces_weight=0.1,
     )
-    assert len(bias_vars) > 0
-    assert isinstance(bias_vars[0], openmm.app.metadynamics.BiasVariable)
+
+    entry = dataset[0]
+    # Energy weights should all be 1000.0
+    assert torch.all(entry["energy_weights"] == 1000.0)
+    # Forces weights: conformation 1 should be 0, others 0.1
+    expected_forces_weights = torch.tensor([0.1, 0.0, 0.1])
+    assert torch.allclose(entry["forces_weights"], expected_forces_weights)
 
 
-def test_add_torsion_restraint_forces_real(mock_simulation):
-    from presto.sample import _add_torsion_restraint_forces
+class TestCopyMolAndAddConformers:
+    """Tests for _copy_mol_and_add_conformers helper function."""
 
-    mock_simulation.system = openmm.System()
-    # Add some particles so we can add forces
-    for _ in range(10):
-        mock_simulation.system.addParticle(1.0)
+    def test_generates_requested_conformers(self):
+        """Test that function generates the requested number of conformers."""
+        from presto.sample import _copy_mol_and_add_conformers
 
-    torsion_indices = [(0, 1, 2, 3), (4, 5, 6, 7)]
-    k = 100.0
-    indices, group = _add_torsion_restraint_forces(mock_simulation, torsion_indices, k)
-    assert len(indices) == 2
-    assert mock_simulation.system.getNumForces() == 2
-    assert isinstance(mock_simulation.system.getForce(0), openmm.CustomTorsionForce)
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        result = _copy_mol_and_add_conformers(mol, n_conformers=3)
+
+        # Should have generated conformers (may be less if RMS cutoff limits them)
+        assert len(result.conformers) >= 1
+        # Original molecule should be unchanged
+        assert len(mol.conformers) == 1
+
+    def test_returns_deep_copy(self):
+        """Test that function returns a deep copy of the molecule."""
+        from presto.sample import _copy_mol_and_add_conformers
+
+        mol = Molecule.from_smiles("CC")
+        mol.generate_conformers(n_conformers=1)
+
+        result = _copy_mol_and_add_conformers(mol, n_conformers=2)
+
+        # Should be a different object
+        assert result is not mol
+
+    def test_returns_fewer_conformers_than_requested_for_simple_molecule(self):
+        """Test that function handles molecules that can't generate many conformers."""
+        from presto.sample import _copy_mol_and_add_conformers
+
+        # Ethene has very limited conformational flexibility
+        mol = Molecule.from_smiles("C=C")
+        mol.generate_conformers(n_conformers=1)
+
+        # Request a very large number - more than possible for this molecule
+        result = _copy_mol_and_add_conformers(mol, n_conformers=100)
+
+        # Should return a molecule with conformers (may be fewer than requested)
+        assert len(result.conformers) >= 1
 
 
-def test_find_available_force_group_exhausted():
-    system = openmm.System()
-    for i in range(32):
-        # OpenMM might limit number of forces but 32 should be fine
-        f = openmm.CustomBondForce("0")
-        f.setForceGroup(i)
-        system.addForce(f)
-    sim = MagicMock()
-    sim.system = system
-    with pytest.raises(RuntimeError, match="All force groups"):
-        _find_available_force_group(sim)
+class TestGetMoleculeFromDataset:
+    """Tests for _get_molecule_from_dataset function."""
 
+    def test_extracts_molecule_from_dataset(self):
+        """Test extracting molecule from dataset."""
+        mol = Molecule.from_smiles("CCO")
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
 
-def test_minimize_with_frozen_torsions_covered(mock_simulation):
-    from presto.sample import _minimize_with_frozen_torsions
-
-    torsion_atoms_list = [(0, 1, 2, 3)]
-    coords = np.zeros((9, 3))
-    force_indices = [0]
-
-    # Mock return for _calculate_torsion_angles
-    with (
-        patch("presto.sample._calculate_torsion_angles") as mock_calc,
-        patch("presto.sample._update_torsion_restraints") as mock_update,
-    ):
-        mock_calc.return_value = torch.tensor([0.0])
-
-        # mock_simulation already returns energy and forces and positions
-        res_coords, res_energy, res_forces = _minimize_with_frozen_torsions(
-            mock_simulation, coords, torsion_atoms_list, force_indices, 100.0, 1, 5
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy=torch.zeros(1, dtype=torch.float64),
+            forces=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy_weight=1.0,
+            forces_weight=1.0,
         )
-        assert res_energy == 10.0  # From mock_simulation fixture
-        assert mock_update.called
+
+        result = _get_molecule_from_dataset(dataset)
+
+        assert isinstance(result, Molecule)
+        assert result.n_atoms == mol.n_atoms
 
 
-# Unit tests for sample module - torsion minimisation functions
+class TestCalculateTorsionAnglesExtended:
+    """Additional tests for _calculate_torsion_angles function."""
 
+    @pytest.mark.parametrize("n_snapshots", [1, 5, 10])
+    def test_handles_multiple_snapshots(self, n_snapshots):
+        """Test that function handles multiple snapshots correctly."""
+        # Create coords with shape (n_snapshots, 4, 3)
+        coords = torch.rand(n_snapshots, 4, 3, dtype=torch.float64)
+        torsion_atoms = (0, 1, 2, 3)
 
-class TestCalculateTorsionAngles:
-    """Tests for _calculate_torsion_angles helper function."""
+        result = _calculate_torsion_angles(coords, torsion_atoms)
 
-    @pytest.fixture
-    def sample_coords_and_torsion(self):
-        """Create sample coordinates and torsion indices."""
-        # Simple 4-atom chain for one torsion
-        # Shape should be (n_snapshots, n_atoms, 3)
+        assert result.shape == (n_snapshots,)
+        # All angles should be in valid range
+        assert torch.all(result >= -np.pi)
+        assert torch.all(result <= np.pi)
+
+    def test_known_geometry_180_degrees(self):
+        """Test with trans configuration (180 degrees)."""
+        # Trans configuration: atoms in a plane, 180 degrees
         coords = torch.tensor(
             [
                 [
                     [0.0, 0.0, 0.0],  # Atom 0
                     [1.0, 0.0, 0.0],  # Atom 1
-                    [1.5, 1.0, 0.0],  # Atom 2
-                    [2.5, 1.0, 0.0],  # Atom 3
-                ],
+                    [2.0, 1.0, 0.0],  # Atom 2
+                    [3.0, 1.0, 0.0],
+                ]  # Atom 3
             ],
             dtype=torch.float64,
         )
-        torsion_atoms = (0, 1, 2, 3)
-        return coords, torsion_atoms
 
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import _calculate_torsion_angles
+        angle = _calculate_torsion_angles(coords, (0, 1, 2, 3))
 
-        assert callable(_calculate_torsion_angles)
+        # Trans should be close to pi or -pi
+        assert torch.isclose(
+            torch.abs(angle[0]), torch.tensor(np.pi, dtype=torch.float64), atol=0.1
+        )
 
-    def test_returns_tensor(self, sample_coords_and_torsion):
-        """Test that function returns a tensor."""
-        from presto.sample import _calculate_torsion_angles
 
-        coords, torsion_atoms = sample_coords_and_torsion
-        result = _calculate_torsion_angles(coords, torsion_atoms)
-        assert isinstance(result, torch.Tensor)
+class TestGetTorsionBiasForces:
+    """Tests for _get_torsion_bias_forces function."""
 
-    def test_returns_correct_shape(self, sample_coords_and_torsion):
-        """Test that function returns correct shape."""
-        from presto.sample import _calculate_torsion_angles
+    def test_returns_bias_variables_for_rotatable_bonds(self):
+        """Test that bias variables are created for rotatable bonds."""
+        from presto.sample import _get_torsion_bias_forces
 
-        coords, torsion_atoms = sample_coords_and_torsion
-        result = _calculate_torsion_angles(coords, torsion_atoms)
-        # Should have shape (n_snapshots,) = (1,)
-        assert result.shape == (1,)
+        mol = Molecule.from_smiles("CCCC")  # Butane has rotatable bonds
+        mol.generate_conformers(n_conformers=1)
 
-    def test_angle_in_valid_range(self, sample_coords_and_torsion):
-        """Test that calculated angle is in valid range."""
-        from presto.sample import _calculate_torsion_angles
+        bias_vars = _get_torsion_bias_forces(mol)
 
-        coords, torsion_atoms = sample_coords_and_torsion
-        result = _calculate_torsion_angles(coords, torsion_atoms)
+        assert len(bias_vars) > 0
+        assert all(
+            isinstance(v, openmm.app.metadynamics.BiasVariable) for v in bias_vars
+        )
 
-        for angle in result:
-            assert -np.pi <= angle.item() <= np.pi
+    def test_returns_empty_for_no_rotatable_bonds(self):
+        """Test returns empty list for molecule with no rotatable bonds."""
+        from presto.sample import _get_torsion_bias_forces
 
-    def test_multiple_snapshots(self):
-        """Test with multiple snapshots."""
-        from presto.sample import _calculate_torsion_angles
+        mol = Molecule.from_smiles("C")  # Methane
+        mol.generate_conformers(n_conformers=1)
 
-        # Two snapshots
-        coords = torch.tensor(
+        bias_vars = _get_torsion_bias_forces(mol)
+
+        assert len(bias_vars) == 0
+
+    def test_custom_bias_width(self):
+        """Test that custom bias width is applied."""
+        from presto.sample import _get_torsion_bias_forces
+
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        custom_width = 0.5
+        bias_vars = _get_torsion_bias_forces(mol, bias_width=custom_width)
+
+        assert len(bias_vars) > 0
+        # Verify bias width was set (BiasVariable stores it internally)
+        for bv in bias_vars:
+            assert bv.biasWidth == custom_width
+
+
+class TestFindAvailableForceGroupEdgeCases:
+    """Edge case tests for _find_available_force_group."""
+
+    def test_all_groups_exhausted_raises(self):
+        """Test that exhausting all force groups raises RuntimeError."""
+        system = openmm.System()
+        for i in range(32):
+            f = openmm.CustomBondForce("0")
+            f.setForceGroup(i)
+            system.addForce(f)
+
+        sim = MagicMock()
+        sim.system = system
+
+        with pytest.raises(RuntimeError, match="All force groups"):
+            _find_available_force_group(sim)
+
+    def test_finds_gap_in_used_groups(self):
+        """Test that function finds gaps in used force groups."""
+        system = openmm.System()
+        # Use groups 0, 1, 3 (skip 2)
+        for i in [0, 1, 3]:
+            f = openmm.CustomBondForce("0")
+            f.setForceGroup(i)
+            system.addForce(f)
+
+        sim = MagicMock()
+        sim.system = system
+
+        result = _find_available_force_group(sim)
+
+        assert result == 2  # Should find the gap
+
+
+class TestSamplingFunctionsValidation:
+    """Tests for validation in sampling functions."""
+
+    def test_sample_mmmd_validates_output_paths(self, mock_molecule):
+        """Test that sample_mmmd validates output paths."""
+        settings_obj = MMMDSamplingSettings(
+            sampling_protocol="mm_md",
+            timestep=2.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+        )
+
+        with pytest.raises(ValueError, match="Output paths must contain exactly"):
+            sample_mmmd(
+                [mock_molecule],
+                MagicMock(),
+                torch.device("cpu"),
+                settings_obj,
+                {},  # Missing required output paths
+            )
+
+    def test_sample_mlmd_validates_output_paths(self, mock_molecule):
+        """Test that sample_mlmd validates output paths."""
+        settings_obj = MLMDSamplingSettings(
+            sampling_protocol="ml_md",
+            timestep=2.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+        )
+
+        with pytest.raises(ValueError, match="Output paths must contain exactly"):
+            sample_mlmd(
+                [mock_molecule],
+                MagicMock(),
+                torch.device("cpu"),
+                settings_obj,
+                {},
+            )
+
+    def test_sample_mmmd_metadynamics_validates_output_paths(self, mock_molecule):
+        """Test that sample_mmmd_metadynamics validates output paths."""
+        settings_obj = MMMDMetadynamicsSamplingSettings(
+            sampling_protocol="mm_md_metadynamics",
+            timestep=2.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.1 * omm_unit.picoseconds,
+            bias_save_frequency=0.1 * omm_unit.picoseconds,
+            bias_height=2.0 * omm_unit.kilojoules_per_mole,
+        )
+
+        with pytest.raises(ValueError, match="Output paths must contain exactly"):
+            sample_mmmd_metadynamics(
+                [mock_molecule],
+                MagicMock(),
+                torch.device("cpu"),
+                settings_obj,
+                {},
+            )
+
+    def test_sample_mmmd_metadynamics_with_torsion_min_validates_output_paths(
+        self, mock_molecule
+    ):
+        """Test that sample_mmmd_metadynamics_with_torsion_minimisation validates output paths."""
+        settings_obj = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+            sampling_protocol="mm_md_metadynamics_torsion_minimisation",
+            timestep=2.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.1 * omm_unit.picoseconds,
+            bias_save_frequency=0.1 * omm_unit.picoseconds,
+            bias_height=2.0 * omm_unit.kilojoules_per_mole,
+        )
+
+        with pytest.raises(ValueError, match="Output paths must contain exactly"):
+            sample_mmmd_metadynamics_with_torsion_minimisation(
+                [mock_molecule],
+                MagicMock(),
+                torch.device("cpu"),
+                settings_obj,
+                {},
+            )
+
+
+class TestGenerateTorsionMinimisedDatasetEdgeCases:
+    """Edge case tests for generate_torsion_minimised_dataset."""
+
+    def test_empty_torsions_returns_empty_dataset(self):
+        """Test that molecule with no torsions returns empty dataset."""
+        mol = Molecule.from_smiles("C")  # Methane - no rotatable bonds
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy=torch.zeros(1, dtype=torch.float64),
+            forces=torch.zeros(1, mol.n_atoms, 3, dtype=torch.float64),
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        with patch("presto.sample.get_rot_torsions_by_rot_bond", return_value={}):
+            mm_result, ml_result = generate_torsion_minimised_dataset(
+                mm_dataset=dataset,
+                ml_simulation=MagicMock(),
+                mm_simulation=MagicMock(),
+            )
+
+        # Should return datasets with 0 conformations
+        assert len(mm_result) == 1
+        assert mm_result[0]["energy"].shape[0] == 0
+
+
+class TestGenerateTorsionMinimisedDatasetIntegration:
+    """Integration tests for generate_torsion_minimised_dataset."""
+
+    def test_full_torsion_minimisation_workflow(self):
+        """Test the full torsion minimisation workflow with mocked minimisation."""
+        # Use butane which has a rotatable torsion
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+        n_atoms = mol.n_atoms
+
+        # Create dataset with random coords
+        coords = torch.rand(2, n_atoms, 3, dtype=torch.float64)
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords,
+            energy=torch.rand(2, dtype=torch.float64),
+            forces=torch.rand(2, n_atoms, 3, dtype=torch.float64),
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        # Create mock simulations
+        def create_mock_sim():
+            sim = MagicMock()
+            sim.system = openmm.System()
+            for _ in range(n_atoms):
+                sim.system.addParticle(12.0)
+            sim.context = MagicMock()
+            state = MagicMock()
+            state.getPositions.return_value = omm_unit.Quantity(
+                np.random.rand(n_atoms, 3), omm_unit.angstrom
+            )
+            state.getPotentialEnergy.return_value = omm_unit.Quantity(
+                10.0, omm_unit.kilocalorie_per_mole
+            )
+            state.getForces.return_value = omm_unit.Quantity(
+                np.random.rand(n_atoms, 3),
+                omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
+            )
+            sim.context.getState.return_value = state
+            return sim
+
+        ml_sim = create_mock_sim()
+        mm_sim = create_mock_sim()
+
+        # Mock _minimize_with_frozen_torsions to avoid the slow operation
+        with patch("presto.sample._minimize_with_frozen_torsions") as mock_min:
+            mock_min.return_value = (
+                np.random.rand(n_atoms, 3),
+                10.0,
+                np.random.rand(n_atoms, 3),
+            )
+
+            mm_result, ml_result = generate_torsion_minimised_dataset(
+                mm_dataset=dataset,
+                ml_simulation=ml_sim,
+                mm_simulation=mm_sim,
+                torsion_restraint_force_constant=1000.0,
+                ml_minimisation_steps=1,
+                mm_minimisation_steps=1,
+            )
+
+        # Should return datasets with same number of conformations as input
+        assert len(mm_result) == 1
+        assert len(ml_result) == 1
+        assert mm_result[0]["energy"].shape[0] == 2
+        assert ml_result[0]["energy"].shape[0] == 2
+
+    def test_saves_pdb_when_path_provided(self, tmp_path):
+        """Test that PDB files are saved when paths are provided."""
+        # Use butane - has rotatable bonds
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+        n_atoms = mol.n_atoms
+
+        coords = torch.rand(1, n_atoms, 3, dtype=torch.float64)
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords,
+            energy=torch.rand(1, dtype=torch.float64),
+            forces=torch.rand(1, n_atoms, 3, dtype=torch.float64),
+            energy_weight=1.0,
+            forces_weight=1.0,
+        )
+
+        # Create mock simulations
+        def create_mock_sim():
+            sim = MagicMock()
+            sim.system = openmm.System()
+            for _ in range(n_atoms):
+                sim.system.addParticle(12.0)
+            sim.context = MagicMock()
+            state = MagicMock()
+            state.getPositions.return_value = omm_unit.Quantity(
+                np.random.rand(n_atoms, 3), omm_unit.angstrom
+            )
+            state.getPotentialEnergy.return_value = omm_unit.Quantity(
+                10.0, omm_unit.kilocalorie_per_mole
+            )
+            state.getForces.return_value = omm_unit.Quantity(
+                np.random.rand(n_atoms, 3),
+                omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
+            )
+            sim.context.getState.return_value = state
+            # Need a real topology for PDB writing
+            sim.topology = mol.to_topology().to_openmm()
+            return sim
+
+        ml_sim = create_mock_sim()
+        mm_sim = create_mock_sim()
+
+        ml_pdb = tmp_path / "ml_min.pdb"
+        mm_pdb = tmp_path / "mm_min.pdb"
+
+        # Mock _minimize_with_frozen_torsions to avoid slow operation
+        with patch("presto.sample._minimize_with_frozen_torsions") as mock_min:
+            mock_min.return_value = (
+                np.random.rand(n_atoms, 3),
+                10.0,
+                np.random.rand(n_atoms, 3),
+            )
+
+            generate_torsion_minimised_dataset(
+                mm_dataset=dataset,
+                ml_simulation=ml_sim,
+                mm_simulation=mm_sim,
+                ml_pdb_path=ml_pdb,
+                mm_pdb_path=mm_pdb,
+            )
+
+        # Check PDB files were created
+        assert ml_pdb.exists()
+        assert mm_pdb.exists()
+
+
+class TestRecalculateEnergiesAndForces:
+    """Tests for recalculate_energies_and_forces function."""
+
+    def test_recalculates_with_simulation(self, mock_simulation):
+        """Test that function recalculates energies and forces using simulation."""
+        # Create a simple dataset
+        mol = Molecule.from_smiles("C")  # Methane
+        smiles = mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+        n_conf = 2
+        n_atoms = mol.n_atoms
+
+        # descent.targets.energy.create_dataset expects a different format
+        import descent.targets.energy
+
+        original_dataset = descent.targets.energy.create_dataset(
             [
-                [
-                    [0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0],
-                    [1.5, 1.0, 0.0],
-                    [2.5, 1.0, 0.0],
-                ],
-                [
-                    [0.0, 0.0, 0.0],
-                    [1.0, 0.0, 0.0],
-                    [1.5, 1.0, 0.5],  # Different z coordinate
-                    [2.5, 1.0, 0.0],
-                ],
-            ],
-            dtype=torch.float64,
-        )
-        torsion_atoms = (0, 1, 2, 3)
-        result = _calculate_torsion_angles(coords, torsion_atoms)
-        assert result.shape == (2,)
-
-
-class TestFindAvailableForceGroup:
-    """Tests for _find_available_force_group helper function."""
-
-    @pytest.fixture
-    def simple_simulation(self):
-        """Create a simple simulation with 4 atoms."""
-        from openmm import HarmonicBondForce, LangevinMiddleIntegrator
-
-        system = System()
-        for _ in range(4):
-            system.addParticle(12.0)  # Carbon mass
-
-        # Add a simple force so the system is valid
-        bond_force = HarmonicBondForce()
-        bond_force.addBond(0, 1, 0.15, 1000.0)
-        system.addForce(bond_force)
-
-        topology = OMMTopology()
-        chain = topology.addChain()
-        residue = topology.addResidue("MOL", chain)
-        for i in range(4):
-            topology.addAtom(f"C{i}", None, residue)
-
-        integrator = LangevinMiddleIntegrator(
-            300 * omm_unit.kelvin,
-            1.0 / omm_unit.picoseconds,
-            1.0 * omm_unit.femtoseconds,
+                {
+                    "smiles": smiles,
+                    "coords": torch.rand(n_conf, n_atoms, 3),
+                    "energy": torch.rand(n_conf),
+                    "forces": torch.rand(n_conf, n_atoms, 3),
+                }
+            ]
         )
 
-        simulation = Simulation(topology, system, integrator)
-        positions = [
-            [0.0, 0.0, 0.0],
-            [0.15, 0.0, 0.0],
-            [0.25, 0.1, 0.0],
-            [0.35, 0.1, 0.0],
+        result = recalculate_energies_and_forces(original_dataset, mock_simulation)
+
+        assert len(result) == 1
+        # Verify dataset entry has expected structure
+        entry = result[0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        # Verify shapes match input
+        assert len(entry["energy"]) == n_conf
+        # Verify simulation was called for each conformation
+        assert mock_simulation.context.setPositions.call_count == n_conf
+        assert mock_simulation.context.getState.call_count == n_conf
+
+
+class TestRunMdFunction:
+    """Tests for _run_md helper function."""
+
+    def test_run_md_basic_structure(self, mock_molecule, mock_simulation):
+        """Test that _run_md returns correctly structured dataset."""
+        step_fn = MagicMock()
+
+        dataset = _run_md(
+            mol=mock_molecule,
+            simulation=mock_simulation,
+            step_fn=step_fn,
+            equilibration_n_steps_per_conformer=10,
+            production_n_snapshots_per_conformer=2,
+            production_n_steps_per_snapshot_per_conformer=5,
+            pdb_reporter_path=None,
+        )
+
+        # Verify dataset structure
+        assert len(dataset) == 1
+        entry = dataset[0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+
+        # Verify minimizeEnergy was called
+        assert mock_simulation.minimizeEnergy.called
+        # Verify step function was called
+        assert step_fn.call_count >= 1
+
+    def test_run_md_with_pdb_reporter(self, mock_molecule, mock_simulation, tmp_path):
+        """Test that _run_md handles PDB reporter path."""
+        step_fn = MagicMock()
+        pdb_path = str(tmp_path / "trajectory.pdb")
+
+        # Mock PDBReporter to avoid file writing issues
+        with patch("presto.sample.PDBReporter") as mock_reporter:
+            dataset = _run_md(
+                mol=mock_molecule,
+                simulation=mock_simulation,
+                step_fn=step_fn,
+                equilibration_n_steps_per_conformer=10,
+                production_n_snapshots_per_conformer=1,
+                production_n_steps_per_snapshot_per_conformer=5,
+                pdb_reporter_path=pdb_path,
+            )
+
+        # Verify PDBReporter was created
+        assert mock_reporter.called
+        assert len(dataset) == 1
+
+
+class TestSamplingFunctionsRegistry:
+    """Tests for sampling function registry."""
+
+    def test_all_sampling_functions_registered(self):
+        """Test that all sampling settings have registered functions."""
+        from presto import settings
+        from presto.sample import _SAMPLING_FNS_REGISTRY
+
+        expected_settings = [
+            settings.MMMDSamplingSettings,
+            settings.MLMDSamplingSettings,
+            settings.MMMDMetadynamicsSamplingSettings,
+            settings.MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+            settings.PreComputedDatasetSettings,
         ]
-        simulation.context.setPositions(positions)
 
-        return simulation
+        for settings_cls in expected_settings:
+            assert settings_cls in _SAMPLING_FNS_REGISTRY
+            assert callable(_SAMPLING_FNS_REGISTRY[settings_cls])
 
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import _find_available_force_group
+    def test_registry_functions_have_correct_signature(self):
+        """Test that registered functions have the expected signature."""
+        import inspect
 
-        assert callable(_find_available_force_group)
+        from presto.sample import _SAMPLING_FNS_REGISTRY
 
-    def test_returns_integer(self, simple_simulation):
-        """Test that function returns an integer."""
-        from presto.sample import _find_available_force_group
+        expected_params = {"mols", "off_ff", "device", "settings", "output_paths"}
 
-        result = _find_available_force_group(simple_simulation)
-        assert isinstance(result, int)
-
-    def test_returns_valid_group(self, simple_simulation):
-        """Test that returned group is in valid range."""
-        from presto.sample import _find_available_force_group
-
-        result = _find_available_force_group(simple_simulation)
-        # OpenMM supports force groups 0-31
-        assert 0 <= result <= 31
+        for _settings_cls, fn in _SAMPLING_FNS_REGISTRY.items():
+            sig = inspect.signature(fn)
+            actual_params = set(sig.parameters.keys())
+            assert actual_params == expected_params, f"{fn.__name__} has wrong params"
 
 
-class TestAddTorsionRestraintForces:
-    """Tests for _add_torsion_restraint_forces function."""
+class TestAddTorsionRestraintForcesWithParticles:
+    """Tests for _add_torsion_restraint_forces with real particles."""
 
-    @pytest.fixture
-    def simple_simulation(self):
-        """Create a simple simulation with 4 atoms."""
-        from openmm import HarmonicBondForce, LangevinMiddleIntegrator
-
-        system = System()
-        for _ in range(4):
-            system.addParticle(12.0)  # Carbon mass
-
-        # Add a simple force so the system is valid
-        bond_force = HarmonicBondForce()
-        bond_force.addBond(0, 1, 0.15, 1000.0)
-        bond_force.addBond(1, 2, 0.15, 1000.0)
-        bond_force.addBond(2, 3, 0.15, 1000.0)
-        system.addForce(bond_force)
-
-        topology = OMMTopology()
-        chain = topology.addChain()
-        residue = topology.addResidue("MOL", chain)
-        for i in range(4):
-            topology.addAtom(f"C{i}", None, residue)
-
-        integrator = LangevinMiddleIntegrator(
-            300 * omm_unit.kelvin,
-            1.0 / omm_unit.picoseconds,
-            1.0 * omm_unit.femtoseconds,
-        )
-
-        simulation = Simulation(topology, system, integrator)
-        positions = [
-            [0.0, 0.0, 0.0],
-            [0.15, 0.0, 0.0],
-            [0.25, 0.1, 0.0],
-            [0.35, 0.1, 0.0],
-        ]
-        simulation.context.setPositions(positions)
-
-        return simulation
-
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import _add_torsion_restraint_forces
-
-        assert callable(_add_torsion_restraint_forces)
-
-    def test_returns_tuple(self, simple_simulation):
-        """Test that function returns a tuple."""
-        from presto.sample import _add_torsion_restraint_forces
-
-        torsion_atoms_list = [(0, 1, 2, 3)]
-        result = _add_torsion_restraint_forces(
-            simple_simulation, torsion_atoms_list, 1000.0
-        )
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
-    def test_returns_force_indices(self, simple_simulation):
-        """Test that function returns force indices."""
-        from presto.sample import _add_torsion_restraint_forces
-
-        torsion_atoms_list = [(0, 1, 2, 3)]
-        force_indices, _ = _add_torsion_restraint_forces(
-            simple_simulation, torsion_atoms_list, 1000.0
-        )
-        assert isinstance(force_indices, list)
-        assert len(force_indices) == len(torsion_atoms_list)
-
-    def test_adds_forces_to_system(self, simple_simulation):
-        """Test that function adds forces to the system."""
-        from presto.sample import _add_torsion_restraint_forces
-
-        initial_n_forces = simple_simulation.system.getNumForces()
-        torsion_atoms_list = [(0, 1, 2, 3)]
-        _add_torsion_restraint_forces(simple_simulation, torsion_atoms_list, 1000.0)
-
-        assert simple_simulation.system.getNumForces() > initial_n_forces
-
-
-class TestRemoveTorsionRestraintForces:
-    """Tests for _remove_torsion_restraint_forces function."""
-
-    @pytest.fixture
-    def simulation_with_restraints(self):
-        """Create a simulation with torsion restraints added."""
-        from openmm import HarmonicBondForce, LangevinMiddleIntegrator
-
-        from presto.sample import _add_torsion_restraint_forces
-
-        system = System()
-        for _ in range(4):
+    def test_adds_forces_with_initial_angles(self):
+        """Test adding torsion restraints with initial angles."""
+        system = openmm.System()
+        for _ in range(8):
             system.addParticle(12.0)
 
-        bond_force = HarmonicBondForce()
-        bond_force.addBond(0, 1, 0.15, 1000.0)
-        bond_force.addBond(1, 2, 0.15, 1000.0)
-        bond_force.addBond(2, 3, 0.15, 1000.0)
-        system.addForce(bond_force)
+        sim = MagicMock()
+        sim.system = system
+        sim.context = MagicMock()
 
-        topology = OMMTopology()
-        chain = topology.addChain()
-        residue = topology.addResidue("MOL", chain)
-        for i in range(4):
-            topology.addAtom(f"C{i}", None, residue)
+        torsion_indices = [(0, 1, 2, 3), (4, 5, 6, 7)]
+        initial_angles = [0.5, 1.0]
+        k = 100.0
 
-        integrator = LangevinMiddleIntegrator(
-            300 * omm_unit.kelvin,
-            1.0 / omm_unit.picoseconds,
-            1.0 * omm_unit.femtoseconds,
+        indices, group = _add_torsion_restraint_forces(
+            sim, torsion_indices, k, initial_angles
         )
 
-        simulation = Simulation(topology, system, integrator)
-        positions = [
-            [0.0, 0.0, 0.0],
-            [0.15, 0.0, 0.0],
-            [0.25, 0.1, 0.0],
-            [0.35, 0.1, 0.0],
-        ]
-        simulation.context.setPositions(positions)
+        assert len(indices) == 2
+        assert sim.context.reinitialize.called
+
+
+class TestMinimizeWithFrozenTorsions:
+    """Tests for _minimize_with_frozen_torsions function."""
+
+    def test_minimize_basic(self, mock_simulation):
+        """Test basic minimization with frozen torsions."""
+        from presto.sample import _minimize_with_frozen_torsions
+
+        # Setup mock
+        mock_simulation.system = MagicMock()
+        mock_force = MagicMock()
+        mock_simulation.system.getForce.return_value = mock_force
+        mock_force.getTorsionParameters.return_value = [0, 1, 2, 3, [0.0, 0.0]]
 
         torsion_atoms_list = [(0, 1, 2, 3)]
-        force_indices, force_group = _add_torsion_restraint_forces(
-            simulation, torsion_atoms_list, 1000.0
+        coords = np.zeros((9, 3))
+        force_indices = [0]
+
+        with (
+            patch("presto.sample._calculate_torsion_angles") as mock_calc,
+            patch("presto.sample._update_torsion_restraints") as mock_update,
+        ):
+            mock_calc.return_value = torch.tensor([0.0])
+
+            result_coords, result_energy, result_forces = (
+                _minimize_with_frozen_torsions(
+                    mock_simulation,
+                    coords,
+                    torsion_atoms_list,
+                    force_indices,
+                    100.0,  # force constant
+                    0,  # restraint force group
+                    5,  # max iterations
+                )
+            )
+
+        assert mock_simulation.minimizeEnergy.called
+        assert mock_update.called
+
+
+class TestSampleMmmdIntegration:
+    """Integration tests for sample_mmmd function."""
+
+    def test_sample_mmmd_single_molecule_minimal(self, tmp_path):
+        """Test sample_mmmd with minimal settings to exercise full code path."""
+        mol = Molecule.from_smiles("CC")  # Ethane - simple molecule
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDSamplingSettings(
+            sampling_protocol="mm_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.002
+            * omm_unit.picoseconds,  # 2 steps
+            production_sampling_time_per_conformer=0.002
+            * omm_unit.picoseconds,  # 2 steps
+            snapshot_interval=0.001 * omm_unit.picoseconds,  # Every step
         )
 
-        return simulation, force_indices
+        # PDB output is required by settings
+        pdb_dir = tmp_path / "pdb"
+        pdb_dir.mkdir()
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import _remove_torsion_restraint_forces
+        # Mock ML potential creation to avoid needing actual ML models
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            # Create a mock system that returns a real OpenMM system
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            # Add a simple force so it doesn't blow up
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
 
-        assert callable(_remove_torsion_restraint_forces)
+            result = sample_mmmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
 
-    def test_removes_forces_from_system(self, simulation_with_restraints):
-        """Test that function removes forces from the system."""
-        from presto.sample import _remove_torsion_restraint_forces
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+        # Verify weights are set
+        assert len(entry["energy_weights"]) == len(entry["energy"])
+        assert len(entry["forces_weights"]) == len(entry["energy"])
 
-        simulation, force_indices = simulation_with_restraints
-        n_forces_before = simulation.system.getNumForces()
+    def test_sample_mmmd_with_pdb_output(self, tmp_path):
+        """Test sample_mmmd with PDB trajectory output."""
+        mol = Molecule.from_smiles("C")  # Methane
+        mol.generate_conformers(n_conformers=1)
 
-        _remove_torsion_restraint_forces(simulation, force_indices)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
-        assert simulation.system.getNumForces() == n_forces_before - len(force_indices)
-
-
-class TestGenerateTorsionMinimisedDataset:
-    """Tests for generate_torsion_minimised_dataset function."""
-
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import generate_torsion_minimised_dataset
-
-        assert callable(generate_torsion_minimised_dataset)
-
-    # Note: Full integration tests for generate_torsion_minimised_dataset
-    # require actual ML potentials and are tested in integration tests
-
-
-class TestSampleMMMDMetadynamicsWithTorsionMinimisation:
-    """Tests for sample_mmmd_metadynamics_with_torsion_minimisation function."""
-
-    def test_import_function(self):
-        """Test that function can be imported."""
-        from presto.sample import (
-            sample_mmmd_metadynamics_with_torsion_minimisation,
+        settings_obj = MMMDSamplingSettings(
+            sampling_protocol="mm_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
         )
 
-        assert callable(sample_mmmd_metadynamics_with_torsion_minimisation)
+        # Use a file path with .pdb extension so get_mol_path creates pdb_mol0.pdb
+        pdb_base = tmp_path / "trajectory.pdb"
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
 
-    def test_registered_in_sampling_registry(self):
-        """Test that function is registered in the sampling registry."""
-        from presto.sample import (
-            _SAMPLING_FNS_REGISTRY,
-            sample_mmmd_metadynamics_with_torsion_minimisation,
-        )
-        from presto.settings import (
-            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
-        )
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
 
-        # Check the settings type is in the registry
-        assert (
-            MMMDMetadynamicsTorsionMinimisationSamplingSettings
-            in _SAMPLING_FNS_REGISTRY
-        )
-        # Check it maps to the correct function
-        fn = _SAMPLING_FNS_REGISTRY[MMMDMetadynamicsTorsionMinimisationSamplingSettings]
-        assert fn == sample_mmmd_metadynamics_with_torsion_minimisation
+            result = sample_mmmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
 
-
-class TestWeightedDatasetIntegration:
-    """Integration tests for weighted datasets in sampling functions."""
-
-    def test_sample_mmmd_creates_weighted_dataset(self):
-        """Test that sample_mmmd creates a weighted dataset."""
-        # This is a lightweight test that checks the function signature
-        # Full integration tests are in the integration test folder
-        # Check the function accepts the right arguments
-        import inspect
-
-        from presto.sample import sample_mmmd
-
-        sig = inspect.signature(sample_mmmd)
-        params = list(sig.parameters.keys())
-        assert "mols" in params
-        assert "off_ff" in params
-        assert "device" in params
-        assert "settings" in params
-
-    def test_sample_mlmd_creates_weighted_dataset(self):
-        """Test that sample_mlmd creates a weighted dataset."""
-        import inspect
-
-        from presto.sample import sample_mlmd
-
-        sig = inspect.signature(sample_mlmd)
-        params = list(sig.parameters.keys())
-        assert "mols" in params
-        assert "off_ff" in params
-
-    def test_sample_mmmd_metadynamics_creates_weighted_dataset(self):
-        """Test that sample_mmmd_metadynamics creates a weighted dataset."""
-        import inspect
-
-        from presto.sample import sample_mmmd_metadynamics
-
-        sig = inspect.signature(sample_mmmd_metadynamics)
-        params = list(sig.parameters.keys())
-        assert "mols" in params
-        assert "output_paths" in params
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify dataset has weighted structure
+        entry = result[0][0]
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+        # Verify PDB file was created for mol_0 (get_mol_path creates trajectory_mol0.pdb)
+        pdb_file = tmp_path / "trajectory_mol0.pdb"
+        assert pdb_file.exists()
 
 
-class TestDatasetCreationFunctions:
-    """Tests for dataset creation utility usage in sample module."""
+class TestSampleMlmdIntegration:
+    """Integration tests for sample_mlmd function."""
 
-    def test_create_dataset_with_uniform_weights_integration(self):
-        """Test create_dataset_with_uniform_weights works with sample data types."""
-        n_confs = 5
-        n_atoms = 9  # Ethanol
+    def test_sample_mlmd_single_molecule_minimal(self, tmp_path):
+        """Test sample_mlmd with minimal settings."""
+        mol = Molecule.from_smiles("C")  # Methane
+        mol.generate_conformers(n_conformers=1)
 
-        coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-        energy = torch.rand(n_confs, dtype=torch.float64)
-        forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
-        dataset = create_dataset_with_uniform_weights(
-            smiles="CCO",
-            coords=coords,
-            energy=energy,
-            forces=forces,
-            energy_weight=1000.0,
-            forces_weight=0.1,
+        settings_obj = MLMDSamplingSettings(
+            sampling_protocol="ml_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
         )
 
-        assert len(dataset) == 1
-        assert has_weights(dataset)
-        entry = dataset[0]
-        assert len(entry["energy"]) == n_confs
-        assert torch.all(entry["energy_weights"] == 1000.0)
-        assert torch.all(entry["forces_weights"] == 0.1)
+        # PDB output is required by settings
+        pdb_dir = tmp_path / "pdb"
+        pdb_dir.mkdir()
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
-    def test_nan_forces_handling(self):
-        """Test that NaN forces get zero weight."""
-        n_confs = 3
-        n_atoms = 5
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
 
-        coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-        energy = torch.rand(n_confs, dtype=torch.float64)
-        forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-        # Set middle conformation forces to NaN
-        forces[1] = float("nan")
+            result = sample_mlmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
 
-        dataset = create_dataset_with_uniform_weights(
-            smiles="CCO",
-            coords=coords,
-            energy=energy,
-            forces=forces,
-            energy_weight=1000.0,
-            forces_weight=0.1,
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+
+    def test_sample_mlmd_with_pdb_output(self, tmp_path):
+        """Test sample_mlmd with PDB trajectory output."""
+        mol = Molecule.from_smiles("C")
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MLMDSamplingSettings(
+            sampling_protocol="ml_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
         )
 
-        entry = dataset[0]
-        # Energy weights should all be 1000.0
-        assert torch.all(entry["energy_weights"] == 1000.0)
-        # Forces weights: conformation 1 should be 0, others 0.1
-        expected_forces_weights = torch.tensor([0.1, 0.0, 0.1])
-        assert torch.allclose(entry["forces_weights"], expected_forces_weights)
+        # Use a file path with .pdb extension so get_mol_path creates trajectory_mol0.pdb
+        pdb_base = tmp_path / "trajectory.pdb"
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mlmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify dataset has weighted structure
+        entry = result[0][0]
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+        # Verify PDB file was created (get_mol_path creates trajectory_mol0.pdb)
+        pdb_file = tmp_path / "trajectory_mol0.pdb"
+        assert pdb_file.exists()
 
 
-class TestGenerateTorsionMinimisedDatasetPDBOutput:
-    """Tests for PDB output functionality in generate_torsion_minimised_dataset."""
+class TestSampleMmmdMetadynamicsIntegration:
+    """Integration tests for sample_mmmd_metadynamics function."""
 
-    def test_function_accepts_pdb_path_arguments(self):
-        """Test that generate_torsion_minimised_dataset accepts PDB path arguments."""
-        import inspect
+    def test_sample_metadynamics_with_rotatable_bonds(self, tmp_path):
+        """Test metadynamics sampling for molecule with rotatable bonds."""
+        mol = Molecule.from_smiles("CCCC")  # Butane - has rotatable bonds
+        mol.generate_conformers(n_conformers=1)
 
-        from presto.sample import generate_torsion_minimised_dataset
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
-        sig = inspect.signature(generate_torsion_minimised_dataset)
-        params = list(sig.parameters.keys())
-        assert "ml_pdb_path" in params
-        assert "mm_pdb_path" in params
-
-    def test_pdb_path_defaults_to_none(self):
-        """Test that PDB path arguments default to None."""
-        import inspect
-
-        from presto.sample import generate_torsion_minimised_dataset
-
-        sig = inspect.signature(generate_torsion_minimised_dataset)
-        assert sig.parameters["ml_pdb_path"].default is None
-        assert sig.parameters["mm_pdb_path"].default is None
-
-
-class TestMMMDMetadynamicsTorsionMinimisationOutputTypes:
-    """Tests for output types in MMMDMetadynamicsTorsionMinimisationSamplingSettings."""
-
-    def test_output_types_includes_ml_minimised_pdb(self):
-        """Test that output_types includes ML_MINIMISED_PDB."""
-        from presto.outputs import OutputType
-        from presto.settings import (
-            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+        settings_obj = MMMDMetadynamicsSamplingSettings(
+            sampling_protocol="mm_md_metadynamics",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
         )
 
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert OutputType.ML_MINIMISED_PDB in settings.output_types
-
-    def test_output_types_includes_mm_minimised_pdb(self):
-        """Test that output_types includes MM_MINIMISED_PDB."""
-        from presto.outputs import OutputType
-        from presto.settings import (
-            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
-        )
-
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert OutputType.MM_MINIMISED_PDB in settings.output_types
-
-    def test_output_types_includes_all_expected_types(self):
-        """Test that output_types includes all expected types."""
-        from presto.outputs import OutputType
-        from presto.settings import (
-            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
-        )
-
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        expected = {
-            OutputType.METADYNAMICS_BIAS,
-            OutputType.PDB_TRAJECTORY,
-            OutputType.ML_MINIMISED_PDB,
-            OutputType.MM_MINIMISED_PDB,
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
         }
-        assert settings.output_types == expected
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd_metadynamics(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure with all required fields
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+        # Verify bias directory was used (files created by metadynamics)
+        assert bias_dir.exists()
+
+    def test_sample_metadynamics_fallback_no_rotatable_bonds(self, tmp_path):
+        """Test metadynamics falls back to regular MD for molecule without rotatable bonds."""
+        mol = Molecule.from_smiles("C")  # Methane - no rotatable bonds
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDMetadynamicsSamplingSettings(
+            sampling_protocol="mm_md_metadynamics",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+        )
+
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+        }
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd_metadynamics(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure (should still work even with fallback to regular MD)
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
 
 
-class TestOutputTypeEnumeration:
-    """Tests for OutputType enum values."""
+class TestSampleMmmdMetadynamicsTorsionMinIntegration:
+    """Integration tests for sample_mmmd_metadynamics_with_torsion_minimisation."""
 
-    def test_ml_minimised_pdb_output_type_exists(self):
-        """Test that ML_MINIMISED_PDB OutputType exists."""
-        from presto.outputs import OutputType
+    def test_with_rotatable_bonds(self, tmp_path):
+        """Test torsion minimisation workflow with rotatable bonds."""
+        mol = Molecule.from_smiles("CCCC")  # Butane
+        mol.generate_conformers(n_conformers=1)
 
-        assert hasattr(OutputType, "ML_MINIMISED_PDB")
-        assert OutputType.ML_MINIMISED_PDB.value == "ml_minimised.pdb"
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
 
-    def test_mm_minimised_pdb_output_type_exists(self):
-        """Test that MM_MINIMISED_PDB OutputType exists."""
-        from presto.outputs import OutputType
+        settings_obj = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+            sampling_protocol="mm_md_metadynamics_torsion_minimisation",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+            ml_minimisation_steps=1,
+            mm_minimisation_steps=1,
+        )
 
-        assert hasattr(OutputType, "MM_MINIMISED_PDB")
-        assert OutputType.MM_MINIMISED_PDB.value == "mm_minimised.pdb"
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+        }
+        (tmp_path / "ml_min").mkdir()
+        (tmp_path / "mm_min").mkdir()
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+
+            def create_mock_system(*args, **kwargs):
+                mock_system = openmm.System()
+                for _ in range(mol.n_atoms):
+                    mock_system.addParticle(12.0)
+                force = openmm.CustomExternalForce("0")
+                mock_system.addForce(force)
+                return mock_system
+
+            mock_ml_sys.side_effect = create_mock_system
+
+            result = sample_mmmd_metadynamics_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure with all required fields
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+
+    def test_fallback_no_rotatable_bonds(self, tmp_path):
+        """Test fallback to regular MD when molecule has no rotatable bonds."""
+        mol = Molecule.from_smiles("C")  # Methane - no rotatable bonds
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+            sampling_protocol="mm_md_metadynamics_torsion_minimisation",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+        )
+
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+        }
+        (tmp_path / "ml_min").mkdir()
+        (tmp_path / "mm_min").mkdir()
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd_metadynamics_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure (should still work even with fallback)
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry

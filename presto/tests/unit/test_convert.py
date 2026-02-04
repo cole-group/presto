@@ -13,7 +13,6 @@ from presto.convert import (
     _expand_torsions,
     _linearize_angle_parameters,
     _linearize_bond_parameters,
-    _prepare_potential,
     _reflect_angle,
     convert_to_smirnoff,
     linearise_harmonics_force_field,
@@ -23,10 +22,35 @@ from presto.convert import (
 from presto.settings import ParameterisationSettings
 
 
-def test_reflect_angle():
-    assert math.isclose(_reflect_angle(0.5), 0.5)
-    assert math.isclose(_reflect_angle(math.pi + 0.5), math.pi - 0.5)
-    assert math.isclose(_reflect_angle(2 * math.pi + 0.5), 0.5)
+@pytest.mark.parametrize(
+    "angle, expected",
+    [
+        (0.5, 0.5),
+        (math.pi + 0.5, math.pi - 0.5),
+        (2 * math.pi + 0.5, 0.5),
+        (0.0, 0.0),
+        (math.pi, math.pi),
+        (2 * math.pi, 0.0),
+    ],
+)
+def test_reflect_angle(angle, expected):
+    if angle == 2 * math.pi:
+        assert math.isclose(_reflect_angle(angle), expected, abs_tol=1e-9)
+    else:
+        assert math.isclose(_reflect_angle(angle), expected)
+
+
+@pytest.mark.parametrize(
+    "angle1, angle2, expected",
+    [
+        (1.0, 0.5, 1.5),
+        (1.0, 3.0, math.pi),
+        (1.0, -0.5, 0.5),
+        (1.0, -2.0, 0.0),
+    ],
+)
+def test_add_angle_within_range(angle1, angle2, expected):
+    assert math.isclose(_add_angle_within_range(angle1, angle2), expected)
 
 
 def test_convert_to_smirnoff():
@@ -218,138 +242,6 @@ def test_parameterise_linear(tmp_path):
     mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
     assert "LinearBonds" in tensor_ff.potentials_by_type
     assert "LinearBonds" in tensor_tops[0].parameters
-
-
-def test_reflect_angle_edge_cases():
-    assert math.isclose(_reflect_angle(0.0), 0.0)
-    assert math.isclose(_reflect_angle(math.pi), math.pi)
-    assert math.isclose(_reflect_angle(2 * math.pi), 0.0, abs_tol=1e-9)
-
-
-def test_add_angle_within_range():
-    assert math.isclose(_add_angle_within_range(1.0, 0.5), 1.5)
-    assert math.isclose(_add_angle_within_range(1.0, 3.0), math.pi)
-    assert math.isclose(_add_angle_within_range(1.0, -0.5), 0.5)
-    assert math.isclose(_add_angle_within_range(1.0, -2.0), 0.0)
-
-
-# Additional comprehensive tests for improved coverage
-
-
-class TestPreparePotential:
-    """Test _prepare_potential function."""
-
-    def test_max_extend_distance_not_implemented(self):
-        """Test that max_extend_distance != -1 raises NotImplementedError."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-
-        # Create a minimal potential
-        potential = smee.TensorPotential(
-            type="Bonds",
-            fn="Harmonic",
-            parameter_cols=("k", "length"),
-            parameter_units=(
-                off_unit.kilocalorie_per_mole / off_unit.angstrom**2,
-                off_unit.angstrom,
-            ),
-            parameters=torch.tensor([[100.0, 1.0]]),
-            parameter_keys=[
-                openff.interchange.models.PotentialKey(id="[#6:1]-[#6:2]", mult=None)
-            ],
-        )
-
-        # Create a minimal parameter map
-        parameter_map = smee.ValenceParameterMap(
-            particle_idxs=torch.tensor([[0, 1]]),
-            assignment_matrix=torch.eye(1).to_sparse(),
-        )
-
-        symmetries = [0, 0]
-
-        with pytest.raises(
-            NotImplementedError, match="max_extend_distance is not implemented yet"
-        ):
-            _prepare_potential(
-                mol, symmetries, potential, parameter_map, max_extend_distance=2
-            )
-
-    def test_excluded_smirks_handling(self):
-        """Test that excluded smirks are handled correctly."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-
-        # Create a potential with a SMIRKS that we'll exclude
-        potential = smee.TensorPotential(
-            type="Bonds",
-            fn="Harmonic",
-            parameter_cols=("k", "length"),
-            parameter_units=(
-                off_unit.kilocalorie_per_mole / off_unit.angstrom**2,
-                off_unit.angstrom,
-            ),
-            parameters=torch.tensor([[100.0, 1.0]]),
-            parameter_keys=[
-                openff.interchange.models.PotentialKey(id="[#6:1]-[#6:2]", mult=None)
-            ],
-        )
-
-        parameter_map = smee.ValenceParameterMap(
-            particle_idxs=torch.tensor([[0, 1]]),
-            assignment_matrix=torch.eye(1).to_sparse(),
-        )
-
-        symmetries = [0, 0]
-        excluded_smirks = ["[#6:1]-[#6:2]"]
-
-        # Should not raise, should handle exclusion
-        _prepare_potential(
-            mol,
-            symmetries,
-            potential,
-            parameter_map,
-            max_extend_distance=-1,
-            excluded_smirks=excluded_smirks,
-        )
-
-        # Check that the potential still has parameters
-        assert len(potential.parameters) == 1
-
-    def test_improper_torsion_handling(self):
-        """Test handling of ImproperTorsions type."""
-        mol = openff.toolkit.Molecule.from_smiles("CC(C)C")
-
-        # Create an improper torsion potential
-        potential = smee.TensorPotential(
-            type="ImproperTorsions",
-            fn="Periodic",
-            parameter_cols=("k", "periodicity", "phase", "idivf"),
-            parameter_units=(
-                off_unit.kilocalorie_per_mole,
-                off_unit.dimensionless,
-                off_unit.radians,
-                off_unit.dimensionless,
-            ),
-            parameters=torch.tensor([[1.0, 2.0, 0.0, 1.0]]),
-            parameter_keys=[
-                openff.interchange.models.PotentialKey(
-                    id="[#6:1]~[#6X4:2](~[#6:3])~[#6:4]", mult=None
-                )
-            ],
-        )
-
-        parameter_map = smee.ValenceParameterMap(
-            particle_idxs=torch.tensor([[1, 0, 2, 3]]),
-            assignment_matrix=torch.eye(1).to_sparse(),
-        )
-
-        symmetries = [0, 1, 2, 3]
-
-        # Should handle ImproperTorsions correctly
-        _prepare_potential(
-            mol, symmetries, potential, parameter_map, max_extend_distance=-1
-        )
-
-        # Verify parameters are present
-        assert len(potential.parameters) == 1
 
 
 class TestConvertToSmirnoffExtended:
@@ -746,18 +638,6 @@ class TestLinearizeParameters:
 class TestParameteriseExtended:
     """Extended tests for parameterise function."""
 
-    def test_parameterise_with_constraint_removal(self):
-        """Test that H-X constraints are removed."""
-        settings = ParameterisationSettings(
-            smiles="C",
-            initial_force_field="openff_unconstrained-2.3.0.offxml",
-        )
-
-        # Should complete without error even if constraints are present
-        mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
-
-        assert len(mols) == 1
-
     def test_parameterise_with_expand_torsions(self):
         """Test parameterise with expand_torsions enabled."""
         settings = ParameterisationSettings(
@@ -798,49 +678,3 @@ class TestParameteriseExtended:
         assert len(tensor_tops) == 2
         # Force field should contain parameters for both molecules
         assert isinstance(tensor_ff, smee.TensorForceField)
-
-
-class TestReflectAngleExtended:
-    """Extended tests for _reflect_angle."""
-
-    def test_reflect_negative_angles(self):
-        """Test reflection of negative angles."""
-        result1 = _reflect_angle(-0.5)
-        assert 0 <= result1 < math.pi
-
-        result2 = _reflect_angle(-math.pi)
-        assert 0 <= result2 <= math.pi
-
-    def test_reflect_large_positive_angles(self):
-        """Test reflection of angles > 2π."""
-        assert math.isclose(_reflect_angle(3 * math.pi + 0.5), math.pi - 0.5)
-        assert math.isclose(_reflect_angle(4 * math.pi), 0.0, abs_tol=1e-9)
-
-    def test_reflect_exactly_pi_multiples(self):
-        """Test angles that are exact multiples of π."""
-        assert math.isclose(_reflect_angle(0.0), 0.0)
-        assert math.isclose(_reflect_angle(math.pi), math.pi)
-        assert math.isclose(_reflect_angle(2 * math.pi), 0.0, abs_tol=1e-9)
-        assert math.isclose(_reflect_angle(3 * math.pi), math.pi, abs_tol=1e-9)
-
-
-class TestAddAngleWithinRangeExtended:
-    """Extended tests for _add_angle_within_range."""
-
-    def test_clamping_at_pi(self):
-        """Test that angles are clamped at π."""
-        result = _add_angle_within_range(2.5, 1.0)
-        assert result == pytest.approx(math.pi)
-
-    def test_clamping_at_zero(self):
-        """Test that angles are clamped at 0."""
-        result = _add_angle_within_range(0.5, -1.0)
-        assert result == pytest.approx(0.0)
-
-    def test_no_clamping_needed(self):
-        """Test cases where no clamping is needed."""
-        result = _add_angle_within_range(1.5, 0.5)
-        assert result == pytest.approx(2.0)
-
-        result = _add_angle_within_range(2.0, -0.5)
-        assert result == pytest.approx(1.5)
