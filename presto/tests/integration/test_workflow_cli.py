@@ -17,7 +17,7 @@ def test_workflow_cli(tmp_cwd) -> None:
         "--n-iterations",
         "1",  # Super short run for testing
         "--parameterisation-settings.smiles",
-        "CCO",  # Ethanol
+        "CCCO",  # Propanol - 1 heavy-atom dihedral to plot
         "--training-settings.n-epochs",
         "10",
         "--training-sampling-settings.sampling-protocol",

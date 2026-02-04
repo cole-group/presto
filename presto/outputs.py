@@ -70,6 +70,9 @@ class OutputType(Enum):
     MM_MINIMISED_PDB = "mm_minimised.pdb"
     """PDB file containing structures minimised using the molecular mechanics potential."""
 
+    TORSION_DIHEDRALS_PLOT = "torsion_dihedrals.png"
+    """Plot of dihedral angles for all rotatable torsions during trajectories."""
+
 
 # Output types that are generated per-molecule (one file/directory per molecule)
 PER_MOLECULE_OUTPUT_TYPES: set[OutputType] = {
@@ -84,6 +87,7 @@ PER_MOLECULE_OUTPUT_TYPES: set[OutputType] = {
     OutputType.PARAMETER_DIFFERENCES_PLOT,
     OutputType.ML_MINIMISED_PDB,
     OutputType.MM_MINIMISED_PDB,
+    OutputType.TORSION_DIHEDRALS_PLOT,
 }
 
 
@@ -160,6 +164,7 @@ class WorkflowPathManager:
                 OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
                 OutputType.PARAMETER_VALUES_PLOT,
                 OutputType.PARAMETER_DIFFERENCES_PLOT,
+                OutputType.TORSION_DIHEDRALS_PLOT,
             },
         }
         return outputs_by_stage
