@@ -1777,19 +1777,20 @@
 the documentation and testing is incomplete, and the API may change without notice.</em></p>
 <p>Please note that the MACE-OFF models are released under the <a href="https://github.com/gabor1/ASL/blob/main/ASL.md">Academic Software License</a> which <strong>does not permit commercial use</strong>. However, the default AceFF-2.0 model (as well as Egret-1 and AIMNet-2) does.</p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
-<p>Ensuring that you have pixi installed, run:
+<p>Ensuring that you have pixi installed, install and start a shell with the current environment with:
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/cole-group/presto.git
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>presto
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pixi<span class="w"> </span>install
-</span></code></pre></div></p>
-<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">#</a></h2>
-<p>First, start a shell in the current environment (this must be run from the <code>presto</code> base directory)
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pixi<span class="w"> </span>shell
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pixi<span class="w"> </span>shell
 </span></code></pre></div>
-For more information on activating pixi environments, see <a href="https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation">the documentation</a>.</p>
+By default, this will create an environment with CUDA 12.9. If your version is older, but &gt;= 12.6 (check with <code>nvidia-smi</code>), then run
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pixi<span class="w"> </span>shell<span class="w"> </span>-e<span class="w"> </span>gpu-py313-cuda126
+</span></code></pre></div></p>
+<p>For more information on activating pixi environments, see <a href="https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation">the documentation</a>.</p>
+<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">#</a></h2>
 <p>Run with command line arguments:
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--parameterisation-settings.smiles<span class="w"> </span><span class="s2">&quot;CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2&quot;</span>
-</span></code></pre></div></p>
+</span></code></pre></div>
+then see the bespoke force field at <code>training_iteration_2/bespoke_ff.offxml</code>.</p>
 <p>Sensible defaults have been set, but all available options can be viewed with:
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--help
 </span></code></pre></div></p>
@@ -1801,8 +1802,9 @@ For more information on activating pixi environments, see <a href="https://pixi.
 <p>For more details on the theory and implementation, please see the <a href="https://cole-group.github.io/presto/latest/">documentation</a>.</p>
 <h2 id="mace-model-use">MACE-Model Use<a class="headerlink" href="#mace-model-use" title="Permanent link">#</a></h2>
 <p>To use models with the MACE architecture, run
-<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi shell -e mace-runtime
-</span></code></pre></div></p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi shell -e gpu-py313-cuda129-mace
+</span></code></pre></div>
+(or the equivalent CUDA 12.6 version)</p>
 <h2 id="copyright">Copyright<a class="headerlink" href="#copyright" title="Permanent link">#</a></h2>
 <p>Copyright (c) 2025-2026, Finlay Clark, Newcastle University, UK</p>
 <p>Copyright (c) 2025-2026, Thomas James Pope, Newcastle University, UK</p>
