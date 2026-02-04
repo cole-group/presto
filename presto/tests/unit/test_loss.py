@@ -16,10 +16,10 @@ from presto.data_utils import (
     merge_weighted_datasets,
 )
 from presto.loss import (
+    compute_overall_loss_and_grad,
     compute_regularisation_loss,
     predict,
     predict_with_weights,
-    prediction_loss,
 )
 
 
@@ -333,7 +333,7 @@ class TestPredictionLossWithWeights:
             ethanol_trainable_and_dataset
         )
 
-        result = prediction_loss(
+        result, _ = compute_overall_loss_and_grad(
             datasets_list,
             trainable,
             params,
@@ -341,6 +341,7 @@ class TestPredictionLossWithWeights:
             topologies,
             "initial",
             "cpu",
+            compute_grad=False,
         )
 
         # Check it's a named tuple with the right fields
@@ -354,7 +355,7 @@ class TestPredictionLossWithWeights:
             ethanol_trainable_and_dataset
         )
 
-        result = prediction_loss(
+        result, _ = compute_overall_loss_and_grad(
             datasets_list,
             trainable,
             params,
@@ -362,6 +363,7 @@ class TestPredictionLossWithWeights:
             topologies,
             "initial",
             "cpu",
+            compute_grad=False,
         )
 
         assert isinstance(result.energy, torch.Tensor)
@@ -372,7 +374,7 @@ class TestPredictionLossWithWeights:
             ethanol_trainable_and_dataset
         )
 
-        result = prediction_loss(
+        result, _ = compute_overall_loss_and_grad(
             datasets_list,
             trainable,
             params,
@@ -380,6 +382,7 @@ class TestPredictionLossWithWeights:
             topologies,
             "initial",
             "cpu",
+            compute_grad=False,
         )
 
         assert isinstance(result.forces, torch.Tensor)
@@ -422,7 +425,7 @@ class TestPredictionLossWithWeights:
             forces_weight=1.0,
         )
 
-        result = prediction_loss(
+        result, _ = compute_overall_loss_and_grad(
             [dataset],
             trainable,
             trainable_params,
@@ -430,6 +433,7 @@ class TestPredictionLossWithWeights:
             [tensor_top],
             "initial",
             "cpu",
+            compute_grad=False,
         )
 
         # Energy loss should be zero when weight is zero
@@ -476,7 +480,7 @@ class TestPredictionLossWithWeights:
             forces_weight=1.0,  # Will be set to 0 for NaN forces
         )
 
-        result = prediction_loss(
+        result, _ = compute_overall_loss_and_grad(
             [dataset],
             trainable,
             trainable_params,
@@ -484,6 +488,7 @@ class TestPredictionLossWithWeights:
             [tensor_top],
             "initial",
             "cpu",
+            compute_grad=False,
         )
 
         # Force loss should be zero because all forces are NaN (weight 0)
@@ -724,8 +729,6 @@ class TestGetLossClosure:
             trainable_parameters=params,
             initial_parameters=params.clone(),
             topologies=[tensor_top],
-            loss_energy_weight=1.0,
-            loss_force_weight=1.0,
             regularisation_target="initial",
         )
 
@@ -761,8 +764,6 @@ class TestGetLossClosure:
             trainable_parameters=params,
             initial_parameters=params.clone(),
             topologies=[tensor_top],
-            loss_energy_weight=1.0,
-            loss_force_weight=1.0,
             regularisation_target="initial",
         )
 

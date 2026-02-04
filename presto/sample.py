@@ -486,8 +486,8 @@ def _get_torsion_bias_forces(
         bias_variable = openmm.app.metadynamics.BiasVariable(
             force=torsion_force,
             biasWidth=bias_width,
-            minValue=-numpy.pi * _OMM_RADIAN,  # Torsions are periodic, so -pi to pi
-            maxValue=numpy.pi * _OMM_RADIAN,
+            minValue=-numpy.pi,  # Torsions are periodic, so -pi to pi
+            maxValue=numpy.pi,
             periodic=True,
         )
 

@@ -18,7 +18,7 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import LossRecord, predict, prediction_loss
+from .loss import LossRecord, compute_overall_loss_and_grad, predict
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -93,8 +93,8 @@ def report(
     """Report training progress for Levenberg-Marquardt optimizer.
 
     This function computes training and test losses using the same loss
-    computation as train_adam (via prediction_loss) to ensure consistent
-    metrics reporting.
+    computation as train_adam (via compute_overall_loss_and_grad) to ensure
+    consistent metrics reporting.
 
     Args:
         step: Current optimization step.
@@ -115,7 +115,7 @@ def report(
     """
     with torch.enable_grad():  # type: ignore[no-untyped-call]
         # Compute training loss using the same function as train_adam
-        loss_train = prediction_loss(
+        loss_train, _ = compute_overall_loss_and_grad(
             datasets_train,
             trainable,
             x,
@@ -123,10 +123,11 @@ def report(
             topologies,
             regularisation_target,
             x.device.type,
+            compute_grad=False,
         )
 
         # Compute test loss using the same function as train_adam
-        loss_test = prediction_loss(
+        loss_test, _ = compute_overall_loss_and_grad(
             datasets_test,
             trainable,
             x,
@@ -134,6 +135,7 @@ def report(
             topologies,
             regularisation_target,
             x.device.type,
+            compute_grad=False,
         )
 
         with open_writer(experiment_dir) as writer:

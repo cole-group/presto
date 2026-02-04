@@ -1212,7 +1212,7 @@ def test_get_torsion_bias_forces():
         mol,
         torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
         torsions_to_exclude=[],
-        bias_width=0.1 * omm_unit.radians,
+        bias_width=0.1,
     )
     assert len(bias_vars) > 0
     assert isinstance(bias_vars[0], openmm.app.metadynamics.BiasVariable)
