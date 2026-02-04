@@ -7,6 +7,7 @@
 - Improve cleanliness/prettiness of CLI output
 - Reduce memory use during congeneric series fitting in [#17](https://github.com/cole-group/presto/pull/17)
 - Update ParameterConfig defaults so that linear torsions are not trained in [#18](https://github.com/cole-group/presto/pull/18)
+- Improve test quality, speed, and coverage in [#19](https://github.com/cole-group/presto/pull/19)
 
 ## 0.3.0
 
