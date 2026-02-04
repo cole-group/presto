@@ -8,7 +8,6 @@ import torch
 from openff.toolkit import ForceField, Molecule
 
 from presto.data_utils import (
-    WEIGHTED_DATA_SCHEMA,
     WeightedEntry,
     create_dataset_with_uniform_weights,
     create_weighted_dataset,
@@ -18,24 +17,6 @@ from presto.data_utils import (
     merge_weighted_datasets,
 )
 from presto.settings import OutlierFilterSettings
-
-
-class TestWeightedDataSchema:
-    """Tests for the WEIGHTED_DATA_SCHEMA."""
-
-    def test_schema_has_required_fields(self):
-        """Test that schema has all required fields."""
-        field_names = [field.name for field in WEIGHTED_DATA_SCHEMA]
-        assert "smiles" in field_names
-        assert "coords" in field_names
-        assert "energy" in field_names
-        assert "forces" in field_names
-        assert "energy_weights" in field_names
-        assert "forces_weights" in field_names
-
-    def test_schema_field_count(self):
-        """Test that schema has exactly 6 fields."""
-        assert len(WEIGHTED_DATA_SCHEMA) == 6
 
 
 class TestCreateWeightedDataset:

@@ -126,8 +126,8 @@ class TestGetRotTorsionsByRotBond:
         # Include all C-C bonds
         include_smarts = ["[#6:1]-[#6:2]-[#6:3]-[#6:4]"]
         torsions = get_rot_torsions_by_rot_bond(mol, include_smarts=include_smarts)
-        # Should find torsions around C-C bonds
-        assert len(torsions) >= 1
+        # Should find central torsions around C-C bond
+        assert len(torsions) == 1
 
     def test_exclude_smarts_removes_bonds(self):
         """Test that exclude SMARTS removes bonds."""
@@ -165,7 +165,7 @@ class TestGetRotTorsionsByRotBond:
         mol = Molecule.from_smiles("CCCCCC")  # Hexane
         torsions = get_rot_torsions_by_rot_bond(mol)
         # Should have multiple rotatable bonds
-        assert len(torsions) >= 1
+        assert len(torsions) == 3
 
     @given(n_carbons=st.integers(min_value=2, max_value=6))
     def test_linear_alkanes(self, n_carbons):
@@ -176,8 +176,8 @@ class TestGetRotTorsionsByRotBond:
 
         # Linear alkanes with n carbons have max(0, n-3) rotatable bonds
         # (need 4 heavy atoms for a torsion, and terminal bonds don't count)
-        expected_max = max(0, n_carbons - 3)
-        assert len(torsions) <= expected_max
+        expected_n_tor = max(0, n_carbons - 3)
+        assert len(torsions) == expected_n_tor
 
     def test_return_type_structure(self):
         """Test that return type has correct structure."""
