@@ -6,6 +6,10 @@
 
 - Use MDTraj to calculate torsions rather than doing this manually
 
+### Fixes
+
+- Remove unused settings fields in [#25](https://github.com/cole-group/presto/pull/25#issuecomment-3861009692)
+
 ## 0.4.0
 
 ### Improvements
