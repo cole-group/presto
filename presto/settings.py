@@ -226,10 +226,6 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         "mm_md_metadynamics", description="Sampling protocol to use."
     )
 
-    metadynamics_bias_factor: float = Field(
-        10.0, description="Bias factor for well-tempered metadynamics"
-    )
-
     bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
 
     bias_factor: float = Field(
@@ -316,17 +312,6 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
         description="Force constant for torsion restraints.",
     )
 
-    # Loss weights for the MMMD metadynamics samples
-    loss_energy_weight_mmmd: float = Field(
-        1000.0,
-        description="Scaling factor for the energy loss term for MMMD metadynamics samples.",
-    )
-
-    loss_force_weight_mmmd: float = Field(
-        0.1,
-        description="Scaling factor for the force loss term for MMMD metadynamics samples.",
-    )
-
     # Loss weights for the torsion-minimised samples
     map_ml_coords_energy_to_mm_coords_energy: bool = Field(
         False,
@@ -337,23 +322,29 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     loss_energy_weight_mm_torsion_min: float = Field(
         1000.0,
         description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MM minimisation.",
+        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
+        "loss_energy_weight field.",
     )
 
     loss_force_weight_mm_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples. ",
+        description="Scaling factor for the force loss term for torsion-minimised samples, using "
+        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
+        "loss_force_weight field.",
     )
 
     loss_energy_weight_ml_torsion_min: float = Field(
         1000.0,
         description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MLP minimisation.",
+        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
+        "loss_energy_weight field.",
     )
 
     loss_force_weight_ml_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples. ",
+        description="Scaling factor for the force loss term for torsion-minimised samples, using "
+        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
+        "loss_force_weight field.",
     )
 
     @property

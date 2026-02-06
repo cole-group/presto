@@ -1192,8 +1192,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 coords=entry["coords"].reshape(n_confs, -1, 3),
                 energy=entry["energy"],
                 forces=entry["forces"].reshape(n_confs, -1, 3),
-                energy_weight=settings.loss_energy_weight_mmmd,
-                forces_weight=settings.loss_force_weight_mmmd,
+                energy_weight=settings.loss_energy_weight,
+                forces_weight=settings.loss_force_weight,
             )
             all_datasets.append(weighted_dataset)
             continue
@@ -1274,8 +1274,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             coords=entry["coords"].reshape(n_confs, -1, 3),
             energy=entry["energy"],
             forces=entry["forces"].reshape(n_confs, -1, 3),
-            energy_weight=settings.loss_energy_weight_mmmd,
-            forces_weight=settings.loss_force_weight_mmmd,
+            energy_weight=settings.loss_energy_weight,
+            forces_weight=settings.loss_force_weight,
         )
 
         # Step 3: Generate torsion-minimised structures

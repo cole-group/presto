@@ -216,8 +216,8 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
     def test_default_mmmd_loss_weights(self):
         """Test default loss weights for MMMD samples."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert settings.loss_energy_weight_mmmd == 1000.0
-        assert settings.loss_force_weight_mmmd == 0.1
+        assert settings.loss_energy_weight == 1000.0
+        assert settings.loss_force_weight == 0.1
 
     def test_default_torsion_min_loss_weights(self):
         """Test default loss weights for torsion-minimised samples."""
@@ -253,15 +253,15 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
     def test_custom_loss_weights(self):
         """Test custom loss weights."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            loss_energy_weight_mmmd=500.0,
-            loss_force_weight_mmmd=0.5,
+            loss_energy_weight=500.0,
+            loss_force_weight=0.5,
             loss_energy_weight_mm_torsion_min=200.0,
             loss_force_weight_mm_torsion_min=0.0,
             loss_energy_weight_ml_torsion_min=100.0,
             loss_force_weight_ml_torsion_min=0.1,
         )
-        assert settings.loss_energy_weight_mmmd == 500.0
-        assert settings.loss_force_weight_mmmd == 0.5
+        assert settings.loss_energy_weight == 500.0
+        assert settings.loss_force_weight == 0.5
         assert settings.loss_energy_weight_mm_torsion_min == 200.0
         assert settings.loss_force_weight_mm_torsion_min == 0.0
 
@@ -273,7 +273,7 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
             torsion_restraint_force_constant=750.0
             * omm_unit.kilojoules_per_mole
             / omm_unit.radian**2,
-            loss_energy_weight_mmmd=800.0,
+            loss_energy_weight=800.0,
             loss_force_weight_mm_torsion_min=0.05,
         )
         yaml_path = tmp_path / "settings.yaml"
@@ -290,7 +290,7 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
             )
             == 750.0
         )
-        assert loaded.loss_energy_weight_mmmd == 800.0
+        assert loaded.loss_energy_weight == 800.0
         assert loaded.loss_force_weight_mm_torsion_min == 0.05
 
     def test_inherits_metadynamics_parameters(self):
