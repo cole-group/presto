@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+### Improvements
+
+- Use MDTraj to calculate torsions rather than doing this manually
+
 ## 0.4.0
 
 ### Improvements
