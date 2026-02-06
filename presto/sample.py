@@ -11,6 +11,7 @@ import datasets
 import datasets.table
 import descent.targets.energy
 import loguru
+import mdtraj
 import numpy
 import numpy as np
 import openff.interchange
@@ -814,49 +815,6 @@ def _remove_torsion_restraint_forces(
     simulation.context.reinitialize(preserveState=True)
 
 
-def _calculate_torsion_angles(
-    coords: torch.Tensor, torsion_atoms: tuple[int, int, int, int]
-) -> torch.Tensor:
-    """Calculate torsion angles for a given set of atom indices.
-
-    Parameters
-    ----------
-    coords : torch.Tensor
-        Coordinates tensor of shape (n_snapshots, n_atoms, 3)
-    torsion_atoms : tuple[int, int, int, int]
-        Indices of the four atoms defining the torsion
-
-    Returns
-    -------
-    torch.Tensor
-        Torsion angles in radians for each snapshot, shape (n_snapshots,)
-    """
-    i, j, k, m = torsion_atoms
-
-    # Extract coordinates for the four atoms
-    r1 = coords[:, i, :]
-    r2 = coords[:, j, :]
-    r3 = coords[:, k, :]
-    r4 = coords[:, m, :]
-
-    # Calculate vectors
-    b1 = r2 - r1
-    b2 = r3 - r2
-    b3 = r4 - r3
-
-    # Calculate normal vectors to the planes
-    n1 = torch.cross(b1, b2, dim=1)
-    n2 = torch.cross(b2, b3, dim=1)
-
-    # Calculate the torsion angle
-    m1 = torch.cross(n1, b2 / torch.norm(b2, dim=1, keepdim=True), dim=1)
-
-    x = torch.sum(n1 * n2, dim=1)
-    y = torch.sum(m1 * n2, dim=1)
-
-    return torch.atan2(y, x)
-
-
 def _minimize_with_frozen_torsions(
     simulation: Simulation,
     coords: numpy.ndarray,
@@ -896,15 +854,19 @@ def _minimize_with_frozen_torsions(
     # Set initial positions
     simulation.context.setPositions(Quantity(coords, angstrom))
 
-    # Calculate current angles and update restraint targets
-    coords_tensor = torch.tensor(coords).unsqueeze(0)
-    current_angles = [
-        _calculate_torsion_angles(coords_tensor, torsion_atoms).item()
-        for torsion_atoms in torsion_atoms_list
-    ]
+    # Calculate current angles and update restraint targets using mdtraj
+    # Create a minimal mdtraj trajectory for angle calculation
+    traj = mdtraj.Trajectory(
+        xyz=coords.reshape(1, -1, 3) / 10.0,  # Convert Angstroms to nm
+        topology=mdtraj.Topology.from_openmm(simulation.topology),
+    )
+    current_angles = mdtraj.compute_dihedrals(traj, torsion_atoms_list)[
+        0
+    ]  # Get angles for the single frame
+    current_angles_list = current_angles.tolist()
 
     _update_torsion_restraints(
-        simulation, force_indices, current_angles, torsion_force_constant
+        simulation, force_indices, current_angles_list, torsion_force_constant
     )
 
     # Minimize
@@ -918,9 +880,11 @@ def _minimize_with_frozen_torsions(
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, groups=groups_mask
     )
-    minimized_coords = state.getPositions().value_in_unit(_OMM_ANGS)
+    minimized_coords = np.array(state.getPositions().value_in_unit(_OMM_ANGS))
     energy = state.getPotentialEnergy().value_in_unit(_OMM_KCAL_PER_MOL)
-    forces = state.getForces(asNumpy=True).value_in_unit(_OMM_KCAL_PER_MOL_ANGS)
+    forces = np.array(
+        state.getForces(asNumpy=True).value_in_unit(_OMM_KCAL_PER_MOL_ANGS)
+    )
 
     return minimized_coords, energy, forces
 

@@ -16,7 +16,6 @@ from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
     _add_torsion_restraint_forces,
-    _calculate_torsion_angles,
     _find_available_force_group,
     _get_integrator,
     _get_ml_omm_system,
@@ -485,23 +484,6 @@ class TestTorsionRestraints:
         mock_force.updateParametersInContext.assert_called_with(mock_simulation.context)
 
 
-class TestTorsions:
-    def test_calculate_torsion_angles(self):
-        # Construct a simple geometry:   1-2-3-4
-        # 1 at (1,0,0), 2 at (0,0,0), 3 at (0,1,0), 4 at (0,1,1) -> 90 degrees
-        coords = torch.tensor(
-            [[[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 1.0]]]
-        )
-
-        # OpenFF / RDKit indices handling
-        # Torsion 0-1-2-3
-        angle = _calculate_torsion_angles(coords, (0, 1, 2, 3))
-
-        # Expected angle is 90 degrees (pi/2)
-        expected = np.pi / 2
-        assert torch.isclose(angle[0], torch.tensor(expected), atol=1e-5)
-
-
 def test_sample_mmmd_metadynamics_no_rotatable_bonds(tmp_path):
     """Test sampling with metadynamics for molecule with no rotatable bonds."""
     mol = Molecule.from_smiles("C")  # Methane
@@ -672,46 +654,6 @@ class TestGetMoleculeFromDataset:
 
         assert isinstance(result, Molecule)
         assert result.n_atoms == mol.n_atoms
-
-
-class TestCalculateTorsionAnglesExtended:
-    """Additional tests for _calculate_torsion_angles function."""
-
-    @pytest.mark.parametrize("n_snapshots", [1, 5, 10])
-    def test_handles_multiple_snapshots(self, n_snapshots):
-        """Test that function handles multiple snapshots correctly."""
-        # Create coords with shape (n_snapshots, 4, 3)
-        coords = torch.rand(n_snapshots, 4, 3, dtype=torch.float64)
-        torsion_atoms = (0, 1, 2, 3)
-
-        result = _calculate_torsion_angles(coords, torsion_atoms)
-
-        assert result.shape == (n_snapshots,)
-        # All angles should be in valid range
-        assert torch.all(result >= -np.pi)
-        assert torch.all(result <= np.pi)
-
-    def test_known_geometry_180_degrees(self):
-        """Test with trans configuration (180 degrees)."""
-        # Trans configuration: atoms in a plane, 180 degrees
-        coords = torch.tensor(
-            [
-                [
-                    [0.0, 0.0, 0.0],  # Atom 0
-                    [1.0, 0.0, 0.0],  # Atom 1
-                    [2.0, 1.0, 0.0],  # Atom 2
-                    [3.0, 1.0, 0.0],
-                ]  # Atom 3
-            ],
-            dtype=torch.float64,
-        )
-
-        angle = _calculate_torsion_angles(coords, (0, 1, 2, 3))
-
-        # Trans should be close to pi or -pi
-        assert torch.isclose(
-            torch.abs(angle[0]), torch.tensor(np.pi, dtype=torch.float64), atol=0.1
-        )
 
 
 class TestGetTorsionBiasForces:
@@ -1207,15 +1149,24 @@ class TestMinimizeWithFrozenTorsions:
         mock_simulation.system.getForce.return_value = mock_force
         mock_force.getTorsionParameters.return_value = [0, 1, 2, 3, [0.0, 0.0]]
 
+        # Mock the topology for mdtraj
+        mock_simulation.topology = MagicMock()
+
         torsion_atoms_list = [(0, 1, 2, 3)]
         coords = np.zeros((9, 3))
         force_indices = [0]
 
         with (
-            patch("presto.sample._calculate_torsion_angles") as mock_calc,
+            patch("presto.sample.mdtraj.Topology.from_openmm") as mock_from_openmm,
+            patch("presto.sample.mdtraj.Trajectory") as mock_traj_class,
+            patch("presto.sample.mdtraj.compute_dihedrals") as mock_compute,
             patch("presto.sample._update_torsion_restraints") as mock_update,
         ):
-            mock_calc.return_value = torch.tensor([0.0])
+            # Set up mock return values
+            mock_from_openmm.return_value = MagicMock()
+            mock_traj = MagicMock()
+            mock_traj_class.return_value = mock_traj
+            mock_compute.return_value = np.array([[0.0]])
 
             result_coords, result_energy, result_forces = (
                 _minimize_with_frozen_torsions(
