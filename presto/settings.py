@@ -119,7 +119,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     temperature: OpenMMQuantity[unit.kelvin] = Field(  # type: ignore[type-arg]
-        default=298 * unit.kelvin,
+        default=500 * unit.kelvin,
         description="Temperature to run MD at",
     )
 
@@ -233,7 +233,7 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
 
     bias_factor: float = Field(
-        30.0,
+        20.0,
         description="Bias factor for well-tempered metadynamics. Typical range: 5-20",
     )
 
