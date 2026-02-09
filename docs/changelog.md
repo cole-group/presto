@@ -5,6 +5,7 @@
 ### Improvements
 
 - Use MDTraj to calculate torsions rather than doing this manually
+- Make metadynamics more aggressive, allow user to specify torsions targeted by metadynamics, and include in-ring aliphatic torsions by default in [#26](https://github.com/cole-group/presto/pull/26)
 
 ### Fixes
 
