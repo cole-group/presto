@@ -12,6 +12,10 @@ from openmm import unit as omm_unit
 
 from presto._exceptions import InvalidSettingsError
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
+from presto.find_torsions import (
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+)
 from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
@@ -20,6 +24,7 @@ from presto.sample import (
     _get_integrator,
     _get_ml_omm_system,
     _get_molecule_from_dataset,
+    _get_torsion_bias_forces,
     _remove_torsion_restraint_forces,
     _run_md,
     _update_torsion_restraints,
@@ -661,12 +666,15 @@ class TestGetTorsionBiasForces:
 
     def test_returns_bias_variables_for_rotatable_bonds(self):
         """Test that bias variables are created for rotatable bonds."""
-        from presto.sample import _get_torsion_bias_forces
 
         mol = Molecule.from_smiles("CCCC")  # Butane has rotatable bonds
         mol.generate_conformers(n_conformers=1)
 
-        bias_vars = _get_torsion_bias_forces(mol)
+        bias_vars = _get_torsion_bias_forces(
+            mol,
+            torsions_to_include=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+            torsions_to_exclude=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+        )
 
         assert len(bias_vars) > 0
         assert all(
@@ -675,12 +683,15 @@ class TestGetTorsionBiasForces:
 
     def test_returns_empty_for_no_rotatable_bonds(self):
         """Test returns empty list for molecule with no rotatable bonds."""
-        from presto.sample import _get_torsion_bias_forces
 
         mol = Molecule.from_smiles("C")  # Methane
         mol.generate_conformers(n_conformers=1)
 
-        bias_vars = _get_torsion_bias_forces(mol)
+        bias_vars = _get_torsion_bias_forces(
+            mol,
+            torsions_to_include=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+            torsions_to_exclude=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+        )
 
         assert len(bias_vars) == 0
 
@@ -692,7 +703,12 @@ class TestGetTorsionBiasForces:
         mol.generate_conformers(n_conformers=1)
 
         custom_width = 0.5
-        bias_vars = _get_torsion_bias_forces(mol, bias_width=custom_width)
+        bias_vars = _get_torsion_bias_forces(
+            mol,
+            torsions_to_include=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+            torsions_to_exclude=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+            bias_width=custom_width,
+        )
 
         assert len(bias_vars) > 0
         # Verify bias width was set (BiasVariable stores it internally)

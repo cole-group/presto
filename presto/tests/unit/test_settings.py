@@ -38,7 +38,7 @@ class TestSamplingSettingsBase:
         """Test that default values are set correctly."""
         assert valid_mm_md_settings.ml_potential == "aceff-2.0"
         assert valid_mm_md_settings.timestep.value_in_unit(omm_unit.femtoseconds) == 1.0
-        assert valid_mm_md_settings.temperature.value_in_unit(omm_unit.kelvin) == 500.0
+        assert valid_mm_md_settings.temperature.value_in_unit(omm_unit.kelvin) == 298.0
         assert valid_mm_md_settings.n_conformers == 10
 
     def test_equilibration_n_steps_per_conformer(self, valid_mm_md_settings):
@@ -131,9 +131,9 @@ class TestMMMDMetadynamicsSamplingSettings:
     def test_default_metadynamics_parameters(self):
         """Test that default metadynamics parameters are set."""
         settings = MMMDMetadynamicsSamplingSettings()
-        assert settings.bias_factor == 10.0
+        assert settings.bias_factor == 30.0
         assert settings.bias_width == np.pi / 10
-        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 2.0
+        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 1.0
 
     def test_n_steps_per_bias(self):
         """Test calculation of steps per bias."""

@@ -26,6 +26,10 @@ from typing_extensions import Self
 
 from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
+from .find_torsions import (
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+)
 from .outputs import OutputType, WorkflowPathManager
 from .utils.typing import (
     AllowedAttributeType,
@@ -115,7 +119,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     temperature: OpenMMQuantity[unit.kelvin] = Field(  # type: ignore[type-arg]
-        default=500 * unit.kelvin,
+        default=298 * unit.kelvin,
         description="Temperature to run MD at",
     )
 
@@ -229,23 +233,37 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
 
     bias_factor: float = Field(
-        10.0,
+        30.0,
         description="Bias factor for well-tempered metadynamics. Typical range: 5-20",
     )
 
     bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
-        2.0 * unit.kilojoules_per_mole,
+        1.0 * unit.kilojoules_per_mole,
         description="Initial height of the bias",
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        2.5 * unit.picoseconds,
+        0.1 * unit.picoseconds,
         description="Frequency at which to add bias",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        2.5 * unit.picoseconds,
+        10 * unit.picoseconds,
         description="Frequency at which to save the bias",
+    )
+
+    torsions_to_include_smarts: list[str] = Field(
+        default_factory=lambda: DEFAULT_TORSIONS_TO_INCLUDE_SMARTS.copy(),
+        description="SMARTS patterns for torsions to include in metadynamics biasing. "
+        "Matches single bonds not in rings and single bonds in aliphatic rings of size 5 or more. "
+        "These should match the entire torsion (4 atoms), not just the rotatable bond.",
+    )
+
+    torsions_to_exclude_smarts: list[str] = Field(
+        default_factory=lambda: DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS.copy(),
+        description="SMARTS patterns for bonds to exclude from metadynamics biasing. These "
+        "are removed from the list of torsions matched by the include patterns. "
+        "These should match only the rotatable bond (2 atoms), not the full torsion.",
     )
 
     # Make sure that the frequency and save_frequency are multiples of the timestep
@@ -714,7 +732,7 @@ class WorkflowSettings(_DefaultSettings):
 
     testing_sampling_settings: SamplingSettings = Field(
         default_factory=lambda: MLMDSamplingSettings(
-            temperature=300 * unit.kelvin,
+            temperature=298 * unit.kelvin,
             snapshot_interval=20 * unit.femtoseconds,
             production_sampling_time_per_conformer=2 * unit.picoseconds,
         ),
