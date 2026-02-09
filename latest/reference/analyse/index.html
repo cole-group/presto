@@ -2976,13 +2976,13 @@ Inner dict maps torsion atom indices to array of dihedral angles.</p>
 </span><span id="__span-0-663"><a id="__codelineno-0-663" name="__codelineno-0-663"></a>                <span class="c1"># Label with iteration</span>
 </span><span id="__span-0-664"><a id="__codelineno-0-664" name="__codelineno-0-664"></a>                <span class="n">label</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Iteration </span><span class="si">{</span><span class="n">iteration</span><span class="si">}</span><span class="s2">&quot;</span>
 </span><span id="__span-0-665"><a id="__codelineno-0-665" name="__codelineno-0-665"></a>
-</span><span id="__span-0-666"><a id="__codelineno-0-666" name="__codelineno-0-666"></a>                <span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+</span><span id="__span-0-666"><a id="__codelineno-0-666" name="__codelineno-0-666"></a>                <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
 </span><span id="__span-0-667"><a id="__codelineno-0-667" name="__codelineno-0-667"></a>                    <span class="n">frames</span><span class="p">,</span>
 </span><span id="__span-0-668"><a id="__codelineno-0-668" name="__codelineno-0-668"></a>                    <span class="n">angles</span><span class="p">,</span>
 </span><span id="__span-0-669"><a id="__codelineno-0-669" name="__codelineno-0-669"></a>                    <span class="n">label</span><span class="o">=</span><span class="n">label</span><span class="p">,</span>
 </span><span id="__span-0-670"><a id="__codelineno-0-670" name="__codelineno-0-670"></a>                    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
 </span><span id="__span-0-671"><a id="__codelineno-0-671" name="__codelineno-0-671"></a>                    <span class="n">color</span><span class="o">=</span><span class="n">colours</span><span class="p">[</span><span class="n">iteration_idx</span><span class="p">],</span>
-</span><span id="__span-0-672"><a id="__codelineno-0-672" name="__codelineno-0-672"></a>                    <span class="n">linewidth</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+</span><span id="__span-0-672"><a id="__codelineno-0-672" name="__codelineno-0-672"></a>                    <span class="n">s</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
 </span><span id="__span-0-673"><a id="__codelineno-0-673" name="__codelineno-0-673"></a>                <span class="p">)</span>
 </span><span id="__span-0-674"><a id="__codelineno-0-674" name="__codelineno-0-674"></a>
 </span><span id="__span-0-675"><a id="__codelineno-0-675" name="__codelineno-0-675"></a>        <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;Frame Number&quot;</span><span class="p">)</span>
@@ -3303,8 +3303,8 @@ Inner dict maps torsion atom indices to array of dihedral angles.</p>
 </span><span id="__span-0-808"><a id="__codelineno-0-808" name="__codelineno-0-808"></a>                <span class="c1"># Get rotatable torsions for this molecule</span>
 </span><span id="__span-0-809"><a id="__codelineno-0-809" name="__codelineno-0-809"></a>                <span class="n">torsions</span> <span class="o">=</span> <span class="n">get_rot_torsions_by_rot_bond</span><span class="p">(</span>
 </span><span id="__span-0-810"><a id="__codelineno-0-810" name="__codelineno-0-810"></a>                    <span class="n">mol</span><span class="p">,</span>
-</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                    <span class="n">include_smarts</span><span class="o">=</span><span class="n">_TORSIONS_TO_INCLUDE_SMARTS</span><span class="p">,</span>
-</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>                    <span class="n">exclude_smarts</span><span class="o">=</span><span class="n">_TORSIONS_TO_EXCLUDE_SMARTS</span><span class="p">,</span>
+</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                    <span class="n">include_smarts</span><span class="o">=</span><span class="n">DEFAULT_TORSIONS_TO_INCLUDE_SMARTS</span><span class="p">,</span>
+</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>                    <span class="n">exclude_smarts</span><span class="o">=</span><span class="n">DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS</span><span class="p">,</span>
 </span><span id="__span-0-813"><a id="__codelineno-0-813" name="__codelineno-0-813"></a>                <span class="p">)</span>
 </span><span id="__span-0-814"><a id="__codelineno-0-814" name="__codelineno-0-814"></a>
 </span><span id="__span-0-815"><a id="__codelineno-0-815" name="__codelineno-0-815"></a>                <span class="k">if</span> <span class="n">torsions</span><span class="p">:</span>
