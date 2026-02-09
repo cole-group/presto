@@ -6,12 +6,13 @@ from hypothesis import strategies as st
 from openff.toolkit import Molecule
 
 from presto.find_torsions import (
-    _TORSIONS_TO_EXCLUDE_SMARTS,
-    _TORSIONS_TO_INCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
     get_single_torsion_by_rot_bond,
     get_unwanted_bonds,
 )
+from presto.settings import MMMDMetadynamicsSamplingSettings
 
 
 class TestGetSingleTorsionByRotBond:
@@ -20,13 +21,15 @@ class TestGetSingleTorsionByRotBond:
     def test_ethane_no_rotatable_bonds(self):
         """Test ethane has no rotatable bonds."""
         mol = Molecule.from_smiles("CC")
-        torsions = get_single_torsion_by_rot_bond(mol, _TORSIONS_TO_INCLUDE_SMARTS[0])
+        torsions = get_single_torsion_by_rot_bond(
+            mol, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
+        )
         assert len(torsions) == 0
 
     def test_butane_one_rotatable_bond(self):
         """Test butane has one rotatable bond (middle C-C bond)."""
         mol = Molecule.from_smiles("CCCC")
-        smarts = _TORSIONS_TO_INCLUDE_SMARTS[0]
+        smarts = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
         torsions = get_single_torsion_by_rot_bond(mol, smarts)
         assert len(torsions) == 1
 
@@ -38,7 +41,7 @@ class TestGetSingleTorsionByRotBond:
     def test_propane_no_rotatable_bonds(self):
         """Test propane has no "rotatable bonds"."""
         mol = Molecule.from_smiles("CCC")
-        smarts = _TORSIONS_TO_INCLUDE_SMARTS[0]
+        smarts = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
         torsions = get_single_torsion_by_rot_bond(mol, smarts)
         assert len(torsions) == 0
 
@@ -111,13 +114,17 @@ class TestGetRotTorsionsByRotBond:
     def test_default_parameters_propanol(self):
         """Test with default parameters on propanol."""
         mol = Molecule.from_smiles("CCCO")
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
         assert len(torsions) == 1
 
     def test_default_parameters_ethane(self):
         """Test with default parameters on ethane."""
         mol = Molecule.from_smiles("CC")
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
         assert len(torsions) == 0
 
     def test_custom_include_smarts(self):
@@ -157,13 +164,17 @@ class TestGetRotTorsionsByRotBond:
     def test_benzene_no_rotatable_bonds(self):
         """Test that benzene has no rotatable bonds."""
         mol = Molecule.from_smiles("c1ccccc1")
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
         assert len(torsions) == 0
 
     def test_multiple_rotatable_bonds(self):
         """Test molecule with multiple rotatable bonds."""
         mol = Molecule.from_smiles("CCCCCC")  # Hexane
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
         # Should have multiple rotatable bonds
         assert len(torsions) == 3
 
@@ -172,7 +183,9 @@ class TestGetRotTorsionsByRotBond:
         """Test linear alkanes with hypothesis."""
         smiles = "C" * n_carbons
         mol = Molecule.from_smiles(smiles)
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
 
         # Linear alkanes with n carbons have max(0, n-3) rotatable bonds
         # (need 4 heavy atoms for a torsion, and terminal bonds don't count)
@@ -182,7 +195,9 @@ class TestGetRotTorsionsByRotBond:
     def test_return_type_structure(self):
         """Test that return type has correct structure."""
         mol = Molecule.from_smiles("CCO")
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
 
         assert isinstance(torsions, dict)
         for rot_bond, torsion in torsions.items():
@@ -196,19 +211,180 @@ class TestGetRotTorsionsByRotBond:
     def test_branched_molecule(self):
         """Test a branched molecule."""
         mol = Molecule.from_smiles("CC(C)CC")  # Isopentane
-        torsions = get_rot_torsions_by_rot_bond(mol)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
         assert len(torsions) >= 1
 
 
 class TestDefaultSmarts:
-    """Tests for default SMARTS patterns."""
+    """Tests for default SMARTS patterns constants."""
 
     def test_default_include_smarts_defined(self):
-        """Test that default include SMARTS are defined."""
-        assert len(_TORSIONS_TO_INCLUDE_SMARTS) > 0
-        assert all(isinstance(s, str) for s in _TORSIONS_TO_INCLUDE_SMARTS)
+        """Test that DEFAULT_TORSIONS_TO_INCLUDE_SMARTS is properly defined."""
+        assert len(DEFAULT_TORSIONS_TO_INCLUDE_SMARTS) > 0
+        assert all(isinstance(s, str) for s in DEFAULT_TORSIONS_TO_INCLUDE_SMARTS)
+        # Should have 4 patterns: non-ring, r5, r6, r7
+        assert len(DEFAULT_TORSIONS_TO_INCLUDE_SMARTS) == 4
 
     def test_default_exclude_smarts_defined(self):
-        """Test that default exclude SMARTS are defined."""
-        assert isinstance(_TORSIONS_TO_EXCLUDE_SMARTS, list)
-        assert all(isinstance(s, str) for s in _TORSIONS_TO_EXCLUDE_SMARTS)
+        """Test that DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS is properly defined."""
+        assert isinstance(DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS, list)
+        assert all(isinstance(s, str) for s in DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS)
+
+    def test_settings_use_default_constants(self):
+        """Test that settings class uses the same default constants."""
+        settings = MMMDMetadynamicsSamplingSettings()
+        assert settings.torsions_to_include_smarts == DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        assert settings.torsions_to_exclude_smarts == DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+
+
+class TestRingSpecificTorsions:
+    """Tests for ring-specific torsion matching with explicit bond primitives."""
+
+    def test_cyclopentane_matches_with_defaults(self):
+        """Test that cyclopentane (5-membered ring) matches with default patterns."""
+        mol = Molecule.from_smiles("C1CCCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Cyclopentane has 5 C-C bonds, each can be a torsion with 2 possible atom orderings
+        assert len(torsions) == 5
+
+    def test_cyclohexane_matches_with_defaults(self):
+        """Test that cyclohexane (6-membered ring) matches with default patterns."""
+        mol = Molecule.from_smiles("C1CCCCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Cyclohexane has 6 C-C bonds
+        assert len(torsions) == 6
+
+    def test_cycloheptane_matches_with_defaults(self):
+        """Test that cycloheptane (7-membered ring) matches with default patterns."""
+        mol = Molecule.from_smiles("C1CCCCCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Cycloheptane has 7 C-C bonds
+        assert len(torsions) == 7
+
+    def test_cyclobutane_does_not_match(self):
+        """Test that cyclobutane (4-membered ring) does NOT match with default patterns."""
+        mol = Molecule.from_smiles("C1CCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Cyclobutane should not match (ring size < 5)
+        assert len(torsions) == 0
+
+    def test_cyclopropane_does_not_match(self):
+        """Test that cyclopropane (3-membered ring) does NOT match."""
+        mol = Molecule.from_smiles("C1CC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        assert len(torsions) == 0
+
+    def test_benzene_aromatic_does_not_match(self):
+        """Test that benzene (aromatic 6-membered ring) does NOT match."""
+        mol = Molecule.from_smiles("c1ccccc1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Benzene is aromatic, should not match (!a requirement)
+        assert len(torsions) == 0
+
+    def test_ethylbenzene_acyclic_bond_matches(self):
+        """Test that ethylbenzene's acyclic C-C bond matches."""
+        mol = Molecule.from_smiles("CCc1ccccc1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Should find rotatable bonds in the ethyl chain and connecting to ring
+        assert len(torsions) >= 1
+
+    def test_bond_primitives_in_patterns(self):
+        """Test that default patterns use explicit bond primitives (!@ and @)."""
+        # Check first pattern (non-ring) uses !@
+        assert "-!@" in DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
+
+        # Check ring patterns use @
+        for pattern in DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[1:]:
+            assert "-@" in pattern
+
+    def test_patterns_have_correct_count(self):
+        """Test that we have exactly 4 default patterns."""
+        # 1 for non-ring + 3 for ring sizes (r5, r6, r7)
+        assert len(DEFAULT_TORSIONS_TO_INCLUDE_SMARTS) == 4
+
+    def test_patterns_match_intended_ring_sizes(self):
+        """Test each pattern matches only its intended ring size."""
+        # Pattern 0: non-ring bonds (butane)
+        mol_acyclic = Molecule.from_smiles("CCCC")
+        torsions_1 = get_single_torsion_by_rot_bond(
+            mol_acyclic, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
+        )
+        assert len(torsions_1) == 1
+
+        # Pattern 1: 5-membered rings (cyclopentane)
+        mol_r5 = Molecule.from_smiles("C1CCCC1")
+        torsions_2 = get_single_torsion_by_rot_bond(
+            mol_r5, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[1]
+        )
+        assert len(torsions_2) == 5
+
+        # Pattern 2: 6-membered rings (cyclohexane)
+        mol_r6 = Molecule.from_smiles("C1CCCCC1")
+        torsions_3 = get_single_torsion_by_rot_bond(
+            mol_r6, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[2]
+        )
+        assert len(torsions_3) == 6
+
+        # Pattern 3: 7-membered rings (cycloheptane)
+        mol_r7 = Molecule.from_smiles("C1CCCCCC1")
+        torsions_4 = get_single_torsion_by_rot_bond(
+            mol_r7, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[3]
+        )
+        assert len(torsions_4) == 7
+
+    def test_mixed_acyclic_and_cyclic_molecule(self):
+        """Test molecule with both acyclic and cyclic rotatable bonds."""
+        # Cyclohexane with ethyl substituent
+        mol = Molecule.from_smiles("CCC1CCCCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Should find bonds in both the ethyl chain and the ring
+        assert len(torsions) >= 7  # 6 in ring + at least 1 in chain
+
+    def test_patterns_exclude_aromatic_rings(self):
+        """Test that patterns correctly exclude aromatic rings via !a."""
+        # All ring patterns (indices 1-3) should include !a (not aromatic)
+        for pattern in DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[1:]:
+            assert "!a" in pattern
+
+        # Verify benzene (aromatic) doesn't match any ring pattern
+        mol_benzene = Molecule.from_smiles("c1ccccc1")
+        for pattern in DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[1:]:
+            torsions = get_single_torsion_by_rot_bond(mol_benzene, pattern)
+            assert len(torsions) == 0
+
+    def test_methylcyclohexane(self):
+        """Test methylcyclohexane has correct number of rotatable bonds."""
+        mol = Molecule.from_smiles("CC1CCCCC1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # 6 bonds in the ring (the C-C bond to methyl is terminal and doesn't match !D1)
+        assert len(torsions) == 6
+
+    def test_spiro_compound(self):
+        """Test a spiro compound (two rings sharing one atom)."""
+        # Spiro[4.5]decane - 5-membered ring fused to 6-membered ring
+        mol = Molecule.from_smiles("C1CCC2(C1)CCCCC2")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Should find torsions in both rings
+        assert len(torsions) >= 9  # 5 + 6 bonds, minus shared atom effects

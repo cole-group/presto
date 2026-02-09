@@ -30,8 +30,8 @@ from .data_utils import (
     merge_weighted_datasets,
 )
 from .find_torsions import (
-    _TORSIONS_TO_EXCLUDE_SMARTS,
-    _TORSIONS_TO_INCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
 from .metadynamics import Metadynamics
@@ -453,8 +453,8 @@ def sample_mlmd(
 
 def _get_torsion_bias_forces(
     mol: openff.toolkit.Molecule,
-    torsions_to_include: list[str] = _TORSIONS_TO_INCLUDE_SMARTS,
-    torsions_to_exclude: list[str] = _TORSIONS_TO_EXCLUDE_SMARTS,
+    torsions_to_include: list[str] = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+    torsions_to_exclude: list[str] = DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     bias_width: float = np.pi / 10,
 ) -> list[openmm.app.metadynamics.BiasVariable]:
     """
@@ -538,7 +538,11 @@ def sample_mmmd_metadynamics(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        torsions = get_rot_torsions_by_rot_bond(mol_with_conformers)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol_with_conformers,
+            include_smarts=settings.torsions_to_include_smarts,
+            exclude_smarts=settings.torsions_to_exclude_smarts,
+        )
         if not torsions:
             logger.warning(
                 f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
@@ -571,8 +575,8 @@ def sample_mmmd_metadynamics(
             # Setup metadynamics
             bias_variables = _get_torsion_bias_forces(
                 mol_with_conformers,
-                torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
-                torsions_to_exclude=_TORSIONS_TO_EXCLUDE_SMARTS,
+                torsions_to_include=settings.torsions_to_include_smarts,
+                torsions_to_exclude=settings.torsions_to_exclude_smarts,
                 bias_width=settings.bias_width,
             )
 
@@ -894,6 +898,8 @@ def generate_torsion_minimised_dataset(
     ml_simulation: Simulation,
     mm_simulation: Simulation,
     torsion_restraint_force_constant: float = 1000.0,
+    torsions_to_include_smarts: list[str] = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+    torsions_to_exclude_smarts: list[str] = DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     ml_minimisation_steps: int = 10,
     mm_minimisation_steps: int = 10,
     ml_pdb_path: pathlib.Path | str | None = None,
@@ -922,6 +928,10 @@ def generate_torsion_minimised_dataset(
         OpenMM simulation with MM force field.
     torsion_restraint_force_constant : float, optional
         Force constant for torsion restraints in kJ/mol/rad^2.
+    torsions_to_include_smarts : list[str] | None, optional
+        List of SMARTS patterns to include for rotatable torsions. If None, include all rotatable torsions.
+    torsions_to_exclude_smarts : list[str] | None, optional
+        List of SMARTS patterns to exclude for rotatable torsions. If None, exclude no rotatable torsions.
     ml_minimisation_steps : int, optional
         Number of MLP minimisation steps (default: 10).
     mm_minimisation_steps : int, optional
@@ -949,7 +959,11 @@ def generate_torsion_minimised_dataset(
     """
     # Extract molecule and find rotatable torsions
     mol = _get_molecule_from_dataset(mm_dataset)
-    torsions_dict = get_rot_torsions_by_rot_bond(mol)
+    torsions_dict = get_rot_torsions_by_rot_bond(
+        mol,
+        include_smarts=torsions_to_include_smarts,
+        exclude_smarts=torsions_to_exclude_smarts,
+    )
     torsion_atoms_list = list(torsions_dict.values())
 
     if not torsion_atoms_list:
@@ -1139,7 +1153,11 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        torsions = get_rot_torsions_by_rot_bond(mol_with_conformers)
+        torsions = get_rot_torsions_by_rot_bond(
+            mol_with_conformers,
+            include_smarts=settings.torsions_to_include_smarts,
+            exclude_smarts=settings.torsions_to_exclude_smarts,
+        )
         system = interchange.to_openmm_system()
 
         if not torsions:
@@ -1201,8 +1219,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         # Setup metadynamics
         bias_variables = _get_torsion_bias_forces(
             mol_with_conformers,
-            torsions_to_include=_TORSIONS_TO_INCLUDE_SMARTS,
-            torsions_to_exclude=_TORSIONS_TO_EXCLUDE_SMARTS,
+            torsions_to_include=settings.torsions_to_include_smarts,
+            torsions_to_exclude=settings.torsions_to_exclude_smarts,
             bias_width=settings.bias_width,
         )
 
@@ -1315,6 +1333,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 torsion_restraint_force_constant=settings.torsion_restraint_force_constant.value_in_unit(
                     _OMM_KJ_PER_MOL / _OMM_RADIAN**2
                 ),
+                torsions_to_include_smarts=settings.torsions_to_include_smarts,
+                torsions_to_exclude_smarts=settings.torsions_to_exclude_smarts,
                 ml_minimisation_steps=settings.ml_minimisation_steps,
                 mm_minimisation_steps=settings.mm_minimisation_steps,
                 ml_pdb_path=ml_pdb_path,

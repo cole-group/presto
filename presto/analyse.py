@@ -20,8 +20,8 @@ from rdkit.Chem import Draw
 from rich.progress import track
 
 from .find_torsions import (
-    _TORSIONS_TO_EXCLUDE_SMARTS,
-    _TORSIONS_TO_INCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
 from .loss import LossRecord
@@ -663,13 +663,13 @@ def plot_torsion_dihedrals(
                 # Label with iteration
                 label = f"Iteration {iteration}"
 
-                ax.plot(
+                ax.scatter(
                     frames,
                     angles,
                     label=label,
                     alpha=0.5,
                     color=colours[iteration_idx],
-                    linewidth=1.5,
+                    s=10,
                 )
 
         ax.set_xlabel("Frame Number")
@@ -808,8 +808,8 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                 # Get rotatable torsions for this molecule
                 torsions = get_rot_torsions_by_rot_bond(
                     mol,
-                    include_smarts=_TORSIONS_TO_INCLUDE_SMARTS,
-                    exclude_smarts=_TORSIONS_TO_EXCLUDE_SMARTS,
+                    include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+                    exclude_smarts=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
                 )
 
                 if torsions:

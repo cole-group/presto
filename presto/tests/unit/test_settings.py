@@ -131,9 +131,9 @@ class TestMMMDMetadynamicsSamplingSettings:
     def test_default_metadynamics_parameters(self):
         """Test that default metadynamics parameters are set."""
         settings = MMMDMetadynamicsSamplingSettings()
-        assert settings.bias_factor == 10.0
+        assert settings.bias_factor == 20.0
         assert settings.bias_width == np.pi / 10
-        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 2.0
+        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 1.0
 
     def test_n_steps_per_bias(self):
         """Test calculation of steps per bias."""
