@@ -5928,6 +5928,10 @@ in each class for the string identifier which should be supplied to
 </span></code></pre></div>
       </details>
     
+      <p>Config:</p>
+      <ul>
+          <li><code>default</code>: <code class="highlight language-python"><span class="n">_DEFAULT_MODEL_CONFIG</span></code></li>
+      </ul>
 
 
 
@@ -13647,7 +13651,7 @@ implements this settings object. Subclasses should override this method.</p>
 </span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943" href="#__codelineno-0-943"></a><span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Overall settings for the full fitting workflow.&quot;</span><span class="p">,</span>
 </span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944" href="#__codelineno-0-944"></a><span class="w">  </span><span class="nt">&quot;properties&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945" href="#__codelineno-0-945"></a><span class="w">    </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946" href="#__codelineno-0-946"></a><span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.dev1+g55bd96965&quot;</span><span class="p">,</span>
+</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946" href="#__codelineno-0-946"></a><span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.dev1+gecb2e96b4&quot;</span><span class="p">,</span>
 </span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947" href="#__codelineno-0-947"></a><span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Version of presto used to create these settings&quot;</span><span class="p">,</span>
 </span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948" href="#__codelineno-0-948"></a><span class="w">      </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Version&quot;</span><span class="p">,</span>
 </span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949" href="#__codelineno-0-949"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span>
@@ -13892,6 +13896,45 @@ implements this settings object. Subclasses should override this method.</p>
             </li>
         </ul>
 
+        <p>Validators:</p>
+        <ul>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_version&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_version&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_version">validate_version</a></code>
+                &rarr;
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;version&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-field&quot;&gt;&lt;code&gt;pydantic-field&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.version&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.version">version</a></code>            </li>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_device_type&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_device_type&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_device_type">validate_device_type</a></code>
+                &rarr;
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;device_type&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-field&quot;&gt;&lt;code&gt;pydantic-field&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.device_type&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.device_type">device_type</a></code>            </li>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_parameterisation_training_consistency&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_parameterisation_training_consistency&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_parameterisation_training_consistency">validate_parameterisation_training_consistency</a></code>
+            </li>
+        </ul>
 
 
 
@@ -14204,7 +14247,7 @@ implements this settings object. Subclasses should override this method.</p>
 
 
   <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
   </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_version" class="headerlink" title="Permanent link">#</a></h3>
@@ -14267,7 +14310,7 @@ implements this settings object. Subclasses should override this method.</p>
 
 
   <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
   </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_device_type" class="headerlink" title="Permanent link">#</a></h3>
@@ -14322,6 +14365,10 @@ implements this settings object. Subclasses should override this method.</p>
 <h3 id="presto.settings.WorkflowSettings.validate_parameterisation_training_consistency" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">validate_parameterisation_training_consistency</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
+  </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_parameterisation_training_consistency" class="headerlink" title="Permanent link">#</a></h3>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">validate_parameterisation_training_consistency</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="typing_extensions.Self">Self</span></span>
