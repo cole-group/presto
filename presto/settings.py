@@ -475,7 +475,7 @@ class TrainingSettings(_DefaultSettings):
                     {
                         "id": "[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]",
                         "mult": 0,
-                        "associated_handler": "propertorsions",
+                        "associated_handler": "ProperTorsions",
                     },
                 ],
             ),
