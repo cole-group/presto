@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### Fixes
+
+- Fixes typo in default settings which meant that linear torsions matching ``[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]`` were not excluded from training ([#32](https://github.com/cole-group/presto/pull/32))
+
 ## 0.5.0
 
 ### Improvements
