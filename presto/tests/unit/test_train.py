@@ -699,10 +699,11 @@ class TestExcludedTorsionsNotTrained:
     """Tests to verify that excluded torsions from TrainingSettings are not trained."""
 
     @pytest.fixture
-    def butanenitrile_setup(self):
-        """Create force field setup for butanenitrile (CCC#N) which contains linear torsions."""
+    def linear_tor_mol_setup(self):
+        """Create a set up force field for a molecule which hits all of the
+        linear torsion patterns (O=C=CC#CC)."""
         # CCC#N contains linear torsions around the C#N triple bond
-        mol = Molecule.from_smiles("CCC#N")
+        mol = Molecule.from_smiles("O=C=CC#CC")
         mol.generate_conformers(n_conformers=1)
 
         # Create force field and interchange
@@ -722,7 +723,7 @@ class TestExcludedTorsionsNotTrained:
         }
 
     def test_excluded_torsions_parameters_unchanged_after_training(
-        self, butanenitrile_setup
+        self, linear_tor_mol_setup
     ):
         """Test that excluded torsion parameters remain unchanged during parameter updates.
 
@@ -730,7 +731,7 @@ class TestExcludedTorsionsNotTrained:
         excluded patterns (linear torsions) do not change even when we modify the
         trainable parameters.
         """
-        tensor_ff = butanenitrile_setup["tensor_ff"]
+        tensor_ff = linear_tor_mol_setup["tensor_ff"]
         settings = TrainingSettings()
 
         # Create trainable with default settings
