@@ -316,7 +316,7 @@ class TestGetMlOmmSystem:
         mol.generate_conformers(n_conformers=1)
 
         # Should not raise
-        system = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
+        system = _get_ml_omm_system(mol, "aimnet2")
 
         assert isinstance(system, openmm.System)
         assert system.getNumParticles() == mol.n_atoms
@@ -365,7 +365,7 @@ class TestGetMlOmmSystem:
 
         # Should work with charge-supporting models
         system1 = _get_ml_omm_system(mol, "aceff-2.0")
-        system2 = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
+        system2 = _get_ml_omm_system(mol, "aimnet2")
 
         assert isinstance(system1, openmm.System)
         assert isinstance(system2, openmm.System)

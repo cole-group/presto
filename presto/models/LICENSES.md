@@ -1,13 +1,5 @@
 # Third-party models included
 
-## AIMNet2 Models
-
-- Models:
-  - aimnet2_b973c_d3_ens.jpt
-  - aimnet2_wb97m_d3_ens.jpt
-- Original source: Compiled from all 4 models available for each from https://storage.googleapis.com/aimnetcentral/AIMNet2/ using `compile_aimnet2_ens_models.py`
-- License: MIT https://github.com/isayevlab/aimnetcentral/blob/main/LICENSE
-
 ## Egret-1
 
 - Models:

@@ -30,7 +30,7 @@ jobs:
       with:
         pixi-version: v0.63.2
         cache: true
-        environments: cpu-py313
+        environments: cpu-py313-aceff-aimnet
 
     - name: Build and Deploy Documentation
       run: |
@@ -41,4 +41,4 @@ jobs:
 
         git fetch --all --prune
 
-        pixi run -e cpu-py313 docs-deploy VERSION="$VERSION"
+        pixi run -e cpu-py313-aceff-aimnet docs-deploy VERSION="$VERSION"
