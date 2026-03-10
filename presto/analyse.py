@@ -590,7 +590,7 @@ def calculate_dihedrals_for_trajectory(
     return dihedrals
 
 
-def plot_torsion_dihedrals(
+def plot_torsion_sampling(
     fig: Figure,
     axs: npt.NDArray[Any],
     dihedrals_by_iteration: dict[
@@ -841,9 +841,9 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                         fig, axs = plt.subplots(
                             nrows, ncols, figsize=(8 * ncols, 5 * nrows), squeeze=False
                         )
-                        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, mol)
+                        plot_torsion_sampling(fig, axs, dihedrals_by_iteration, mol)
                         torsion_plot_path = path_manager.get_output_path(
-                            stage, OutputType.TORSION_DIHEDRALS_PLOT
+                            stage, OutputType.TORSION_SAMPLING_PLOT
                         )
                         torsion_plot_path_mol = get_mol_path(torsion_plot_path, mol_idx)
                         fig.tight_layout()
