@@ -126,6 +126,7 @@ pytorch-gpu = "*"
 # Shared dependencies
 # -----------------------------
 [tool.pixi.feature.common.dependencies]
+pip = "*"
 pyyaml = "*"
 datasets = "*"
 jupyter = "*"
@@ -154,6 +155,7 @@ descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-re
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 # Need newest version of OpenMM-ML which doesn't need openmmtorch or nnpops
 openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e939fb705bccb01d7d32dfdb2afe6affd410785d"}
+# OpenMM-CUDA-12 = "==8.5.0b0"
 presto ={ path = ".", editable = true }
 
 # -----------------------------
@@ -193,9 +195,6 @@ __unix = "*"
 [tool.pixi.feature.aceff.dependencies]
 torchmd-net = "*"
 
-[tool.pixi.feature.aceff.pypi-dependencies]
-openmm = { git = "https://github.com/openmm/openmm.git", rev = "068495f3700d627319618efe9ef4ce9ed0e822d2" }
-
 # Need different aimnet CPU and GPU dependencies so we can specify torch versions for each
 # (GPU needs pytorch-gpu rather than pytorch)
 [tool.pixi.feature.aimnet-gpu.dependencies]
@@ -203,18 +202,16 @@ pytorch-gpu = ">=2.8.0"
 
 [tool.pixi.feature.aimnet-gpu.pypi-dependencies]
 aimnet = ">=0.1.0"
-openmm = { git = "https://github.com/openmm/openmm.git", rev = "068495f3700d627319618efe9ef4ce9ed0e822d2" }
 
 [tool.pixi.feature.aimnet-cpu.dependencies]
 pytorch = ">=2.8.0"
 
 [tool.pixi.feature.aimnet-cpu.pypi-dependencies]
 aimnet = ">=0.1.0"
-openmm = { git = "https://github.com/openmm/openmm.git", rev = "068495f3700d627319618efe9ef4ce9ed0e822d2" }
 
 [tool.pixi.feature.mace.dependencies] # Also applies to Egret-1
-openmm = ">=8.2"
-nnpops = "*"
+# openmm-cuda = ">=8.2"
+# nnpops = "*"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"

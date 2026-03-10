@@ -18,6 +18,7 @@ AvailableModels = Literal[
     "mace-off23-small",
     "mace-off23-medium",
     "mace-off23-large",
+    "mace-omol-0-extra-large",
     "egret-1",
     "aimnet2",
 ]
