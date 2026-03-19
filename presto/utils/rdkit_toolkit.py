@@ -7,6 +7,7 @@ from openff.toolkit.utils.constants import (
     DEFAULT_AROMATICITY_MODEL,
 )
 from openff.toolkit.utils.exceptions import InvalidAromaticityModelError
+from rdkit import Chem
 
 
 class PermissiveAromaticityRDKitToolkitWrapper(RDKitToolkitWrapper):  # type: ignore[misc]
@@ -15,8 +16,7 @@ class PermissiveAromaticityRDKitToolkitWrapper(RDKitToolkitWrapper):  # type: ig
     @cached(LRUCache(maxsize=4096), key=base_wrapper._mol_to_ctab_and_aro_key)
     def _connection_table_to_rdkit(
         self, molecule: Molecule, aromaticity_model: str = DEFAULT_AROMATICITY_MODEL
-    ) -> "Chem.Mol":
-        from rdkit import Chem
+    ) -> Chem.Mol:
 
         # Create an editable RDKit molecule
         rdmol = Chem.RWMol()
