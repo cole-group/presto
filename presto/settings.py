@@ -255,15 +255,18 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     torsions_to_include_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_INCLUDE_SMARTS.copy(),
         description="SMARTS patterns for torsions to include in metadynamics biasing. "
-        "Matches single bonds not in rings and single bonds in aliphatic rings of size 5 or more. "
-        "These should match the entire torsion (4 atoms), not just the rotatable bond.",
+        "Note that the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
+        "RDKIT default gives more sane aromaticty perception. These should match the "
+        "entire torsion (4 atoms), not just the rotatable bond. ",
     )
 
     torsions_to_exclude_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for bonds to exclude from metadynamics biasing. These "
-        "are removed from the list of torsions matched by the include patterns. "
-        "These should match only the rotatable bond (2 atoms), not the full torsion.",
+        description="SMARTS patterns for bonds to exclude from metadynamics biasing. Note that "
+        "the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
+        "RDKIT default gives more sane aromaticty perception. Matches are removed from the list of "
+        "torsions matched by the include patterns. These should match only the rotatable bond "
+        "(2 atoms), not the full torsion.",
     )
 
     # Make sure that the frequency and save_frequency are multiples of the timestep

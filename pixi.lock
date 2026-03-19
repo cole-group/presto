@@ -487,6 +487,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -991,6 +992,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -1524,6 +1526,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -2056,6 +2059,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -2588,6 +2592,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -3121,6 +3126,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -3653,6 +3659,7 @@ environments:
       - pypi: git+https://github.com/thomasjamespope/smee.git#483fbe33020c04531e06d3c8a91e6258c91f55ec
       - pypi: https://files.pythonhosted.org/packages/04/be/d09147ad1ec7934636ad912901c5fd7667e1c858e19d355237db0d0cd5e4/smmap-5.0.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c0/f1/a47c831436595cffbfd69a19ea129a23627120b13f4886499e58775329d1/torch_ema-0.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bb/cc/aa53df63915e10d429b7aa0491ba520abe4b80aef0304d1b02425cd5bd08/types_decorator-5.2.0.20251101-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/73/8a36998cee9d7c9702ed64a31f0866c7f192ecffc22771d44dbcc7878f18/types_defusedxml-0.7.0.20250822-py3-none-any.whl
@@ -10852,8 +10859,8 @@ packages:
   timestamp: 1765937577534
 - pypi: ./
   name: presto
-  version: 0.3.1.dev9+ge9e919b48.d20260204
-  sha256: 3f9c649f633833a9ddb5f4e7812751e5adda723f9b36dee09d308938bd986374
+  version: 0.5.2.dev0+gecb2e96b4.d20260319
+  sha256: 87e8b9ca4517d2fb6fd17f90e00ab713eba9b2ca1c394cf39c5ec9ba48e818d9
   requires_python: '>=3.11,<3.15'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
   name: prettytable
@@ -13265,6 +13272,11 @@ packages:
   - pkg:pypi/typer-slim?source=compressed-mapping
   size: 48131
   timestamp: 1767711188309
+- pypi: https://files.pythonhosted.org/packages/17/9a/b00b23054934c4d569c19f7278c4fb32746cd36a64a175a216d3073a4713/types_cachetools-6.2.0.20260317-py3-none-any.whl
+  name: types-cachetools
+  version: 6.2.0.20260317
+  sha256: 92fa9bc50e4629e31fca67ceb3fb1de71791e314fa16c0a0d2728724dc222c8b
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/95/3a/44ccbbfef6235aeea84c74041dc6dfee6c17ff3ddba782a0250e41687ec7/types_colorama-0.4.15.20250801-py3-none-any.whl
   name: types-colorama
   version: 0.4.15.20250801

@@ -255,6 +255,7 @@ mkdocs-bibtex = "*"
 "types-requests" = "*"
 "types-tabulate" = "*"
 "pandas-stubs" = "*"
+"types-cachetools" = "*"
 
 # -----------------------------
 # Tasks (run in proper environment/feature context)

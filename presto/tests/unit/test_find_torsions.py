@@ -295,6 +295,17 @@ class TestRingSpecificTorsions:
         # Benzene is aromatic, should not match (!a requirement)
         assert len(torsions) == 0
 
+    def test_pyrrole_aromatic_does_not_match(self):
+        """Test that pyrrole (aromatic 5-membered ring) does NOT match.
+        This fails with the MDL aromaticity model but pases with the RDKit
+        model."""
+        mol = Molecule.from_smiles("c1cc[nH]c1")
+        torsions = get_rot_torsions_by_rot_bond(
+            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        # Pyrrole is aromatic, should not match (!a requirement)
+        assert len(torsions) == 0
+
     def test_ethylbenzene_acyclic_bond_matches(self):
         """Test that ethylbenzene's acyclic C-C bond matches."""
         mol = Molecule.from_smiles("CCc1ccccc1")
