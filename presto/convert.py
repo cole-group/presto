@@ -176,6 +176,49 @@ def convert_to_smirnoff(
                 )
                 _add_parameter_with_overwrite(handler, parameter_dict)
 
+        elif potential.type == "vdW":
+            handler = ff_smirnoff.get_parameter_handler(
+                potential.parameter_keys[0].associated_handler
+            )
+
+            # Update handler attributes if present
+            if potential.attributes is not None:
+                opt_attributes = potential.attributes.detach().cpu().numpy()
+                for j, (attr_name, unit) in enumerate(
+                    zip(
+                        potential.attribute_cols, potential.attribute_units, strict=True
+                    )
+                ):
+                    setattr(handler, attr_name, float(opt_attributes[j]) * unit)
+
+            # Update parameters
+            for i, (parameter, parameter_key) in enumerate(
+                zip(potential.parameters, potential.parameter_keys, strict=True)
+            ):
+                smirks = parameter_key.id
+                # Skip virtual site parameters
+                if "EP" in smirks:
+                    logger.info(f"Skipping {smirks} as it is a virtual site")
+                    continue
+
+                try:
+                    ff_parameter = handler[smirks]
+                    opt_parameters = parameter.detach().cpu().numpy()
+                    for j, (param_name, unit) in enumerate(
+                        zip(
+                            potential.parameter_cols,
+                            potential.parameter_units,
+                            strict=True,
+                        )
+                    ):
+                        setattr(
+                            ff_parameter, param_name, float(opt_parameters[j]) * unit
+                        )
+                except KeyError:
+                    logger.warning(
+                        f"Parameter with SMIRKS {smirks} not found in handler"
+                    )
+
     return ff_smirnoff
 
 

@@ -18,6 +18,7 @@ ValenceType = Literal[
     "LinearAngles",
     "ProperTorsions",
     "ImproperTorsions",
+    "vdW",
 ]
 
 NonLinearValenceType = Literal[
@@ -25,6 +26,7 @@ NonLinearValenceType = Literal[
     "Angles",
     "ProperTorsions",
     "ImproperTorsions",
+    "vdW",
 ]
 
 AllowedAttributeType = Literal[

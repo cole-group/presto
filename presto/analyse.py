@@ -513,6 +513,7 @@ pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
         "k4",
     ],  # "phase1", "phase2", "phase3", "phase4"],
     "ImproperTorsions": ["k1"],  # "phase1"],
+    "vdW": ["epsilon", "sigma"],
 }
 
 
