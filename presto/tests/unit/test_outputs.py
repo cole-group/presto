@@ -500,7 +500,7 @@ class TestPerMoleculeOutputTypes:
             OutputType.PARAMETER_DIFFERENCES_PLOT,
             OutputType.ML_MINIMISED_PDB,
             OutputType.MM_MINIMISED_PDB,
-            OutputType.TORSION_DIHEDRALS_PLOT,
+            OutputType.TORSION_SAMPLING_PLOT,
         }
         assert PER_MOLECULE_OUTPUT_TYPES == expected_per_mol
 
