@@ -81,16 +81,13 @@ version = "*"
 channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
-# Default is equivalent to gpu-py313-cuda129-aceff-aimnet
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet-gpu", "py313", "cuda129"], solve-group = "gpu-py313-cuda129-aceff-aimnet" }
-gpu-py313-cuda129-aceff-aimnet = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet-gpu", "py313", "cuda129"], solve-group = "gpu-py313-cuda129-aceff-aimnet" }
-# Can't get aimnet working with cuda126 due to torch version requirements, so just aceff here
-gpu-py313-cuda126-aceff = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda126"] }
-gpu-py313-cuda129-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda129"] }
-gpu-py313-cuda126-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda126"] }
-# Don't bother with MACE on CPU
-cpu-py312-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet-cpu", "py312"] }
-cpu-py313-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet-cpu", "py313"] }
+# Default is equivalent to gpu-py313-cuda129. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312", "cuda129"]}
+# CPU
+cpu-py312-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312"] }
+cpu-py313-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
@@ -113,14 +110,7 @@ cuda = "12.9"
 
 [tool.pixi.feature.cuda129.dependencies]
 cuda-version = "12.9.*"
-pytorch-gpu = "*"
-
-[tool.pixi.feature.cuda126.system-requirements]
-cuda = "12.6"
-
-[tool.pixi.feature.cuda126.dependencies]
-cuda-version = "12.6.*"
-pytorch-gpu = "*"
+pytorch-gpu = ">=2.8.0"
 
 # -----------------------------
 # Shared dependencies
@@ -148,14 +138,14 @@ seaborn = "*"
 rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
+openmm = ">=8.5.0"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
 descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
 # Need newest version of OpenMM-ML which doesn't need openmmtorch or nnpops
-openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e939fb705bccb01d7d32dfdb2afe6affd410785d"}
-# OpenMM-CUDA-12 = "==8.5.0b0"
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e2b3ed8f630f6898ad4bf60603fe382f99479da5"}
 presto ={ path = ".", editable = true }
 
 # -----------------------------
@@ -173,7 +163,7 @@ cuda-version = ">=12"
 # cuequivariance-ops-torch-cu12="*"
 
 [tool.pixi.feature.cpu.dependencies]
-pytorch = "*"
+pytorch = ">=2.8.0"
 
 # Temporary descent and smee deps -  this allows installing
 # Tom's custom smee fork from GitHub and will be removed once
@@ -195,23 +185,8 @@ __unix = "*"
 [tool.pixi.feature.aceff.dependencies]
 torchmd-net = "*"
 
-# Need different aimnet CPU and GPU dependencies so we can specify torch versions for each
-# (GPU needs pytorch-gpu rather than pytorch)
-[tool.pixi.feature.aimnet-gpu.dependencies]
-pytorch-gpu = ">=2.8.0"
-
-[tool.pixi.feature.aimnet-gpu.pypi-dependencies]
+[tool.pixi.feature.aimnet.pypi-dependencies]
 aimnet = ">=0.1.0"
-
-[tool.pixi.feature.aimnet-cpu.dependencies]
-pytorch = ">=2.8.0"
-
-[tool.pixi.feature.aimnet-cpu.pypi-dependencies]
-aimnet = ">=0.1.0"
-
-[tool.pixi.feature.mace.dependencies] # Also applies to Egret-1
-# openmm-cuda = ">=8.2"
-# nnpops = "*"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"

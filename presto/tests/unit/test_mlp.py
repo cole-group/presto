@@ -1,29 +1,16 @@
 """Unit tests for mlp module."""
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 from openff.toolkit import Molecule
 from openmmml import MLPotential
 
 from presto._exceptions import InvalidSettingsError
 from presto.mlp import (
-    _CHARGE_SUPPORTING_MODELS,
     AvailableModels,
     _cache,
     get_mlp,
-    load_egret_1,
-    supports_charges,
     validate_model_charge_compatibility,
 )
-
-# Check if NNPOps is available (required for EGRET-1 and MACE models)
-try:
-    import NNPOps  # noqa: F401
-
-    NNPOPS_AVAILABLE = True
-except ImportError:
-    NNPOPS_AVAILABLE = False
 
 # Models that require NNPOps
 NNPOPS_MODELS = {
@@ -51,10 +38,6 @@ class TestAvailableModels:
         """
         import openmm
         from openff.toolkit import Molecule
-
-        # Skip models that require NNPOps if it's not available
-        if model_name in NNPOPS_MODELS and not NNPOPS_AVAILABLE:
-            pytest.skip(f"{model_name} requires NNPOps which is not installed")
 
         _cache.clear()
 

@@ -22,9 +22,9 @@ jobs:
         python-version: ["3.12", "3.13"]
         include:
           - python-version: "3.12"
-            pixi-environment: "cpu-py312-aceff-aimnet"
+            pixi-environment: "cpu-py312"
           - python-version: "3.13"
-            pixi-environment: "cpu-py313-aceff-aimnet"
+            pixi-environment: "cpu-py313"
 
     steps:
       - uses: actions/checkout@v4

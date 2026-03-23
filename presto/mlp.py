@@ -30,6 +30,7 @@ _cache: dict[AvailableModels, MLPotential] = {}
 _CHARGE_SUPPORTING_MODELS: set[str] = {
     "aimnet2",
     "aceff-2.0",
+    "mace-omol-0-extra-large",
 }
 
 
