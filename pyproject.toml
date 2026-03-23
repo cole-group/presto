@@ -86,8 +86,8 @@ default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing"
 gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
 gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312", "cuda129"]}
 # CPU
-cpu-py312-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312"] }
-cpu-py313-aceff-aimnet = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313"] }
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
