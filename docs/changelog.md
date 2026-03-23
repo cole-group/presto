@@ -2,6 +2,9 @@
 
 ## 0.6.0
 
+### Maintenance
+- Update Egret-1 model to the lastest version in [#35](https://github.com/cole-group/presto/pull/35)
+
 ### Improvements
 
 - Update environments to OpenMM 8.5 (with PythonForce) and OpenMM-ML. This simplifies the environments required (as we can drop NNPOPs) and means we have have all MLPs in one env. The only issue is that we can now only support CUDA 12.9. [#34](https://github.com/cole-group/presto/pull/34).
