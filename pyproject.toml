@@ -183,10 +183,13 @@ __unix = "*"
 # -----------------------------
 # Need for different features as nnpoops pins torch to older versions. This causes resolution conflicts with openmm-torch (which pins a specific build).
 [tool.pixi.feature.aceff.dependencies]
-torchmd-net = "*"
+# 3.0.3 has 3x speedup
+torchmd-net = ">=3.0.3"
 
 [tool.pixi.feature.aimnet.pypi-dependencies]
 aimnet = ">=0.1.0"
+# aimnet doesn't like more recent versions
+nvalchemi-toolkit-ops = "==0.2.0"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"
