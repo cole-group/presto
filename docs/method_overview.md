@@ -21,6 +21,11 @@ By default, we use the [modified Seminario method (MSM)](https://pubs.acs.org/do
 
 The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest.
 
+!!! info "Stereochemistry handling"
+	Bespoke types include no stereochemical information
+
+	This avoids toolkit disagreements between the OpenEye and RDKit toolkits (see [this issue](https://github.com/openforcefield/openff-toolkit/issues/146)) that can otherwise cause type generation failures. The resulting types will match alternative stereoisomers,  which should not be an issue unless you are training torsion phase shift (which is not done by default).
+
 ## Sampling
 
 The molecule is sampled using high-temperature molecular dynamics. By default, this is performed at 500 K using the input molecular mechanics force field. Well-tempered metadynamics is applied to all rotatable bonds to enhance sampling of diverse conformers and torsional barriers. The sampling is started from several different conformers generated with ``RDKit``'s ``ETKDG`` algorithm.
