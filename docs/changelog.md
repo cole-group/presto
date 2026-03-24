@@ -9,6 +9,7 @@
 
 ### Maintenance
 
+- Update dependabot options in [#40](https://github.com/cole-group/presto/pull/40)
 - Update Egret-1 model to the lastest version in [#35](https://github.com/cole-group/presto/pull/35)
 
 ### Improvements
