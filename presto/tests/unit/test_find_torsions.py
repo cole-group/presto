@@ -242,58 +242,29 @@ class TestDefaultSmarts:
 class TestRingSpecificTorsions:
     """Tests for ring-specific torsion matching with explicit bond primitives."""
 
-    def test_cyclopentane_matches_with_defaults(self):
-        """Test that cyclopentane (5-membered ring) matches with default patterns."""
-        mol = Molecule.from_smiles("C1CCCC1")
-        torsions = get_rot_torsions_by_rot_bond(
-            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        )
-        # Cyclopentane has 5 C-C bonds, each can be a torsion with 2 possible atom orderings
-        assert len(torsions) == 5
+    @pytest.mark.parametrize(
+        ("smiles", "expected_n_torsions"),
+        [
+            ("C1CCCC1", 5),
+            ("C1CCCCC1", 6),
+            ("C1CCCCCC1", 7),
+            ("C1CCC1", 0),
+            ("C1CC1", 0),
+            ("c1ccccc1", 0),
+            ("c1cc[nH]c1", 0),
+            ("O=[S@@](C)c1ccccc1", 1),  # Between S and benzene ring
+        ],
+    )
+    def test_default_patterns_expected_counts(self, smiles, expected_n_torsions):
+        """Test expected ring/aromatic match behavior with default patterns.
 
-    def test_cyclohexane_matches_with_defaults(self):
-        """Test that cyclohexane (6-membered ring) matches with default patterns."""
-        mol = Molecule.from_smiles("C1CCCCC1")
+        Pyrrole can fail under the MDL aromaticity model but passes under RDKit.
+        """
+        mol = Molecule.from_smiles(smiles)
         torsions = get_rot_torsions_by_rot_bond(
             mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
         )
-        # Cyclohexane has 6 C-C bonds
-        assert len(torsions) == 6
-
-    def test_cycloheptane_matches_with_defaults(self):
-        """Test that cycloheptane (7-membered ring) matches with default patterns."""
-        mol = Molecule.from_smiles("C1CCCCCC1")
-        torsions = get_rot_torsions_by_rot_bond(
-            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        )
-        # Cycloheptane has 7 C-C bonds
-        assert len(torsions) == 7
-
-    def test_cyclobutane_does_not_match(self):
-        """Test that cyclobutane (4-membered ring) does NOT match with default patterns."""
-        mol = Molecule.from_smiles("C1CCC1")
-        torsions = get_rot_torsions_by_rot_bond(
-            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        )
-        # Cyclobutane should not match (ring size < 5)
-        assert len(torsions) == 0
-
-    def test_cyclopropane_does_not_match(self):
-        """Test that cyclopropane (3-membered ring) does NOT match."""
-        mol = Molecule.from_smiles("C1CC1")
-        torsions = get_rot_torsions_by_rot_bond(
-            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        )
-        assert len(torsions) == 0
-
-    def test_benzene_aromatic_does_not_match(self):
-        """Test that benzene (aromatic 6-membered ring) does NOT match."""
-        mol = Molecule.from_smiles("c1ccccc1")
-        torsions = get_rot_torsions_by_rot_bond(
-            mol, include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        )
-        # Benzene is aromatic, should not match (!a requirement)
-        assert len(torsions) == 0
+        assert len(torsions) == expected_n_torsions
 
     def test_ethylbenzene_acyclic_bond_matches(self):
         """Test that ethylbenzene's acyclic C-C bond matches."""
@@ -318,35 +289,24 @@ class TestRingSpecificTorsions:
         # 1 for non-ring + 3 for ring sizes (r5, r6, r7)
         assert len(DEFAULT_TORSIONS_TO_INCLUDE_SMARTS) == 4
 
-    def test_patterns_match_intended_ring_sizes(self):
-        """Test each pattern matches only its intended ring size."""
-        # Pattern 0: non-ring bonds (butane)
-        mol_acyclic = Molecule.from_smiles("CCCC")
-        torsions_1 = get_single_torsion_by_rot_bond(
-            mol_acyclic, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[0]
+    @pytest.mark.parametrize(
+        ("pattern_idx", "smiles", "expected_n_torsions"),
+        [
+            (0, "CCCC", 1),
+            (1, "C1CCCC1", 5),
+            (2, "C1CCCCC1", 6),
+            (3, "C1CCCCCC1", 7),
+        ],
+    )
+    def test_patterns_match_intended_ring_sizes(
+        self, pattern_idx, smiles, expected_n_torsions
+    ):
+        """Test each default pattern matches its intended topology/ring size."""
+        mol = Molecule.from_smiles(smiles)
+        torsions = get_single_torsion_by_rot_bond(
+            mol, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[pattern_idx]
         )
-        assert len(torsions_1) == 1
-
-        # Pattern 1: 5-membered rings (cyclopentane)
-        mol_r5 = Molecule.from_smiles("C1CCCC1")
-        torsions_2 = get_single_torsion_by_rot_bond(
-            mol_r5, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[1]
-        )
-        assert len(torsions_2) == 5
-
-        # Pattern 2: 6-membered rings (cyclohexane)
-        mol_r6 = Molecule.from_smiles("C1CCCCC1")
-        torsions_3 = get_single_torsion_by_rot_bond(
-            mol_r6, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[2]
-        )
-        assert len(torsions_3) == 6
-
-        # Pattern 3: 7-membered rings (cycloheptane)
-        mol_r7 = Molecule.from_smiles("C1CCCCCC1")
-        torsions_4 = get_single_torsion_by_rot_bond(
-            mol_r7, DEFAULT_TORSIONS_TO_INCLUDE_SMARTS[3]
-        )
-        assert len(torsions_4) == 7
+        assert len(torsions) == expected_n_torsions
 
     def test_mixed_acyclic_and_cyclic_molecule(self):
         """Test molecule with both acyclic and cyclic rotatable bonds."""
