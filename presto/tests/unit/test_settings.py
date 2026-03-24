@@ -413,6 +413,11 @@ class TestOutlierFilterSettings:
         assert settings.energy_outlier_threshold is None
         assert settings.force_outlier_threshold is None
 
+    def test_min_conformations_must_be_at_least_one(self):
+        """Test that min_conformations cannot be less than 1."""
+        with pytest.raises(ValidationError, match="greater than or equal to 1"):
+            OutlierFilterSettings(min_conformations=0)
+
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = OutlierFilterSettings(

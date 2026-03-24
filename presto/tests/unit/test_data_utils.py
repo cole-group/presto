@@ -591,8 +591,8 @@ class TestFilterDatasetOutliers:
         assert "energy_weights" in filtered[0]
         assert "forces_weights" in filtered[0]
 
-    def test_respects_min_conformations(self, dataset_with_outlier):
-        """Test that min_conformations is respected."""
+    def test_raises_when_below_min_conformations(self, dataset_with_outlier):
+        """Test that filtering raises when kept conformations drop below minimum."""
         dataset, tensor_ff, tensor_top = dataset_with_outlier
 
         original_n_confs = len(dataset[0]["energy"])
@@ -603,17 +603,13 @@ class TestFilterDatasetOutliers:
             force_outlier_threshold=0.001,
             min_conformations=original_n_confs,  # Keep all
         )
-        filtered = filter_dataset_outliers(
-            dataset,
-            tensor_ff,
-            tensor_top,
-            settings=settings,
-        )
-
-        new_n_confs = len(filtered[0]["energy"])
-
-        # Should keep all conformations
-        assert new_n_confs == original_n_confs
+        with pytest.raises(ValueError, match="fewer than min_conformations"):
+            filter_dataset_outliers(
+                dataset,
+                tensor_ff,
+                tensor_top,
+                settings=settings,
+            )
 
     def test_no_filtering_when_disabled(self, dataset_with_outlier):
         """Test that no filtering occurs when both thresholds are None."""
