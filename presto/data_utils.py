@@ -371,23 +371,14 @@ def filter_dataset_outliers(
         # Ensure we keep at least min_conformations
         n_kept = keep_mask.sum().item()
         if n_kept < min_conformations:
-            logger.warning(
-                f"Filtering would keep only {n_kept} conformations, "
-                f"but min_conformations={min_conformations}. "
-                f"Keeping all {n_confs} conformations for this entry."
+            raise ValueError(
+                f"Filtering would keep only {n_kept} conformations for {entry_smiles}, "
+                f"which is fewer than min_conformations={min_conformations}."
             )
-            keep_mask = torch.ones(n_confs, dtype=torch.bool, device=device)
 
         # Extract kept conformations
         keep_indices = keep_mask.nonzero(as_tuple=True)[0]
         n_kept = len(keep_indices)
-
-        if n_kept == 0:
-            logger.warning(
-                f"All conformations filtered for {entry_smiles}, keeping all"
-            )
-            keep_indices = torch.arange(n_confs, device=device)
-            n_kept = n_confs
 
         logger.info(f"Keeping {n_kept}/{n_confs} conformations for {entry_smiles}")
 
