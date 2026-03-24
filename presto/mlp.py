@@ -9,7 +9,6 @@ from openff.units import unit as off_unit
 from openmmml import MLPotential
 
 from ._exceptions import InvalidSettingsError
-from .utils import aimnet2
 
 logger = loguru.logger
 
@@ -19,9 +18,9 @@ AvailableModels = Literal[
     "mace-off23-small",
     "mace-off23-medium",
     "mace-off23-large",
+    "mace-omol-0-extra-large",
     "egret-1",
-    "aimnet2_b973c_d3_ens",
-    "aimnet2_wb97m_d3_ens",
+    "aimnet2",
 ]
 """Available MLPotential models."""
 
@@ -29,9 +28,9 @@ _cache: dict[AvailableModels, MLPotential] = {}
 
 # Models that support charged molecules
 _CHARGE_SUPPORTING_MODELS: set[str] = {
-    "aimnet2_b973c_d3_ens",
-    "aimnet2_wb97m_d3_ens",
+    "aimnet2",
     "aceff-2.0",
+    "mace-omol-0-extra-large",
 }
 
 
@@ -95,9 +94,6 @@ def get_mlp(model: AvailableModels) -> MLPotential:
         )
 
     if model not in _cache:
-        if model in aimnet2._AVAILABLE_MODELS:
-            # Ensure AIMNet2 models registered
-            aimnet2._register_aimnet2_potentials()
         if model == "egret-1":
             _cache[model] = load_egret_1()
         else:

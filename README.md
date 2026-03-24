@@ -37,10 +37,7 @@ git clone https://github.com/cole-group/presto.git
 cd presto
 pixi shell
 ```
-By default, this will create an environment with CUDA 12.9. If your version is older, but >= 12.6 (check with `nvidia-smi`), then run
-```bash
-pixi shell -e gpu-py313-cuda126
-```
+This will create an environment with CUDA 12.9. **You'll need to update to CUDA >= 12.9 (check with `nvidia-smi`) to use `presto`** (older versions are not usable as we require OpenMM 8.5 for the PythonForce class, and this requires CUDA 12.9).
 
 For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
 
@@ -66,13 +63,6 @@ presto train-from-yaml default.yaml
 
 For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
 
-## MACE-Model Use
-
-To use models with the MACE architecture, run
-```
-pixi shell -e gpu-py313-cuda129-mace
-```
-(or the equivalent CUDA 12.6 version)
 
 ## Copyright
 

@@ -19,7 +19,7 @@ from presto.convert import (
     linearise_harmonics_topology,
     parameterise,
 )
-from presto.settings import ParameterisationSettings
+from presto.settings import MSMSettings, ParameterisationSettings
 
 
 @pytest.mark.parametrize(
@@ -222,7 +222,9 @@ def test_linearise_harmonics_topology():
 
 def test_parameterise(tmp_path):
     settings = ParameterisationSettings(
-        smiles="CC", initial_force_field="openff-2.1.0.offxml"
+        smiles="CC",
+        initial_force_field="openff-2.1.0.offxml",
+        msm_settings=MSMSettings(ml_potential="aimnet2"),
     )
 
     # We can use small molecules and real FF for a fast enough test
@@ -660,10 +662,6 @@ class TestParameteriseExtended:
 
         # At least some parameters should have been expanded
         assert expanded_count > 0
-
-    def test_parameterise_with_msm(self):
-        """Test parameterise with MSM settings."""
-        pytest.skip("MSM test requires NNPOps which is not available")
 
     def test_parameterise_multiple_molecules(self):
         """Test parameterise with multiple molecules."""

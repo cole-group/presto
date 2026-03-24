@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from presto.settings import OutlierFilterSettings
 
 logger = loguru.logger
+_CPU_DEVICE = torch.device("cpu")
 
 # Schema with weights for energy and forces
 WEIGHTED_DATA_SCHEMA = pyarrow.schema(
@@ -261,7 +262,7 @@ def filter_dataset_outliers(
     force_field: smee.TensorForceField,
     topology: smee.TensorTopology,
     settings: OutlierFilterSettings,
-    device: str = "cpu",
+    device: torch.device = _CPU_DEVICE,
 ) -> datasets.Dataset:
     """Filter outliers from a dataset based on MM vs reference energy/force differences.
 
@@ -274,7 +275,7 @@ def filter_dataset_outliers(
         force_field: The MM force field to use for computing predicted values.
         topology: The topology for the molecule in the dataset.
         settings: Outlier filter settings containing thresholds and min_conformations.
-        device: Device to use for computation ("cpu" or "cuda").
+        device: Device to use for computation.
 
     Returns:
         A new dataset with outliers removed.
@@ -307,7 +308,7 @@ def filter_dataset_outliers(
         topologies,
         reference="median",
         normalize=False,
-        device_type=device,
+        device=device,
         create_graph=False,
     )
 
@@ -370,23 +371,14 @@ def filter_dataset_outliers(
         # Ensure we keep at least min_conformations
         n_kept = keep_mask.sum().item()
         if n_kept < min_conformations:
-            logger.warning(
-                f"Filtering would keep only {n_kept} conformations, "
-                f"but min_conformations={min_conformations}. "
-                f"Keeping all {n_confs} conformations for this entry."
+            raise ValueError(
+                f"Filtering would keep only {n_kept} conformations for {entry_smiles}, "
+                f"which is fewer than min_conformations={min_conformations}."
             )
-            keep_mask = torch.ones(n_confs, dtype=torch.bool, device=device)
 
         # Extract kept conformations
         keep_indices = keep_mask.nonzero(as_tuple=True)[0]
         n_kept = len(keep_indices)
-
-        if n_kept == 0:
-            logger.warning(
-                f"All conformations filtered for {entry_smiles}, keeping all"
-            )
-            keep_indices = torch.arange(n_confs, device=device)
-            n_kept = n_confs
 
         logger.info(f"Keeping {n_kept}/{n_confs} conformations for {entry_smiles}")
 

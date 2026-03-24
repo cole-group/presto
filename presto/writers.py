@@ -35,7 +35,7 @@ def write_scatter(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
     topology_in: smee.TensorTopology,
-    device_type: str,
+    device: torch.device,
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
@@ -44,7 +44,7 @@ def write_scatter(
             dataset,
             force_field,
             {dataset[0]["smiles"]: topology_in},
-            device_type=device_type,
+            device=device,
             normalize=False,
         )
     )
@@ -124,7 +124,7 @@ def report(
             initial_parameters,
             topologies,
             regularisation_target,
-            x.device.type,
+            x.device,
             compute_grad=False,
         )
 
@@ -136,7 +136,7 @@ def report(
             initial_parameters,
             topologies,
             regularisation_target,
-            x.device.type,
+            x.device,
             compute_grad=False,
         )
 

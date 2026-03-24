@@ -133,7 +133,7 @@ def get_bespoke_force_field(
             dataset_test,
             tensor_ff,
             tensor_top,
-            str(settings.device),
+            settings.device,
             str(scatter_path_mol),
         )
         logger.info(
@@ -187,7 +187,7 @@ def get_bespoke_force_field(
                         force_field=tensor_ff,
                         topology=tensor_top,
                         settings=settings.outlier_filter_settings,
-                        device=str(settings.device),
+                        device=settings.device,
                     )
                     for ds, tensor_top in zip(
                         datasets_train_new, tensor_tops, strict=True
@@ -254,7 +254,7 @@ def get_bespoke_force_field(
                         dataset_test,
                         tensor_ff,
                         tensor_top,
-                        str(settings.device),
+                        settings.device,
                         str(scatter_path_mol),
                     )
                 )

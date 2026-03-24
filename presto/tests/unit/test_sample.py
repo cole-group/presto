@@ -4,10 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import datasets
 import numpy as np
+import openff.interchange
 import openmm
 import pytest
 import torch
-from openff.toolkit import ForceField, Molecule
+from openff.toolkit import ForceField, Molecule, Topology
 from openmm import unit as omm_unit
 
 from presto._exceptions import InvalidSettingsError
@@ -20,6 +21,9 @@ from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
     _add_torsion_restraint_forces,
+    _build_ml_simulation,
+    _build_mm_simulation,
+    _create_simulation,
     _find_available_force_group,
     _get_integrator,
     _get_ml_omm_system,
@@ -284,7 +288,7 @@ class TestGetMlOmmSystem:
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=1)
 
-        system = _get_ml_omm_system(mol, "egret-1")
+        system = _get_ml_omm_system(mol, "egret-1", torch.device("cpu"))
 
         assert isinstance(system, openmm.System)
         assert system.getNumParticles() == mol.n_atoms
@@ -294,7 +298,7 @@ class TestGetMlOmmSystem:
         mol = Molecule.from_smiles("C")
         mol.generate_conformers(n_conformers=1)
 
-        system = _get_ml_omm_system(mol, "aceff-2.0")
+        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
 
         assert isinstance(system, openmm.System)
         assert system.getNumParticles() == mol.n_atoms
@@ -305,7 +309,7 @@ class TestGetMlOmmSystem:
         mol.generate_conformers(n_conformers=1)
 
         # Should not raise
-        system = _get_ml_omm_system(mol, "aceff-2.0")
+        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
 
         assert isinstance(system, openmm.System)
         assert system.getNumParticles() == mol.n_atoms
@@ -316,7 +320,7 @@ class TestGetMlOmmSystem:
         mol.generate_conformers(n_conformers=1)
 
         # Should not raise
-        system = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
+        system = _get_ml_omm_system(mol, "aimnet2", torch.device("cpu"))
 
         assert isinstance(system, openmm.System)
         assert system.getNumParticles() == mol.n_atoms
@@ -329,7 +333,7 @@ class TestGetMlOmmSystem:
         with pytest.raises(
             InvalidSettingsError, match="does not support charged molecules"
         ):
-            _get_ml_omm_system(mol, "egret-1")
+            _get_ml_omm_system(mol, "egret-1", torch.device("cpu"))
 
     def test_charged_molecule_with_mace_raises(self):
         """Test that charged molecule with MACE raises error."""
@@ -339,7 +343,7 @@ class TestGetMlOmmSystem:
         with pytest.raises(
             InvalidSettingsError, match="does not support charged molecules"
         ):
-            _get_ml_omm_system(mol, "mace-off23-small")
+            _get_ml_omm_system(mol, "mace-off23-small", torch.device("cpu"))
 
     @pytest.mark.parametrize(
         "smiles",
@@ -351,7 +355,7 @@ class TestGetMlOmmSystem:
         mol.generate_conformers(n_conformers=1)
 
         # Test with ACEFF-2.0 (doesn't require NNPOps)
-        system = _get_ml_omm_system(mol, "aceff-2.0")
+        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
         assert isinstance(system, openmm.System)
 
     @pytest.mark.parametrize(
@@ -364,8 +368,8 @@ class TestGetMlOmmSystem:
         mol.generate_conformers(n_conformers=1)
 
         # Should work with charge-supporting models
-        system1 = _get_ml_omm_system(mol, "aceff-2.0")
-        system2 = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
+        system1 = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
+        system2 = _get_ml_omm_system(mol, "aimnet2", torch.device("cpu"))
 
         assert isinstance(system1, openmm.System)
         assert isinstance(system2, openmm.System)
@@ -389,7 +393,7 @@ class TestGetMlOmmSystem:
         with pytest.raises(
             InvalidSettingsError, match="does not support charged molecules"
         ):
-            _get_ml_omm_system(mol, unsupported_model)
+            _get_ml_omm_system(mol, unsupported_model, torch.device("cpu"))
 
 
 @pytest.fixture
@@ -433,6 +437,78 @@ def test_get_integrator():
     assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
     assert integrator.getTemperature() == temp
     assert integrator.getStepSize() == dt
+
+
+def test_create_simulation_uses_standard_integrator():
+    topology = openmm.app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("MOL", chain)
+    topology.addAtom("H", openmm.app.element.hydrogen, residue)
+
+    system = openmm.System()
+    system.addParticle(1.0)
+
+    temp = 300 * omm_unit.kelvin
+    dt = 2.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    simulation, integrator = _create_simulation(
+        topology,
+        system,
+        temp,
+        dt,
+        device,
+    )
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.context.getPlatform().getName() == "CPU"
+
+
+def test_build_ml_simulation_creates_system_and_simulation(mock_molecule):
+    topology = mock_molecule.to_topology().to_openmm()
+    temp = 300 * omm_unit.kelvin
+    dt = 1.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    fake_system = openmm.System()
+    for _ in range(mock_molecule.n_atoms):
+        fake_system.addParticle(12.0)
+
+    with patch("presto.sample._get_ml_omm_system", return_value=fake_system):
+        simulation, integrator = _build_ml_simulation(
+            mock_molecule,
+            topology,
+            "aceff-2.0",
+            temp,
+            dt,
+            device,
+        )
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.system.getNumParticles() == mock_molecule.n_atoms
+    assert simulation.context.getPlatform().getName() == "CPU"
+
+
+def test_build_mm_simulation_creates_system_and_simulation():
+    mol = Molecule.from_smiles("C")
+    mol.generate_conformers(n_conformers=1)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+    interchange = openff.interchange.Interchange.from_smirnoff(
+        ff, Topology.from_molecules(mol)
+    )
+
+    temp = 300 * omm_unit.kelvin
+    dt = 1.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    simulation, integrator = _build_mm_simulation(interchange, temp, dt, device)
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.system.getNumParticles() == mol.n_atoms
+    assert simulation.context.getPlatform().getName() == "CPU"
 
 
 class TestTorsionRestraints:

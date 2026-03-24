@@ -35,10 +35,9 @@ include = ["presto/models/*.pt"]
 ignore = ["C901", "E501"]
 select = ["B","C","E","F","W","B9"]
 ignore-init-module-imports = true
-exclude = ["presto/models/compile_aimnet2_ens_models.py"]
 
 [tool.coverage.run]
-omit = ["**/tests/*", "**/_version.py", "presto/models/compile_aimnet2_ens_models.py"]
+omit = ["**/tests/*", "**/_version.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
@@ -46,7 +45,6 @@ exclude = [
   "presto/_version.py",
   "presto/tests/",
   "presto/metadynamics.py", # As mostly lifted from OpenMM
-  "presto/models/compile_aimnet2_ens_models.py"
 ]
 
 [tool.coverage.report]
@@ -83,15 +81,13 @@ version = "*"
 channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
-# Default is equivalent to gpu-py313-cuda129
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
-gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
-gpu-py313-cuda126 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda126"] }
-gpu-py313-cuda129-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda129"] }
-gpu-py313-cuda126-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda126"] }
-# Different Python versions for testing in CI
-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py312"] }
-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py313"] }
+# Default is equivalent to gpu-py313-cuda129. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312", "cuda129"]}
+# CPU
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
@@ -114,19 +110,15 @@ cuda = "12.9"
 
 [tool.pixi.feature.cuda129.dependencies]
 cuda-version = "12.9.*"
-pytorch-gpu = "*"
-
-[tool.pixi.feature.cuda126.system-requirements]
-cuda = "12.6"
-
-[tool.pixi.feature.cuda126.dependencies]
-cuda-version = "12.6.*"
-pytorch-gpu = "*"
+# Need dev headers for AceFF
+cuda-cudart-dev = "12.9.*"
+pytorch-gpu = ">=2.8.0"
 
 # -----------------------------
 # Shared dependencies
 # -----------------------------
 [tool.pixi.feature.common.dependencies]
+pip = "*"
 pyyaml = "*"
 datasets = "*"
 jupyter = "*"
@@ -148,12 +140,14 @@ seaborn = "*"
 rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
+openmm = ">=8.5.0"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
 descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
 smee = { git = "https://github.com/thomasjamespope/smee.git" }
-mace-torch = "*"
+# Need newest version of OpenMM-ML which doesn't need openmmtorch or nnpops
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e2b3ed8f630f6898ad4bf60603fe382f99479da5"}
 presto ={ path = ".", editable = true }
 
 # -----------------------------
@@ -164,7 +158,6 @@ cuda = "12"
 
 [tool.pixi.feature.gpu.dependencies]
 cuda-version = ">=12"
-pytorch-gpu = "*"
 # cuequivariance="*"
 # cuequivariance-torch="*"
 
@@ -172,7 +165,7 @@ pytorch-gpu = "*"
 # cuequivariance-ops-torch-cu12="*"
 
 [tool.pixi.feature.cpu.dependencies]
-pytorch = "*"
+pytorch = ">=2.8.0"
 
 # Temporary descent and smee deps -  this allows installing
 # Tom's custom smee fork from GitHub and will be removed once
@@ -192,15 +185,16 @@ __unix = "*"
 # -----------------------------
 # Need for different features as nnpoops pins torch to older versions. This causes resolution conflicts with openmm-torch (which pins a specific build).
 [tool.pixi.feature.aceff.dependencies]
-openmm = ">=8.4"
-openmm-ml = ">=1.5"
-openmm-torch = ">=1.5.1"
-torchmd-net = "*"
+# 3.0.3 has 3x speedup
+torchmd-net = ">=3.0.3"
 
-[tool.pixi.feature.mace.dependencies] # Also applies to Egret-1
-openmm = ">=8.2"
-openmm-ml = ">=1.2"
-nnpops = "*"
+[tool.pixi.feature.aimnet.pypi-dependencies]
+aimnet = ">=0.1.0"
+# aimnet doesn't like more recent versions
+nvalchemi-toolkit-ops = "==0.2.0"
+
+[tool.pixi.feature.mace.pypi-dependencies]
+mace-torch = "*"
 
 # -----------------------------
 # Dev/test tools

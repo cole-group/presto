@@ -9,6 +9,7 @@ from importlib.resources import files
 
 import numpy as np
 import pytest
+import torch
 from openff.toolkit import ForceField, Molecule
 from openff.units import unit as off_unit
 
@@ -132,7 +133,7 @@ def base_forcefield():
 @pytest.fixture(scope="module")
 def msm_settings():
     """Default MSM settings for testing with minimal conformer count."""
-    return MSMSettings(n_conformers=1)
+    return MSMSettings(n_conformers=1, ml_potential="aimnet2")
 
 
 # --- Unit Vector Tests ---
@@ -772,7 +773,7 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         bond_params, angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, msm_settings
+            mol, bond_indices, angle_indices, msm_settings, device=torch.device("cpu")
         )
 
         # Check that we got parameters for all bonds and angles
@@ -797,7 +798,7 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         bond_params, angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, msm_settings
+            mol, bond_indices, angle_indices, msm_settings, device=torch.device("cpu")
         )
 
         assert isinstance(bond_params, dict)
@@ -815,10 +816,10 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         # Test with 3 conformers
-        settings_multi = MSMSettings(n_conformers=2)
+        settings_multi = MSMSettings(n_conformers=2, ml_potential="aimnet2")
 
         bond_params_multi, angle_params_multi = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, settings_multi
+            mol, bond_indices, angle_indices, settings_multi, device=torch.device("cpu")
         )
 
         # Check that we got parameters for all bonds and angles
@@ -844,7 +845,9 @@ class TestApplyMSMToMolecules:
         mol = Molecule.from_smiles("CCO")
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         assert isinstance(modified_ff, ForceField)
 
@@ -856,7 +859,9 @@ class TestApplyMSMToMolecules:
         ]
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(mols, ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            mols, ff, msm_settings, device=torch.device("cpu")
+        )
 
         assert isinstance(modified_ff, ForceField)
 
@@ -869,7 +874,9 @@ class TestApplyMSMToMolecules:
         bond_handler = ff.get_parameter_handler("Bonds")
         original_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
 
-        _modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        _modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Check original is unchanged
         new_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
@@ -892,7 +899,9 @@ class TestApplyMSMToMolecules:
             if p.smirks in used_bond_smirks
         }
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Get modified parameters
         mod_bond_handler = modified_ff.get_parameter_handler("Bonds")
@@ -928,7 +937,9 @@ class TestApplyMSMToMolecules:
         original_angle_k_units = angle_handler.parameters[0].k.units
         original_angle_angle_units = angle_handler.parameters[0].angle.units
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Check units are compatible (dimensionally equivalent) in modified force field
         mod_bond_handler = modified_ff.get_parameter_handler("Bonds")

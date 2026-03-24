@@ -544,9 +544,9 @@ class OutlierFilterSettings(_DefaultSettings):
 
     min_conformations: int = Field(
         1,
+        ge=1,
         description="Minimum number of conformations to keep per molecule. "
-        "If filtering would remove too many conformations, all conformations "
-        "will be kept for that molecule.",
+        "If filtering would remove too many conformations, an error is raised.",
     )
 
 

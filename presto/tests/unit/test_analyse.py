@@ -25,7 +25,7 @@ from presto.analyse import (
     plot_loss,
     plot_mean_errors,
     plot_rmse_of_errors,
-    plot_torsion_dihedrals,
+    plot_torsion_sampling,
     read_errors,
     read_losses,
 )
@@ -568,11 +568,11 @@ class TestCalculateDihedralsForTrajectory:
         assert not np.allclose(angles[0], angles[1])
 
 
-class TestPlotTorsionDihedrals:
-    """Tests for plot_torsion_dihedrals function."""
+class TestPlotTorsionSampling:
+    """Tests for plot_torsion_sampling function."""
 
-    def test_plot_torsion_dihedrals_creates_plot(self, test_molecule: Molecule) -> None:
-        """Test that plot_torsion_dihedrals creates a plot without errors."""
+    def test_plot_torsion_sampling_creates_plot(self, test_molecule: Molecule) -> None:
+        """Test that plot_torsion_sampling creates a plot without errors."""
         # Create mock dihedral data
         n_frames = 10
         dihedrals_by_iteration = {
@@ -588,7 +588,7 @@ class TestPlotTorsionDihedrals:
 
         # Create subplots for 2 torsions
         fig, axs = plt.subplots(1, 2, figsize=(16, 5), squeeze=False)
-        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, test_molecule)
+        plot_torsion_sampling(fig, axs, dihedrals_by_iteration, test_molecule)
 
         # Check that each subplot has content
         for ax in axs.flat:

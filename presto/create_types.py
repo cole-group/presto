@@ -1,9 +1,9 @@
 """Create new tagged SMARTS parameter types for molecules of interest."""
 
 import copy
+import warnings
 from collections import defaultdict
 from collections.abc import Mapping
-from typing import TypeVar
 
 import openff.toolkit
 from loguru import logger
@@ -191,137 +191,39 @@ def _remove_redundant_smarts(
     return ff_copy
 
 
-_T = TypeVar(
-    "_T",
-    bound=openff.toolkit.typing.engines.smirnoff.parameters.ParameterHandler,
-)
-
-
-def _add_types_to_parameter_handler(
+def _remove_stereochemical_information(
     mol: openff.toolkit.Molecule,
-    parameter_handler: _T,
-    handler_name: str,
-    max_extend_distance: int = -1,
-    excluded_smirks: list[str] | None = None,
-    included_smirks: list[str] | None = None,
-) -> _T:
-    """
-    Add bespoke parameters to the parameter handler based on the molecule.
+) -> openff.toolkit.Molecule:
+    """Return a copy of ``mol`` with atom and bond stereochemistry removed."""
+    mol_copy = copy.deepcopy(mol)
 
-    This:
-
-    a) Labels the molecule with the original parameter types from the
-       parameter handler (using `find_matches`).
-    b) For each set of atoms labelled using the original parameters:
-        i) Check that it is not excluded (if `excluded_smirks` is
-           provided) or is included (if `included_smirks` is provided).
-        ii) Create a SMARTS pattern that extends from the labelled atoms up
-            to `max_extend_distance` bonds.
-        iii) Add a new parameter to the parameter handler with the created
-             SMARTS pattern. If a parameter with the same SMARTS pattern
-             already exists, log a warning and skip adding the new parameter.
-
-    Parameters
-    ----------
-    mol: openff.toolkit.Molecule
-        The molecule to parameterise.
-    parameter_handler: (
-        openff.toolkit.typing.engines.smirnoff.parameters.ParameterHandler
+    had_atom_stereo = any(atom.stereochemistry is not None for atom in mol_copy.atoms)
+    had_bond_stereo = any(
+        getattr(bond, "_stereochemistry", None) is not None for bond in mol_copy.bonds
     )
-        The parameter handler to add bespoke parameters to.
-    handler_name: str
-        The name of the parameter handler.
-    max_extend_distance: int = -1
-        The maximum distance (in bonds) to extend the SMARTS patterns from
-        the atoms which determine the energy for the parameter. If -1, the
-        SMARTS patterns will include the entire molecule.
-    excluded_smirks: list[str] | None, default None
-        A list of SMIRKS patterns to exclude from bespoke type generation.
-        This is mutually exclusive with `included_smirks`.
-    included_smirks: list[str] | None, default None
-        A list of SMIRKS patterns to include in bespoke type generation.
-        This is mutually exclusive with `excluded_smirks`.
 
-    Returns
-    -------
-    openff.toolkit.typing.engines.smirnoff.parameters.ParameterHandler
-        The parameter handler with bespoke parameters added.
-    """
-
-    # Validate that excluded_smirks and included_smirks are mutually exclusive
-    if excluded_smirks and included_smirks:
-        raise ValueError(
-            "excluded_smirks and included_smirks are mutually exclusive. "
-            "Please provide only one."
+    if had_atom_stereo or had_bond_stereo:
+        warnings.warn(
+            (
+                "Input molecule contains stereochemical information that will be "
+                "removed before bespoke type generation. This avoids toolkit "
+                "disagreements between OpenEye and RDKit (see "
+                "https://github.com/openforcefield/openff-toolkit/issues/146) that "
+                "can otherwise cause type generation failures. The resulting types "
+                "will match alternative stereoisomers, which should not be an issue "
+                "unless torsion phase shifts are being trained."
+            ),
+            UserWarning,
+            stacklevel=2,
         )
 
-    excluded_smirks = excluded_smirks or []
-    included_smirks = included_smirks or []
+    for atom in mol_copy.atoms:
+        atom.stereochemistry = None
 
-    # Create a copy of the parameter handler to avoid modifying the original
-    handler_copy = copy.deepcopy(parameter_handler)
+    for bond in mol_copy.bonds:
+        bond._stereochemistry = None
 
-    # Find all matches for this handler on the molecule
-    matches = handler_copy.find_matches(mol.to_topology())
-
-    # First pass: collect all bespoke SMARTS patterns and their corresponding parameters
-    bespoke_smarts_list: list[str] = []
-    smarts_to_param: dict[
-        str, openff.toolkit.typing.engines.smirnoff.parameters.ParameterType
-    ] = {}
-
-    for match_key, match in matches.items():
-        # match_key is a tuple of atom indices
-        atom_indices = match_key
-
-        # Get the parameter from the match object
-        param = match.parameter_type
-
-        # Get the original parameter's SMIRKS
-        original_smirks = param.smirks
-
-        # Check if this parameter should be excluded
-        if excluded_smirks and original_smirks in excluded_smirks:
-            continue
-
-        # Check if this parameter should be included (if include list exists)
-        if included_smirks and original_smirks not in included_smirks:
-            continue
-
-        # Create a bespoke SMARTS pattern for this specific set of atoms
-        bespoke_smarts = _create_smarts(mol, atom_indices, max_extend_distance)
-
-        # Store the SMARTS and associated parameter
-        if bespoke_smarts not in smarts_to_param:
-            bespoke_smarts_list.append(bespoke_smarts)
-            smarts_to_param[bespoke_smarts] = param
-
-    logger.info(
-        f"Generated {len(bespoke_smarts_list)} bespoke SMARTS patterns for handler {handler_name}."
-    )
-
-    # Second pass: add the SMARTS patterns to the handler
-    for bespoke_smarts in bespoke_smarts_list:
-        # Get the original parameter to copy attributes from
-        param = smarts_to_param[bespoke_smarts]
-
-        # Create a new parameter dict based on the original parameter
-        new_param_dict = {"smirks": bespoke_smarts}
-
-        # Copy over all the parameter attributes from the original
-        for attr_name in param.to_dict().keys():
-            if attr_name not in ["smirks", "id"]:
-                attr_value = getattr(param, attr_name)
-                new_param_dict[attr_name] = attr_value
-
-        # Generate a unique ID for the new parameter
-        counter = len(handler_copy.parameters) + 1
-        new_param_dict["id"] = f"{handler_name[0].lower()}-bespoke-{counter}"
-
-        # Add the new parameter to the handler
-        _add_parameter_with_overwrite(handler_copy, new_param_dict)
-
-    return handler_copy
+    return mol_copy
 
 
 def add_types_to_forcefield(
@@ -349,6 +251,8 @@ def add_types_to_forcefield(
     if isinstance(mols, openff.toolkit.Molecule):
         mols = [mols]
 
+    mols_for_typing = [_remove_stereochemical_information(mol) for mol in mols]
+
     # Create a copy of the force field to avoid modifying the original
     ff_copy = copy.deepcopy(force_field)
 
@@ -361,7 +265,7 @@ def add_types_to_forcefield(
             str, openff.toolkit.typing.engines.smirnoff.parameters.ParameterType
         ] = {}
 
-        for mol in mols:
+        for mol in mols_for_typing:
             # Find all matches for this handler on the molecule
             matches = parameter_handler.find_matches(mol.to_topology())
 
@@ -390,7 +294,7 @@ def add_types_to_forcefield(
                     smarts_to_param[bespoke_smarts] = param
 
         logger.info(
-            f"Generated {len(all_bespoke_smarts)} bespoke SMARTS patterns for handler {handler_name} across {len(mols)} molecules."
+            f"Generated {len(all_bespoke_smarts)} bespoke SMARTS patterns for handler {handler_name} across {len(mols_for_typing)} molecules."
         )
 
         # Add the SMARTS patterns to the handler
@@ -420,6 +324,6 @@ def add_types_to_forcefield(
         ff_copy.register_parameter_handler(handler_copy)
 
     # Remove redundant parameters that are not used by any molecule
-    ff_copy = _remove_redundant_smarts(mols, ff_copy, id_substring="bespoke")
+    ff_copy = _remove_redundant_smarts(mols_for_typing, ff_copy, id_substring="bespoke")
 
     return ff_copy
