@@ -7,6 +7,7 @@
 
 ### Improvements
 
+- Refactor simulation creation logic to reduce duplication and always set the platform to CPU for ML systems (required so that MACE models work with PythonForce). See [this commit](https://github.com/cole-group/presto/commit/c0f9dfc7fd3055c20ca87975ec9703c129e2a070).
 - Update environments to OpenMM 8.5 (with PythonForce) and OpenMM-ML. This simplifies the environments required (as we can drop NNPOPs) and means we have have all MLPs in one env. The only issue is that we can now only support CUDA 12.9. [#34](https://github.com/cole-group/presto/pull/34).
 
 ## 0.5.1
