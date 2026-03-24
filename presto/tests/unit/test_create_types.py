@@ -295,6 +295,7 @@ class TestRemoveStereochemicalInformation:
 
     @pytest.mark.parametrize("smiles", ["C[C@H](O)N", "F/C=C/F"])
     def test_returns_copy_with_stereo_removed(self, smiles):
+        """Returns copy with stereo removed."""
         mol = openff.toolkit.Molecule.from_smiles(smiles)
 
         original_atom_stereo = [atom.stereochemistry for atom in mol.atoms]
@@ -322,6 +323,7 @@ class TestRemoveStereochemicalInformation:
         )
 
     def test_no_warning_for_non_stereochemical_molecule(self):
+        """No warning for non stereochemical molecule."""
         mol = openff.toolkit.Molecule.from_smiles("CCO")
 
         with warnings.catch_warnings(record=True) as record:
@@ -343,7 +345,7 @@ class TestRemoveRedundantSmarts:
         # Add a bespoke parameter that will be used
         bond_handler = ff.get_parameter_handler("Bonds")
         labels = bond_handler.find_matches(mol.to_topology())
-        first_bond_indices = list(labels.keys())[0]
+        first_bond_indices = next(iter(labels.keys()))
 
         # Create a SMARTS that matches ethanol
         used_smarts = _create_smarts(mol, first_bond_indices, max_extend_distance=-1)

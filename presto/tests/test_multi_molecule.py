@@ -24,7 +24,7 @@ class TestMultiMoleculeParameterisation:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, _tensor_ff = parameterise(settings=settings, device="cpu")
 
         assert len(mols) == 1
         assert len(tops) == 1
@@ -39,7 +39,7 @@ class TestMultiMoleculeParameterisation:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         assert len(mols) == 3
         # Each molecule gets its own force field with its parameters
@@ -217,7 +217,7 @@ class TestMultiMoleculeEnergyCalculations:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Generate a conformer
         mols[0].generate_conformers(n_conformers=1)
@@ -241,7 +241,7 @@ class TestMultiMoleculeEnergyCalculations:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Verify we get separate topologies for each molecule
         assert len(mols) == 2
@@ -265,7 +265,7 @@ class TestMultiMoleculeParameterSharing:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        _mols, _off_ff, tops, _tensor_ff = parameterise(settings=settings, device="cpu")
 
         # All topologies should reference the same force field structure
         # (though they have different topological indices)
@@ -284,7 +284,7 @@ class TestMultiMoleculeParameterSharing:
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        _mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Create a trainable with parameter configs
         parameter_configs = {

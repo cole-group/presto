@@ -210,7 +210,6 @@ def test_calculate_hessian_three_particle_angle():
 
 def test_calculate_hessian_ethanol():
     """Test the calculate_hessian function with a realistic molecule."""
-
     # Create an OpenMM System and input coordinates for testing
     molecule = Molecule.from_smiles("CCO")
     molecule.generate_conformers(n_conformers=1)

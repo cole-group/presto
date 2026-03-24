@@ -42,7 +42,7 @@ def supports_charges(model: AvailableModels) -> bool:
     model : AvailableModels
         The model name to check.
 
-    Returns
+    Returns:
     -------
     bool
         True if the model supports charged molecules, False otherwise.
@@ -62,7 +62,7 @@ def validate_model_charge_compatibility(
     mol : openff.toolkit.Molecule
         The molecule to check.
 
-    Raises
+    Raises:
     ------
     InvalidSettingsError
         If the molecule is charged but the model does not support charges.
@@ -87,7 +87,6 @@ def load_egret_1() -> MLPotential:
 
 def get_mlp(model: AvailableModels) -> MLPotential:
     """Get the MLPotential model based on the specified model name."""
-
     if model not in get_args(AvailableModels):
         raise ValueError(
             f"Invalid model name: {model}. Available models are: {get_args(AvailableModels)}"

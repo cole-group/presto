@@ -1,5 +1,4 @@
-"""
-Generate reference MSM values using QUBEKit's ModSeminario implementation.
+"""Generate reference MSM values using QUBEKit's ModSeminario implementation.
 
 This script uses QUBEKit directly to compute bond and angle parameters using
 the Modified Seminario Method, which can then be used as reference values
@@ -305,14 +304,14 @@ QUBEKit internal workflow:
 3. ModSeminario calculates force constants in kcal/mol/Å² (bonds) or kcal/mol/rad² (angles)
 4. Output is converted to OpenMM units:
    - Bonds: kJ/mol/nm² using KCAL_TO_KJ * 200 (= 4.184 * 200 = 836.8)
-     Factor of 200 = 100 (Å² → nm²) × 2 (potential convention)
+     Factor of 200 = 100 (Å² → nm²) x 2 (potential convention)
    - Angles: kJ/mol/rad² using KCAL_TO_KJ * 2 (= 4.184 * 2 = 8.368)
      Factor of 2 is for potential convention
 
 OpenMM convention: U = k*(r-r0)² (no 1/2 factor)
 OpenFF/SMIRNOFF convention: U = (k/2)*(r-r0)² (has 1/2 factor)
 
-So QUBEKit k values are 2× larger than OpenFF k values for the same physical potential.
+So QUBEKit k values are 2x larger than OpenFF k values for the same physical potential.
 """
     )
 

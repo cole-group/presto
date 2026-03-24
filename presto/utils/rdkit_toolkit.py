@@ -11,7 +11,7 @@ from rdkit import Chem
 
 
 class PermissiveAromaticityRDKitToolkitWrapper(RDKitToolkitWrapper):  # type: ignore[misc]
-    """A custom RDKit toolkit wrapper that allows for other aromaticity models to be used when matching SMARTS"""
+    """A custom RDKit toolkit wrapper that allows for other aromaticity models to be used when matching SMARTS."""
 
     @cached(LRUCache(maxsize=4096), key=base_wrapper._mol_to_ctab_and_aro_key)
     def _connection_table_to_rdkit(

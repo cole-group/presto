@@ -1,11 +1,10 @@
-"""
-Functionality to obtain samples to fit the force field to.
-"""
+"""Functionality to obtain samples to fit the force field to."""
 
 import copy
 import functools
 import pathlib
-from typing import Callable, Protocol, TypedDict, Unpack
+from collections.abc import Callable
+from typing import Protocol, TypedDict, Unpack
 
 import datasets
 import datasets.table
@@ -65,7 +64,8 @@ class SampleFnArgs(TypedDict):
 class SampleFn(Protocol):
     """A protocol for sampling functions."""
 
-    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> list[datasets.Dataset]: ...
+    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> list[datasets.Dataset]:
+        """Execute sampling function."""
 
 
 _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
@@ -165,8 +165,7 @@ def _run_md(
     production_n_steps_per_snapshot_per_conformer: int,
     pdb_reporter_path: str | None = None,
 ) -> datasets.Dataset:
-    """Run MD on a molecule and return a dataset of the coordinates,
-    energies, and forces of the snapshots.
+    """Run MD on a molecule and return a dataset of the coordinates, energies, and forces of the snapshots.
 
     Parameters
     ----------
@@ -196,12 +195,11 @@ def _run_md(
         simulation to. The frames saved correspond
         to the production snapshots. If None, no trajectory is saved.
 
-    Returns
+    Returns:
     -------
     datasets.Dataset
         The dataset of snapshots with coordinates, energies, and forces.
     """
-
     coords, energy, forces = [], [], []
     if pdb_reporter_path is not None:
         reporter = PDBReporter(
@@ -275,12 +273,12 @@ def _get_ml_omm_system(
     device : torch.device
         The device to load the ML potential on.
 
-    Returns
+    Returns:
     -------
     openmm.System
         The OpenMM system for the molecule.
 
-    Raises
+    Raises:
     ------
     InvalidSettingsError
         If the molecule is charged and the ML potential does not support charges.
@@ -305,7 +303,6 @@ def recalculate_energies_and_forces(
     dataset: datasets.Dataset, simulation: Simulation
 ) -> datasets.Dataset:
     """Recalculate energies and forces for a dataset using a given OpenMM simulation."""
-
     recalc_energies = []
     recalc_forces = []
 
@@ -364,7 +361,7 @@ def sample_mmmd(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -459,7 +456,7 @@ def sample_mlmd(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -524,9 +521,7 @@ def _get_torsion_bias_forces(
     torsions_to_exclude: list[str] = DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     bias_width: float = np.pi / 10,
 ) -> list[openmm.app.metadynamics.BiasVariable]:
-    """
-    Find important torsions in a molecule and return a list of BiasVariable objects -
-    one for each torsion.
+    """Find important torsions in a molecule and return a list of BiasVariable objects, one for each torsion.
 
     Args:
         mol: OpenFF Molecule.
@@ -587,7 +582,7 @@ def sample_mmmd_metadynamics(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -734,7 +729,7 @@ def _get_molecule_from_dataset(
     dataset : datasets.Dataset
         Dataset containing SMILES string
 
-    Returns
+    Returns:
     -------
     openff.toolkit.Molecule
         Reconstructed molecule from SMILES
@@ -753,12 +748,12 @@ def _find_available_force_group(simulation: Simulation) -> int:
     simulation : Simulation
         OpenMM simulation object
 
-    Returns
+    Returns:
     -------
     int
         An available force group number (0-31)
 
-    Raises
+    Raises:
     ------
     RuntimeError
         If all force groups (0-31) are in use
@@ -800,7 +795,7 @@ def _add_torsion_restraint_forces(
         Initial target angles for each torsion (in radians).
         If None, defaults to 0.0 for all torsions.
 
-    Returns
+    Returns:
     -------
     tuple[list[int], int]
         Tuple of (list of force indices that were added, force group number)
@@ -918,7 +913,7 @@ def _minimize_with_frozen_torsions(
     max_iterations : int, optional
         Maximum minimization iterations (0 = until convergence)
 
-    Returns
+    Returns:
     -------
     tuple[numpy.ndarray, float, numpy.ndarray]
         Minimized coordinates, energy, and forces (excluding restraint forces)
@@ -1020,7 +1015,7 @@ def generate_torsion_minimised_dataset(
     ml_min_forces_weight : float, optional
         Forces weight for ML-minimised dataset.
 
-    Returns
+    Returns:
     -------
     tuple[datasets.Dataset, datasets.Dataset]
         Tuple of (MM-minimised dataset, ML-minimised dataset).
@@ -1203,7 +1198,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets with combined metadynamics and torsion-minimised samples.
@@ -1459,12 +1454,12 @@ def load_precomputed_dataset(
     output_paths : dict[OutputType, pathlib.Path]
         Output paths (should be empty for this protocol).
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The loaded datasets, one per molecule.
 
-    Raises
+    Raises:
     ------
     ValueError
         If the number of dataset paths doesn't match the number of molecules.

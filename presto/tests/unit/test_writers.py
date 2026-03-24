@@ -1,3 +1,5 @@
+"""Unit tests for writers."""
+
 from unittest.mock import MagicMock, patch
 
 import h5py
@@ -12,6 +14,7 @@ from presto.writers import (
 
 
 def test_write_scatter(tmp_path):
+    """Test write_scatter function."""
     # Setup dummy data
     n_conf = 2
     n_atoms = 3
@@ -60,6 +63,7 @@ def test_write_scatter(tmp_path):
 
 
 def test_get_potential_summary():
+    """Test get_potential_summary function."""
     potential = MagicMock(spec=smee.TensorPotential)
     potential.type = "Bonds"
     potential.fn = "harmonic"
@@ -75,6 +79,7 @@ def test_get_potential_summary():
 
 
 def test_get_potential_comparison():
+    """Test get_potential_comparison function."""
     pot1 = MagicMock(spec=smee.TensorPotential)
     pot1.type = "Bonds"
     pot1.fn = "harmonic"
@@ -93,6 +98,7 @@ def test_get_potential_comparison():
 
 
 def test_get_potential_summary_with_attributes():
+    """Test get_potential_summary function with attributes."""
     potential = MagicMock(spec=smee.TensorPotential)
     potential.type = "vdW"
     potential.fn = "LennardJones"
@@ -110,6 +116,7 @@ def test_get_potential_summary_with_attributes():
 
 
 def test_get_potential_comparison_with_attributes():
+    """Test get_potential_comparison function with attributes."""
     pot1 = MagicMock(spec=smee.TensorPotential)
     pot1.type = "vdW"
     pot1.fn = "LennardJones"

@@ -32,6 +32,7 @@ class TestSamplingSettingsBase:
 
     @pytest.fixture
     def valid_mm_md_settings(self):
+        """Test that default values are set correctly."""
         return MMMDSamplingSettings()
 
     def test_default_values(self, valid_mm_md_settings):
@@ -533,6 +534,7 @@ class TestWorkflowSettings:
 
     @pytest.fixture
     def valid_workflow_settings(self):
+        """Test that default values are set correctly."""
         return WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(smiles="CCO"),
             device_type="cpu",

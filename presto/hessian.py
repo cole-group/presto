@@ -13,9 +13,7 @@ _DIMENSION_TO_OFFSET = {"x": 0, "y": 1, "z": 2}
 
 
 def _get_forces(simulation: Simulation, positions: np.ndarray) -> np.ndarray:
-    """
-    Compute the forces on the system at the given positions
-    """
+    """Compute the forces on the system at the given positions."""
     simulation.context.setPositions(positions * _LENGTH_UNIT)
     forces: np.ndarray = (
         simulation.context.getState(getForces=True)
@@ -30,8 +28,8 @@ def calculate_hessian(
     input_coords: unit.Quantity,
     finite_step: unit.Quantity = 0.0005291772 * unit.nanometers,
 ) -> unit.Quantity:
-    """
-    Using finite displacement calculate the hessian matrix of the molecule
+    """Using finite displacement calculate the hessian matrix of the molecule.
+
     using a seminumerical scheme. See https://mattermodeling.stackexchange.com/questions/10358/numerical-evaluation-of-hessian
     for a brief description of the method.
 
@@ -43,7 +41,6 @@ def calculate_hessian(
     Returns:
         unit.Quantity: The Hessian matrix in appropriate units.
     """
-
     # Perform all operations in _LENGTH_UNIT
     input_coords = input_coords.value_in_unit(_LENGTH_UNIT)
     finite_step = finite_step.value_in_unit(_LENGTH_UNIT)
