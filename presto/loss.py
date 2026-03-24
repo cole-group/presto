@@ -17,6 +17,7 @@ import torch
 from .data_utils import get_weights_from_entry
 
 logger = loguru.logger
+_CPU_DEVICE = torch.device("cpu")
 
 
 class LossRecord(typing.NamedTuple):
@@ -35,7 +36,7 @@ def _compute_molecule_energy_force_loss(
     energy_weights: torch.Tensor,
     forces_weights: torch.Tensor,
     n_atoms: int,
-    device: torch.device | str,
+    device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute weighted energy and force loss for a single molecule.
 
@@ -92,7 +93,7 @@ def _compute_molecule_total_loss_and_grad(
     dataset: datasets.Dataset,
     topology: smee.TensorTopology,
     trainable_parameters: torch.Tensor,
-    device_type: str,
+    device: torch.device,
     compute_grad: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
     """Compute total loss and optionally gradient for a single molecule.
@@ -106,7 +107,7 @@ def _compute_molecule_total_loss_and_grad(
         dataset: Dataset for this molecule.
         topology: Topology for this molecule.
         trainable_parameters: Parameters to compute gradients for.
-        device_type: Device type for computations.
+        device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
 
     Returns:
@@ -123,7 +124,7 @@ def _compute_molecule_total_loss_and_grad(
         dataset,
         force_field,
         {dataset[0]["smiles"]: topology},
-        device_type=device_type,
+        device=device,
         normalize=False,
         create_graph=compute_grad,  # Only keep graph if computing gradients
     )
@@ -136,7 +137,7 @@ def _compute_molecule_total_loss_and_grad(
         energy_weights,
         forces_weights,
         topology.n_atoms,
-        device_type,
+        device,
     )
 
     # Compute combined loss for this molecule
@@ -168,7 +169,7 @@ def compute_overall_loss_and_grad(
     initial_parameters: torch.Tensor,
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
-    device_type: str,
+    device: torch.device,
     compute_grad: bool = True,
 ) -> tuple[LossRecord, torch.Tensor | None]:
     """Compute loss and optionally gradients for memory efficiency.
@@ -185,7 +186,8 @@ def compute_overall_loss_and_grad(
         initial_parameters: The initial parameters before training.
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
-        device_type: The device type (e.g., 'cpu' or 'cuda').
+        device: Device for computations.
+
         compute_grad: Whether to compute gradients (default: True).
 
     Returns:
@@ -207,7 +209,7 @@ def compute_overall_loss_and_grad(
             dataset,
             topology,
             trainable_parameters,
-            device_type,
+            device,
             compute_grad=compute_grad,
         )
 
@@ -219,7 +221,7 @@ def compute_overall_loss_and_grad(
         force_losses.append(force_loss)
 
         # Free GPU memory after each molecule
-        if device_type == "cuda":
+        if device.type == "cuda":
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
@@ -351,7 +353,7 @@ def get_loss_closure_fn(
                 initial_parameters,
                 topologies,
                 regularisation_target,
-                _x.device.type,
+                _x.device,
                 compute_grad=False,
             )
             return (
@@ -377,7 +379,7 @@ def get_loss_closure_fn(
             initial_parameters,
             topologies,
             regularisation_target,
-            x.device.type,
+            x.device,
             compute_grad=compute_gradient,
         )
 
@@ -401,7 +403,7 @@ def predict_with_weights(
     topologies: dict[str, smee.TensorTopology],
     reference: typing.Literal["mean", "min", "median"] = "mean",
     normalize: bool = True,
-    device_type: str = "cpu",
+    device: torch.device = _CPU_DEVICE,
     create_graph: bool = False,
 ) -> tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
@@ -417,7 +419,8 @@ def predict_with_weights(
         topologies: The topologies of the molecules in the dataset.
         reference: The reference energy to compute the relative energies with respect to.
         normalize: Whether to scale the relative energies and forces.
-        device_type: The device type (e.g., 'cpu' or 'cuda').
+        device: Device for computations.
+
         create_graph: Whether to create a computation graph for gradients.
 
     Returns:
@@ -430,13 +433,13 @@ def predict_with_weights(
     for entry in dataset:
         smiles = entry["smiles"]
 
-        energy_ref = entry["energy"].to(device_type)
-        forces_ref = entry["forces"].reshape(len(energy_ref), -1, 3).to(device_type)
+        energy_ref = entry["energy"].to(device)
+        forces_ref = entry["forces"].reshape(len(energy_ref), -1, 3).to(device)
 
         # Get weights from entry
         energy_weights, forces_weights = get_weights_from_entry(entry)
-        energy_weights = energy_weights.to(device_type)
-        forces_weights = forces_weights.to(device_type)
+        energy_weights = energy_weights.to(device)
+        forces_weights = forces_weights.to(device)
 
         coords_flat = smee.utils.tensor_like(
             entry["coords"], force_field.potentials[0].parameters
@@ -444,7 +447,7 @@ def predict_with_weights(
 
         coords = (
             (coords_flat.reshape(len(energy_ref), -1, 3))
-            .to(device_type)
+            .to(device)
             .detach()
             .requires_grad_(True)
         )

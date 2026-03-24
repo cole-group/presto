@@ -663,10 +663,6 @@ class TestParameteriseExtended:
         # At least some parameters should have been expanded
         assert expanded_count > 0
 
-    def test_parameterise_with_msm(self):
-        """Test parameterise with MSM settings."""
-        pytest.skip("MSM test requires NNPOps which is not available")
-
     def test_parameterise_multiple_molecules(self):
         """Test parameterise with multiple molecules."""
         settings = ParameterisationSettings(
