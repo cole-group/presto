@@ -26,7 +26,7 @@ def test_write_scatter(tmp_path):
 
     force_field = MagicMock(spec=smee.TensorForceField)
     topology = MagicMock(spec=smee.TensorTopology)
-    device_type = "cpu"
+    device = torch.device("cpu")
     filename = tmp_path / "scatter.h5"
 
     # Mock predict function from presto.loss
@@ -40,7 +40,7 @@ def test_write_scatter(tmp_path):
         )
 
         energy_mean, energy_std, forces_mean, forces_std = write_scatter(
-            dataset, force_field, topology, device_type, filename
+            dataset, force_field, topology, device, filename
         )
 
         assert energy_mean == 1.0

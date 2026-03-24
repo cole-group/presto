@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from presto.settings import OutlierFilterSettings
 
 logger = loguru.logger
+_CPU_DEVICE = torch.device("cpu")
 
 # Schema with weights for energy and forces
 WEIGHTED_DATA_SCHEMA = pyarrow.schema(
@@ -261,7 +262,7 @@ def filter_dataset_outliers(
     force_field: smee.TensorForceField,
     topology: smee.TensorTopology,
     settings: OutlierFilterSettings,
-    device: str = "cpu",
+    device: torch.device = _CPU_DEVICE,
 ) -> datasets.Dataset:
     """Filter outliers from a dataset based on MM vs reference energy/force differences.
 
@@ -274,7 +275,7 @@ def filter_dataset_outliers(
         force_field: The MM force field to use for computing predicted values.
         topology: The topology for the molecule in the dataset.
         settings: Outlier filter settings containing thresholds and min_conformations.
-        device: Device to use for computation ("cpu" or "cuda").
+        device: Device to use for computation.
 
     Returns:
         A new dataset with outliers removed.
@@ -307,7 +308,7 @@ def filter_dataset_outliers(
         topologies,
         reference="median",
         normalize=False,
-        device_type=device,
+        device=device,
         create_graph=False,
     )
 
