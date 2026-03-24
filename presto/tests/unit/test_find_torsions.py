@@ -252,6 +252,7 @@ class TestRingSpecificTorsions:
             ("C1CC1", 0),
             ("c1ccccc1", 0),
             ("c1cc[nH]c1", 0),
+            ("O=[S@@](C)c1ccccc1", 1),  # Between S and benzene ring
         ],
     )
     def test_default_patterns_expected_counts(self, smiles, expected_n_torsions):
