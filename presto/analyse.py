@@ -156,9 +156,9 @@ def plot_energy_correlation(
     reference: dict[int, npt.NDArray[np.float64]],
     predicted: dict[int, npt.NDArray[np.float64]],
 ) -> None:
-    """Plot the correlation between reference and predicted values. For.
+    """Plot the correlation between reference and predicted values.
 
-    forces, convert to the magnitude of the forces.
+    For forces, convert to the magnitude of the forces.
     """
     for i in reference.keys():
         ax.scatter(reference[i], predicted[i], alpha=0.5, label=f"Iteration {i}")

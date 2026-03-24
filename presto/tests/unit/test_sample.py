@@ -1638,4 +1638,65 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
 
         assert len(result) == 1
         assert isinstance(result[0], datasets.Dataset)
+
         # Verify weighted dataset structure
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "coords" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+
+    def test_fallback_no_rotatable_bonds(self, tmp_path):
+        """Test fallback to regular MD when molecule has no rotatable bonds."""
+        mol = Molecule.from_smiles("C")  # Methane - no rotatable bonds
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+            sampling_protocol="mm_md_metadynamics_torsion_minimisation",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+        )
+
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+        }
+        (tmp_path / "ml_min").mkdir()
+        (tmp_path / "mm_min").mkdir()
+
+        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            force = openmm.CustomExternalForce("0")
+            mock_system.addForce(force)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd_metadynamics_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+        # Verify weighted dataset structure (should still work even with fallback)
+        entry = result[0][0]
+        assert "smiles" in entry
+        assert "energy" in entry
+        assert "forces" in entry
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
