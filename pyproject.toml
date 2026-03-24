@@ -144,8 +144,10 @@ openmm = ">=8.5.0"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
-descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
-smee = { git = "https://github.com/thomasjamespope/smee.git" }
+# Keep installing from GH for now to avoid pulling in NNPOPs which we don't need, but which is incompatible.
+# Issue: https://github.com/conda-forge/nnpops-feedstock/issues/50
+descent = { git = "https://github.com/openforcefield/descent.git", rev = "40d40519408d9f0cf2ba6da1f68e2900791e003b" }
+smee = { git = "https://github.com/openforcefield/smee.git", rev = "0d0b42d2096b27ea518bc24c18979b40de5ce93e" }
 # Need newest version of OpenMM-ML which doesn't need openmmtorch or nnpops
 openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e2b3ed8f630f6898ad4bf60603fe382f99479da5"}
 presto ={ path = ".", editable = true }
