@@ -17,8 +17,7 @@ def get_single_torsion_by_rot_bond(
     mol: Molecule,
     smarts: str,
 ) -> dict[tuple[int, int], tuple[int, int, int, int]]:
-    """
-    Get a single torsion for each rotatable bond matching the provided SMARTS pattern.
+    """Get a single torsion for each rotatable bond matching the provided SMARTS pattern.
 
     For each rotatable bond, selects the torsion where the end atoms (positions 0 and 3)
     have the most heavy-atom neighbors.
@@ -31,7 +30,7 @@ def get_single_torsion_by_rot_bond(
         SMARTS pattern to match rotatable bonds. This should specify the entire
         torsion, not just the rotatable bond.
 
-    Returns
+    Returns:
     -------
     dict of tuple of int to tuple of int
         A dictionary mapping each rotatable bond (as a tuple of atom indices) to a single torsion
@@ -75,8 +74,7 @@ def get_single_torsion_by_rot_bond(
 
 
 def get_unwanted_bonds(mol: Molecule, smarts: str) -> set[tuple[int, int]]:
-    """
-    Get a set of unwanted bonds in the molecule based on the provided SMARTS patterns.
+    """Get a set of unwanted bonds in the molecule based on the provided SMARTS patterns.
 
     Parameters
     ----------
@@ -86,7 +84,7 @@ def get_unwanted_bonds(mol: Molecule, smarts: str) -> set[tuple[int, int]]:
         SMARTS pattern to match unwanted bonds. This should match only the rotatable bond,
         not the full torsion.
 
-    Returns
+    Returns:
     -------
     set of tuple of int
         A set of tuples representing the unwanted bonds, where each tuple contains the indices of the two
@@ -108,8 +106,7 @@ def get_rot_torsions_by_rot_bond(
     include_smarts: list[str] = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     exclude_smarts: list[str] | None = None,
 ) -> dict[tuple[int, int], tuple[int, int, int, int]]:
-    """
-    Find rotatable torsions in the molecule based on SMARTS patterns.
+    """Find rotatable torsions in the molecule based on SMARTS patterns.
 
     Parameters
     ----------
@@ -122,7 +119,7 @@ def get_rot_torsions_by_rot_bond(
         List of SMARTS patterns to exclude. Defaults to empty list.
         These should match only the rotatable bond, not the full torsion.
 
-    Returns
+    Returns:
     -------
     dict of tuple of int to tuple of int
         A dictionary mapping each rotatable bond (as a tuple of atom indices) to a single torsion

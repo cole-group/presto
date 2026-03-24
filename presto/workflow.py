@@ -34,8 +34,9 @@ console = Console()
 def get_bespoke_force_field(
     settings: WorkflowSettings, write_settings: bool = True
 ) -> ForceField:
-    """
-    Fit a bespoke force field. This involves:
+    """Fit a bespoke force field.
+
+    This involves:
 
     - Parameterising a base force field for the target molecule and generating
       specific tagged SMARTS parameters
@@ -51,7 +52,7 @@ def get_bespoke_force_field(
     write_settings : bool, optional
         Whether to write the settings to a YAML file in the output directory, by default True.
 
-    Returns
+    Returns:
     -------
     ForceField
         The fitted bespoke force field.
@@ -88,7 +89,7 @@ def get_bespoke_force_field(
         settings.training_settings.attribute_configs,
     )
 
-    trainable_parameters = trainable.to_values().to((settings.device))
+    trainable_parameters = trainable.to_values().to(settings.device)
 
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()

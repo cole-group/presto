@@ -1,3 +1,5 @@
+"""Unit tests for convert.py."""
+
 import math
 
 import openff.interchange
@@ -34,6 +36,7 @@ from presto.settings import MSMSettings, ParameterisationSettings
     ],
 )
 def test_reflect_angle(angle, expected):
+    """Reflect angle."""
     if angle == 2 * math.pi:
         assert math.isclose(_reflect_angle(angle), expected, abs_tol=1e-9)
     else:
@@ -50,10 +53,12 @@ def test_reflect_angle(angle, expected):
     ],
 )
 def test_add_angle_within_range(angle1, angle2, expected):
+    """Add angle within range."""
     assert math.isclose(_add_angle_within_range(angle1, angle2), expected)
 
 
 def test_convert_to_smirnoff():
+    """Convert to smirnoff."""
     # Test Bonds, Angles, ProperTorsions
     bond_pot = smee.TensorPotential(
         type="Bonds",
@@ -127,6 +132,7 @@ def test_convert_to_smirnoff():
 
 
 def test_convert_to_smirnoff_linear():
+    """Convert to smirnoff linear."""
     # Test LinearBonds and LinearAngles
     linear_bond_pot = smee.TensorPotential(
         type="LinearBonds",
@@ -173,6 +179,7 @@ def test_convert_to_smirnoff_linear():
 
 
 def test_linearise_harmonics_force_field():
+    """Linearise harmonics force field."""
     bond_pot = smee.TensorPotential(
         type="Bonds",
         fn="Harmonic",
@@ -196,6 +203,7 @@ def test_linearise_harmonics_force_field():
 
 
 def test_linearise_harmonics_topology():
+    """Linearise harmonics topology."""
     top = smee.TensorTopology(
         atomic_nums=torch.tensor([6, 1, 1]),
         formal_charges=torch.tensor([0, 0, 0]),
@@ -221,6 +229,7 @@ def test_linearise_harmonics_topology():
 
 
 def test_parameterise(tmp_path):
+    """Parameterise."""
     settings = ParameterisationSettings(
         smiles="CC",
         initial_force_field="openff-2.1.0.offxml",
@@ -238,10 +247,11 @@ def test_parameterise(tmp_path):
 
 
 def test_parameterise_linear(tmp_path):
+    """Parameterise linear."""
     settings = ParameterisationSettings(
         smiles="C", initial_force_field="openff-2.1.0.offxml", linearise_harmonics=True
     )
-    mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+    _mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
     assert "LinearBonds" in tensor_ff.potentials_by_type
     assert "LinearBonds" in tensor_tops[0].parameters
 
@@ -648,7 +658,9 @@ class TestParameteriseExtended:
             expand_torsions=True,
         )
 
-        mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+        _mols, bespoke_ff, _tensor_tops, _tensor_ff = parameterise(
+            settings, device="cpu"
+        )
 
         # Check that torsions were expanded
         torsion_handler = bespoke_ff.get_parameter_handler("ProperTorsions")
@@ -670,7 +682,7 @@ class TestParameteriseExtended:
             initial_force_field="openff_unconstrained-2.3.0.offxml",
         )
 
-        mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+        mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
 
         assert len(mols) == 2
         assert len(tensor_tops) == 2

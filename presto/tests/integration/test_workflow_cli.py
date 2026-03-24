@@ -7,7 +7,6 @@ from ...settings import WorkflowSettings
 
 def test_workflow_cli(tmp_cwd) -> None:
     """Test running presto via CLI with ethanol, and analysing."""
-
     # Run the command
     args = [
         "presto",
@@ -37,8 +36,7 @@ def test_workflow_cli(tmp_cwd) -> None:
 
     result = subprocess.run(
         args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
 

@@ -1,4 +1,4 @@
-"""Apply OpenFF parameters to molecule, cluster conformers by RMSD and train"""
+"""Apply OpenFF parameters to molecule, cluster conformers by RMSD and train."""
 
 import functools
 from pathlib import Path
@@ -59,7 +59,8 @@ class TrainFn(Protocol):
 
     def __call__(
         self, **kwargs: Unpack[TrainingFnArgs]
-    ) -> tuple[torch.Tensor, descent.train.Trainable]: ...
+    ) -> tuple[torch.Tensor, descent.train.Trainable]:
+        """Execute training function."""
 
 
 _TRAINING_FNS_REGISTRY: dict[OptimiserName, TrainFn] = {}
@@ -80,8 +81,7 @@ def train_levenberg_marquardt(
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
 ) -> tuple[torch.Tensor, descent.train.Trainable]:
-    """
-    Iterate the training process using the Levenberg-Marquardt algorithm.
+    """Iterate the training process using the Levenberg-Marquardt algorithm.
 
     Parameters
     ----------
@@ -107,7 +107,7 @@ def train_levenberg_marquardt(
         device: torch.device
             The device to perform training on.
 
-    Returns
+    Returns:
     -------
         tuple[torch.Tensor, descent.train.Trainable]
             The updated parameters and the trainable object.
@@ -173,8 +173,7 @@ def train_adam(
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
 ) -> tuple[torch.Tensor, descent.train.Trainable]:
-    """
-    Iterate the training process using the Adam optimizer.
+    """Iterate the training process using the Adam optimizer.
 
     Parameters
     ----------
@@ -200,7 +199,7 @@ def train_adam(
         device: torch.device
             The device to perform training on.
 
-    Returns
+    Returns:
     -------
         tuple[torch.Tensor, descent.train.Trainable]
             The updated parameters and the trainable object.

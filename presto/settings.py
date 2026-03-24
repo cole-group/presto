@@ -3,7 +3,7 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Literal, TypeVar, Union
+from typing import Literal, Self, TypeVar
 
 import numpy as np
 import torch
@@ -22,7 +22,6 @@ from pydantic import (
 )
 from pydantic_units import OpenMMQuantity
 from rdkit import Chem
-from typing_extensions import Self
 
 from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
@@ -49,7 +48,7 @@ _DEFAULT_MODEL_CONFIG = ConfigDict(
 
 
 def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
-    """Save the settings to a YAML file"""
+    """Save the settings to a YAML file."""
     data = model.model_dump(mode="json")
     with open(yaml_path, "w") as file:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
@@ -59,8 +58,8 @@ _T = TypeVar("_T", bound=BaseModel)
 
 
 def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
-    """Load settings from a YAML file"""
-    with open(yaml_path, "r") as file:
+    """Load settings from a YAML file."""
+    with open(yaml_path) as file:
         settings_data = yaml.safe_load(file)
     return cls(**settings_data)
 
@@ -71,18 +70,20 @@ class _DefaultSettings(BaseModel, ABC):
     model_config = _DEFAULT_MODEL_CONFIG
 
     def to_yaml(self, yaml_path: PathLike) -> None:
-        """Save the settings to a YAML file"""
+        """Save the settings to a YAML file."""
         _model_to_yaml(self, yaml_path)
 
     @classmethod
     def from_yaml(cls, yaml_path: PathLike) -> Self:
-        """Load settings from a YAML file"""
+        """Load settings from a YAML file."""
         return _model_from_yaml(cls, yaml_path)
 
     @property
     def output_types(self) -> set[OutputType]:
-        """Return a set of expected output types for the function which
-        implements this settings object. Subclasses should override this method."""
+        """Return the expected output types for the function implementing this settings object.
+
+        Subclasses should override this method.
+        """
         return set()
 
     # @property
@@ -202,9 +203,11 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
 
 class MMMDSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics
-    force field. This is initally the force field supplined in the parameterisation
-    settings, but is updated as the bespoke force field is trained."""
+    """Settings for molecular dynamics sampling using a molecular mechanics force field.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
 
     sampling_protocol: Literal["mm_md"] = Field(
         "mm_md", description="Sampling protocol to use."
@@ -212,9 +215,11 @@ class MMMDSamplingSettings(_SamplingSettingsBase):
 
 
 class MLMDSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a machine learning
-    potential. This protocol uses the ML reference potential for sampling as
-    well as for energy and force calculations."""
+    """Settings for molecular dynamics sampling using a machine learning potential.
+
+    This protocol uses the ML reference potential for both sampling and
+    energy/force calculations.
+    """
 
     sampling_protocol: Literal["ml_md"] = Field(
         "ml_md", description="Sampling protocol to use."
@@ -222,9 +227,11 @@ class MLMDSamplingSettings(_SamplingSettingsBase):
 
 
 class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics
-    force field with metadynamics. This is initally the force field supplined in the parameterisation
-    settings, but is updated as the bespoke force field is trained."""
+    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
 
     sampling_protocol: Literal["mm_md_metadynamics"] = Field(
         "mm_md_metadynamics", description="Sampling protocol to use."
@@ -269,6 +276,7 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     # Make sure that the frequency and save_frequency are multiples of the timestep
     @model_validator(mode="after")
     def validate_frequencies(self) -> Self:
+        """Validate that bias frequencies and save frequencies divide evenly into the sampling time."""
         for freq, name in [
             (self.bias_frequency, "frequency"),
             (self.bias_save_frequency, "save_frequency"),
@@ -289,23 +297,28 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     @property
     def n_steps_per_bias(self) -> int:
+        """Number of simulation steps between each bias addition."""
         return int(self.bias_frequency / self.timestep)
 
     @property
     def n_steps_per_bias_save(self) -> int:
+        """Number of simulation steps between each bias save."""
         return int(self.bias_save_frequency / self.timestep)
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
 class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     MMMDMetadynamicsSamplingSettings
 ):
-    """Settings for MM MD metadynamics sampling with additional torsion-restrained
-    minimisation structures. This extends MMMDMetadynamicsSamplingSettings by generating
-    additional training data from torsion-restrained minimisations."""
+    """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
+
+    Extends MMMDMetadynamicsSamplingSettings by generating additional training data
+    from torsion-restrained minimisations.
+    """
 
     sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
         "mm_md_metadynamics_torsion_minimisation",
@@ -367,6 +380,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
         return {
             OutputType.METADYNAMICS_BIAS,
             OutputType.PDB_TRAJECTORY,
@@ -407,13 +421,13 @@ class PreComputedDatasetSettings(_DefaultSettings):
         return set()
 
 
-SamplingSettings = Union[
-    MMMDSamplingSettings,
-    MLMDSamplingSettings,
-    MMMDMetadynamicsSamplingSettings,
-    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
-    PreComputedDatasetSettings,
-]
+SamplingSettings = (
+    MMMDSamplingSettings
+    | MLMDSamplingSettings
+    | MMMDMetadynamicsSamplingSettings
+    | MMMDMetadynamicsTorsionMinimisationSamplingSettings
+    | PreComputedDatasetSettings
+)
 """Union type for all sampling settings. See the associated `sampling_protocol` field
 in each class for the string identifier which should be supplied to
 `training_sampling_settings` and `testing_sampling_settings` fields in
@@ -511,6 +525,7 @@ class TrainingSettings(_DefaultSettings):
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for the training protocol."""
         return {
             OutputType.TENSORBOARD,
             OutputType.TRAINING_METRICS,
@@ -792,9 +807,7 @@ class WorkflowSettings(_DefaultSettings):
     # in the training settings
     @model_validator(mode="after")
     def validate_parameterisation_training_consistency(self) -> Self:
-        """Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
-        in the training settings."""
-
+        """Validate that linearise_harmonics in parameterisation settings is consistent with the valence types in the training settings."""
         harmonics_linearised = self.parameterisation_settings.linearise_harmonics
         excluded_valence_types = (
             ("Bonds", "Angles")
@@ -814,6 +827,7 @@ class WorkflowSettings(_DefaultSettings):
 
     @property
     def device(self) -> torch.device:
+        """Return a torch.device corresponding to the configured device_type."""
         return torch.device(self.device_type)
 
     def get_path_manager(self) -> WorkflowPathManager:

@@ -3,7 +3,7 @@
 import collections
 import copy
 import math
-from typing import Callable
+from collections.abc import Callable
 
 import loguru
 import openff.interchange
@@ -40,13 +40,16 @@ def _reflect_angle(angle: float) -> float:
 def convert_to_smirnoff(
     ff: smee.TensorForceField, base: openff.toolkit.ForceField | None = None
 ) -> openff.toolkit.ForceField:
-    """Convert a tensor force field that *contains bespoke valence parameters* to
+    """Convert a tensor force field that *contains bespoke valence parameters* to.
+
     SMIRNOFF format.
+
     Args:
         ff: The force field containing the bespoke valence terms.
         base: The (optional) original SMIRNOFF force field to add the bespoke
             parameters to. If no specified, a force field containing only the bespoke
             parameters will be returned.
+
     Returns:
         A SMIRNOFF force field containing the valence terms of the input force field.
     """
@@ -188,7 +191,8 @@ def parameterise(
     list[smee.TensorTopology],
     smee.TensorForceField,
 ]:
-    """Prepare a Trainable object that contains a force field with
+    """Prepare a Trainable object that contains a force field with.
+
     unique parameters for each topologically symmetric term across multiple molecules.
 
     Parameters
@@ -199,7 +203,7 @@ def parameterise(
     device: TorchDevice, default "cuda"
         The device to use for the force field and topology.
 
-    Returns
+    Returns:
     -------
     mols: list[openff.toolkit.Molecule]
         The molecules that have been parameterised.
@@ -279,7 +283,7 @@ def parameterise(
 def _expand_torsions(
     ff: openff.toolkit.ForceField, excluded_smirks: list[str] | None = None
 ) -> openff.toolkit.ForceField:
-    """Expand the torsion potential to include K0-4 for proper torsions"""
+    """Expand the torsion potential to include K0-4 for proper torsions."""
     excluded_smirks = excluded_smirks or []
     ff_copy = copy.deepcopy(ff)
     torsion_handler = ff_copy.get_parameter_handler("ProperTorsions")
@@ -307,7 +311,7 @@ def _expand_torsions(
 
 
 def _add_angle_within_range(initial_angle: float, diff: float) -> float:
-    """Add a difference to an angle cap to be within [0, pi]"""
+    """Add a difference to an angle cap to be within [0, pi]."""
     new_angle = initial_angle + diff
     if diff > 0:
         return min(new_angle, math.pi)

@@ -6,7 +6,6 @@ import warnings
 
 def suppress_unwanted_output() -> None:
     """Suppress known nuisance warnings from dependencies."""
-
     # Suppress pkg_resources deprecation warning from smirnoff99frosst
     warnings.filterwarnings(
         "ignore",

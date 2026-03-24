@@ -637,7 +637,7 @@ class TestFilterDatasetOutliers:
         """Test that empty dataset raises ValueError."""
         import datasets as hf_datasets
 
-        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        tensor_ff, tensor_top, _mol = ethanol_ff_and_topology
 
         empty_dataset = hf_datasets.Dataset.from_dict(
             {"smiles": [], "coords": [], "energy": [], "forces": []}

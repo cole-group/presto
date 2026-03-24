@@ -87,7 +87,7 @@ class TestRegister:
             pass
 
         # Attempting to register same key should work (overwrites)
-        with pytest.raises(ValueError, match="Key key1 is already registered."):
+        with pytest.raises(ValueError, match=r"Key key1 is already registered."):
 
             @decorator("key1")
             def test_fn2():

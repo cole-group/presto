@@ -112,7 +112,7 @@ class TestValidateModelChargeCompatibility:
         """Test that the error message lists compatible models."""
         mol = Molecule.from_smiles("[Cl-]")  # Chloride anion
 
-        with pytest.raises(InvalidSettingsError, match="aceff-2.0"):
+        with pytest.raises(InvalidSettingsError, match=r"aceff-2.0"):
             validate_model_charge_compatibility("mace-off23-medium", mol)
 
         with pytest.raises(InvalidSettingsError, match="aimnet2"):

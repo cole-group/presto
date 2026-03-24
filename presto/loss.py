@@ -1,6 +1,4 @@
-"""
-Functionality for computing the loss.
-"""
+"""Functionality for computing the loss."""
 
 import typing
 
@@ -21,7 +19,7 @@ _CPU_DEVICE = torch.device("cpu")
 
 
 class LossRecord(typing.NamedTuple):
-    """Container for different loss components"""
+    """Container for different loss components."""
 
     energy: torch.Tensor
     forces: torch.Tensor
@@ -278,7 +276,7 @@ def compute_regularisation_loss(
     initial_parameters: torch.Tensor,
     regularisation_target: typing.Literal["initial", "zero"],
 ) -> torch.Tensor:
-    """Compute regularisation penalty"""
+    """Compute regularisation penalty."""
     reg_loss = torch.tensor(0.0, device=trainable_parameters.device)
 
     regularised_idxs = trainable.regularized_idxs

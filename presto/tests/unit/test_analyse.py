@@ -597,6 +597,7 @@ class TestPlotTorsionSampling:
 
 
 def test_add_legend_if_labels_no_labels():
+    """Add legend if labels no labels."""
     from presto.analyse import _add_legend_if_labels
 
     fig, ax = plt.subplots()
@@ -607,6 +608,7 @@ def test_add_legend_if_labels_no_labels():
 
 
 def test_plot_loss_with_regularisation(losses_data):
+    """Plot loss with regularisation."""
     from presto.analyse import plot_loss
 
     fig, ax = plt.subplots()
@@ -619,6 +621,7 @@ def test_plot_loss_with_regularisation(losses_data):
 
 
 def test_plot_ff_differences_empty(force_fields, test_molecule):
+    """Plot ff differences empty."""
     from presto.analyse import plot_ff_differences
 
     fig, ax = plt.subplots()
@@ -631,6 +634,7 @@ def test_plot_ff_differences_empty(force_fields, test_molecule):
 
 
 def test_plot_ff_differences_mismatched_ids(test_molecule):
+    """Plot ff differences mismatched ids."""
     from unittest.mock import MagicMock, PropertyMock
 
     from presto.analyse import plot_ff_differences
@@ -655,6 +659,7 @@ def test_plot_ff_differences_mismatched_ids(test_molecule):
 
 
 def test_plot_ff_values_empty(force_fields, test_molecule):
+    """Plot ff values empty."""
     from presto.analyse import plot_ff_values
 
     fig, ax = plt.subplots()
@@ -664,6 +669,7 @@ def test_plot_ff_values_empty(force_fields, test_molecule):
 
 
 def test_plot_ff_values_mismatched_ids(test_molecule):
+    """Plot ff values mismatched ids."""
     from unittest.mock import MagicMock, PropertyMock
 
     from presto.analyse import plot_ff_values
@@ -700,6 +706,7 @@ def test_plot_ff_values_mismatched_ids(test_molecule):
 
 
 def test_read_errors_multiple_iterations(tmp_path):
+    """Read errors multiple iterations."""
     import h5py
 
     from presto.analyse import read_errors

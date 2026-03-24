@@ -33,8 +33,11 @@ include = ["presto/models/*.pt"]
 
 [tool.ruff.lint]
 ignore = ["C901", "E501"]
-select = ["B","C","E","F","W","B9"]
+select = ["B", "B9", "C", "C4", "D", "E","F", "NPY", "RUF", "UP", "W"]
 ignore-init-module-imports = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.coverage.run]
 omit = ["**/tests/*", "**/_version.py"]

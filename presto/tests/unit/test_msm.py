@@ -1,6 +1,7 @@
-"""
-Unit tests for msm.py (for computing bond and angle parameters
-using the modified Seminario method -- see https://doi.org/10.1021/acs.jctc.7b00785).
+"""Unit tests for msm.py.
+
+msm.py implements the modified Seminario method (for computing bond and angle parameters).
+See https://doi.org/10.1021/acs.jctc.7b00785.
 """
 
 import json
@@ -415,7 +416,7 @@ class TestCalculateAngleForceConstant:
 
         angle = (1, 0, 2)  # H1-O-H2
         scalings = (1.0, 1.0)
-        k_theta, theta_0 = calculate_angle_force_constant(
+        k_theta, _theta_0 = calculate_angle_force_constant(
             angle,
             decomposer.bond_lengths,
             decomposer.eigenvals,
@@ -444,7 +445,7 @@ class TestCalculateAngleForceConstant:
 
         angle = (1, 0, 2)
         scalings = (1.0, 1.0)
-        k_theta, theta_0 = calculate_angle_force_constant(
+        _k_theta, theta_0 = calculate_angle_force_constant(
             angle,
             decomposer.bond_lengths,
             decomposer.eigenvals,
@@ -1172,7 +1173,7 @@ class TestMSMQubekitComparison:
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
 
             print(
-                f"{str(bond):<10} {calc_length:<9.5f}{ref_length:<9.5f} "
+                f"{bond!s:<10} {calc_length:<9.5f}{ref_length:<9.5f} "
                 f"{calc_k:<14.2f}{ref_k:<14.2f}{k_diff_pct:+.2f}%"
             )
 
@@ -1189,7 +1190,7 @@ class TestMSMQubekitComparison:
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
 
             print(
-                f"{str(angle):<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
+                f"{angle!s:<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
                 f"{calc_k:<13.2f}{ref_k:<13.2f}{k_diff_pct:+.2f}%"
             )
 

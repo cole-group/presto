@@ -1,3 +1,5 @@
+"""Shared test fixtures used across the test suite."""
+
 from pathlib import Path
 
 import pytest
@@ -9,12 +11,14 @@ from openff.toolkit import ForceField, Molecule
 # From Simon Boothroyd
 @pytest.fixture
 def tmp_cwd(tmp_path, monkeypatch) -> Path:
+    """Change the working directory to a temporary path for the duration of the test."""
     monkeypatch.chdir(tmp_path)
     yield tmp_path
 
 
 @pytest.fixture
 def jnk1_lig_smiles():
+    """SMILES string for a JNK1 ligand used in integration tests."""
     return "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]"
 
 

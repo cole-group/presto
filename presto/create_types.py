@@ -41,6 +41,7 @@ def _create_smarts(
     max_extend_distance: int = -1,
 ) -> str:
     """Create a mapped SMARTS representation of a molecule.
+
     Crucially, this uses MergeQueryHs to merge non-mapped
     hydrogens into their heavy atom. This dramatically increases
     the speed of SMARTS matching in RDKit for complex SMARTS patterns
@@ -56,12 +57,11 @@ def _create_smarts(
         Maximum number of bonds to extend from the mapped atoms.
         If -1, include the entire molecule.
 
-    Returns
+    Returns:
     -------
     str
         The SMARTS pattern with atom maps.
     """
-
     mol_rdkit = mol.to_rdkit()
 
     # Determine which atoms to include in the SMARTS
@@ -141,7 +141,7 @@ def _remove_redundant_smarts(
         Only remove parameters whose ID contains this substring.
         If None, no parameters are removed.
 
-    Returns
+    Returns:
     -------
     openff.toolkit.ForceField
         Force field with redundant parameters removed
@@ -242,7 +242,7 @@ def add_types_to_forcefield(
     type_generation_settings : dict[NonLinearValenceType, TypeGenerationSettings]
         Settings for generating tagged SMARTS types for each valence type
 
-    Returns
+    Returns:
     -------
     openff.toolkit.ForceField
         Force field with bespoke parameters added, deduplicated across all molecules

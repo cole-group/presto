@@ -1,6 +1,7 @@
 """Utilities for registering functions."""
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .typing import FnTypeVar
 
@@ -15,7 +16,7 @@ def get_registry_decorator(
     registry : dict
         The registry to register functions in.
 
-    Returns
+    Returns:
     -------
     Callable[[Any], Callable[[FnTypeVar], FnTypeVar]]
         A decorator to register functions in the registry.
@@ -31,7 +32,7 @@ def get_registry_decorator(
         key : Any
             The key to register the function under.
 
-        Returns
+        Returns:
         -------
         Callable[[FnTypeVar], FnTypeVar]
             A decorator that registers the function in the registry.

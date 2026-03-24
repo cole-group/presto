@@ -32,7 +32,7 @@ def simple_trainable_and_params():
 
     interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
 
-    tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+    tensor_ff, [_tensor_top] = smee.converters.convert_interchange(interchange)
 
     # Create a minimal trainable with regularization settings
     parameter_configs = {
@@ -58,7 +58,7 @@ class TestComputeRegularisationPenalty:
 
     def test_returns_tensor(self, simple_trainable_and_params):
         """Test that function returns a tensor."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         result = compute_regularisation_loss(
@@ -68,7 +68,7 @@ class TestComputeRegularisationPenalty:
 
     def test_penalty_zero_when_params_unchanged(self, simple_trainable_and_params):
         """Test that penalty is zero when parameters are unchanged."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         result = compute_regularisation_loss(
@@ -79,7 +79,7 @@ class TestComputeRegularisationPenalty:
 
     def test_penalty_increases_with_parameter_change(self, simple_trainable_and_params):
         """Test that penalty increases when parameters change."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         # Modify parameters
@@ -100,7 +100,7 @@ class TestComputeRegularisationPenalty:
 
     def test_penalty_scales_with_strength(self, simple_trainable_and_params):
         """Test that penalty scales with regularisation strength."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
         modified_params = initial_params + 0.1
 
@@ -140,7 +140,7 @@ class TestComputeRegularisationPenalty:
 
     def test_regularisation_to_zero(self, simple_trainable_and_params):
         """Test regularisation towards zero."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         result = compute_regularisation_loss(trainable, params, initial_params, "zero")
@@ -150,7 +150,7 @@ class TestComputeRegularisationPenalty:
         self, simple_trainable_and_params
     ):
         """Test that invalid regularisation value raises error."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         with pytest.raises(NotImplementedError):
@@ -158,7 +158,7 @@ class TestComputeRegularisationPenalty:
 
     def test_regularisation_with_zero_strength(self, simple_trainable_and_params):
         """Test that regularisation with zero strength returns zero loss."""
-        trainable, params, n_atoms = simple_trainable_and_params
+        trainable, params, _n_atoms = simple_trainable_and_params
         initial_params = params.clone()
 
         # Create trainable with zero regularisation strength
@@ -625,11 +625,11 @@ class TestPredictWithWeightsMultipleEntries:
 
         (
             energy_ref,
-            energy_pred,
-            forces_ref,
-            forces_pred,
+            _energy_pred,
+            _forces_ref,
+            _forces_pred,
             energy_weights,
-            forces_weights,
+            _forces_weights,
         ) = result
 
         # Total conformations: 2 from first entry + 1 from second = 3
@@ -642,7 +642,7 @@ class TestPredictWithWeightsMultipleEntries:
         """Test that different weights per entry are preserved."""
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
-        _, _, _, _, energy_weights, forces_weights = predict_with_weights(
+        _, _, _, _, energy_weights, _forces_weights = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
 
@@ -679,11 +679,12 @@ class TestGetLossClosure:
     def test_get_loss_closure_fn_basic(
         self, simple_trainable_and_params, ethanol_ff_and_topology
     ):
+        """Get loss closure fn basic."""
         from presto.data_utils import create_dataset_with_uniform_weights
         from presto.loss import get_loss_closure_fn
 
         trainable, params, n_atoms = simple_trainable_and_params
-        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        _tensor_ff, tensor_top, mol = ethanol_ff_and_topology
 
         # Create a minimal dataset
         dataset = create_dataset_with_uniform_weights(
@@ -715,11 +716,12 @@ class TestGetLossClosure:
     def test_get_loss_closure_fn_no_grad(
         self, simple_trainable_and_params, ethanol_ff_and_topology
     ):
+        """Get loss closure fn no grad."""
         from presto.data_utils import create_dataset_with_uniform_weights
         from presto.loss import get_loss_closure_fn
 
         trainable, params, n_atoms = simple_trainable_and_params
-        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        _tensor_ff, tensor_top, mol = ethanol_ff_and_topology
 
         dataset = create_dataset_with_uniform_weights(
             smiles=mol.to_smiles(mapped=True),
@@ -747,6 +749,7 @@ class TestGetLossClosure:
         assert hess is None
 
     def test_predict_with_weights_reference_min(self, weighted_ethanol_dataset):
+        """Predict with weights reference min."""
         from presto.loss import predict_with_weights
 
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
@@ -756,6 +759,7 @@ class TestGetLossClosure:
         assert len(res) == 6
 
     def test_predict_with_weights_reference_median(self, weighted_ethanol_dataset):
+        """Predict with weights reference median."""
         from presto.loss import predict_with_weights
 
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset

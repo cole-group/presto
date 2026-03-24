@@ -1,8 +1,4 @@
-"""
-WRITERS:
-
-Output functions for run-fit
-"""
+"""Output functions for run-fit."""
 
 import contextlib
 import pathlib
@@ -26,6 +22,7 @@ logger = loguru.logger
 
 @contextlib.contextmanager
 def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
+    """Open a TensorBoard writer."""
     path.mkdir(parents=True, exist_ok=True)
     with tensorboardX.SummaryWriter(str(path)) as writer:
         yield writer
@@ -152,6 +149,7 @@ def write_metrics(
     writer: tensorboardX.SummaryWriter,
     outfile: TextIO,
 ) -> None:
+    """Write metrics to TensorBoard and output file."""
     for loss_record in (loss_train, loss_test):
         for field in loss_record._fields:
             outfile.write(f"{getattr(loss_record, field).detach().item():.10f} ")
@@ -164,6 +162,7 @@ def write_metrics(
 
 
 def get_potential_summary(potential: smee.TensorPotential) -> str:
+    """Get string summary of a potential's parameters."""
     output = [""]
     parameter_rows = []
     for key_id, value in enumerate(potential.parameters.detach()):
@@ -212,6 +211,7 @@ def get_potential_summary(potential: smee.TensorPotential) -> str:
 def get_potential_comparison(
     pot1: smee.TensorPotential, pot2: smee.TensorPotential
 ) -> str:
+    """Get string comparison of two potentials."""
     output = [""]
     parameter_rows = []
     for key_id, value in enumerate(

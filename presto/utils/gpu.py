@@ -23,7 +23,7 @@ def cleanup_simulation(
         The integrator object to clean up. If None, only the simulation
         is deleted.
 
-    Examples
+    Examples:
     --------
     >>> integrator = LangevinMiddleIntegrator(300*kelvin, 1/picosecond, 2*femtoseconds)
     >>> simulation = Simulation(topology, system, integrator)
