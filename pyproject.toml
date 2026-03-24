@@ -110,6 +110,8 @@ cuda = "12.9"
 
 [tool.pixi.feature.cuda129.dependencies]
 cuda-version = "12.9.*"
+# Need dev headers for AceFF
+cuda-cudart-dev = "12.9.*"
 pytorch-gpu = ">=2.8.0"
 
 # -----------------------------

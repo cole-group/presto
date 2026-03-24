@@ -246,6 +246,7 @@ def parameterise(
             mols=mols,
             off_ff=bespoke_ff,
             settings=settings.msm_settings,
+            device=torch.device(device),
         )
 
     # Create separate Interchange objects for each molecule

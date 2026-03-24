@@ -19,17 +19,17 @@ import numpy as np
 import openff.interchange
 import openff.toolkit
 import openmm.unit
+import torch
 from numpy import typing as npt
 from openff.toolkit.typing.engines.smirnoff import (
     AngleHandler,
     BondHandler,
 )
 from openff.units import unit as off_unit
-from openmm.app import Simulation
 from rich.progress import track
 
 from .hessian import calculate_hessian
-from .sample import _copy_mol_and_add_conformers, _get_integrator, _get_ml_omm_system
+from .sample import _build_ml_simulation, _copy_mol_and_add_conformers
 from .settings import MSMSettings
 from .utils.gpu import cleanup_simulation
 
@@ -679,6 +679,7 @@ def apply_msm_to_molecule(
     bond_indices: list[tuple[int, int]],
     angle_indices: list[tuple[int, int, int]],
     settings: MSMSettings,
+    device: torch.device,
 ) -> tuple[dict[tuple[int, int], BondParams], dict[tuple[int, int, int], AngleParams]]:
     """Apply Modified Seminario Method to calculate bond and angle parameters.
 
@@ -691,6 +692,7 @@ def apply_msm_to_molecule(
         bond_indices: List of bond indices to calculate parameters for.
         angle_indices: List of angle indices to calculate parameters for.
         settings: MSM settings including ML potential, scaling factors, and n_conformers.
+        device: Torch device to use for ML potential calculations.
 
     Returns:
         Tuple of (bond_params_dict, angle_params_dict). If multiple conformers are used,
@@ -700,10 +702,13 @@ def apply_msm_to_molecule(
     mol_with_conformers = _copy_mol_and_add_conformers(
         mol, n_conformers=settings.n_conformers
     )
-    ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-    integrator = _get_integrator(300 * _OMM_KELVIN, 1.0 * _OMM_FEMTOSECOND)
-    simulation = Simulation(
-        mol_with_conformers.to_topology().to_openmm(), ml_system, integrator
+    simulation, integrator = _build_ml_simulation(
+        mol_with_conformers,
+        mol_with_conformers.to_topology().to_openmm(),
+        settings.ml_potential,
+        300 * _OMM_KELVIN,
+        1.0 * _OMM_FEMTOSECOND,
+        device=device,
     )
 
     # Collect parameters from each conformer
@@ -797,6 +802,7 @@ def apply_msm_to_molecules(
     mols: list[openff.toolkit.Molecule],
     off_ff: openff.toolkit.ForceField,
     settings: MSMSettings,
+    device: torch.device,
 ) -> openff.toolkit.ForceField:
     """Apply Modified Seminario Method to molecules and update force field.
 
@@ -807,6 +813,7 @@ def apply_msm_to_molecules(
         mols: List of molecules to parameterize.
         off_ff: OpenFF ForceField to modify.
         settings: MSM settings.
+        device: Torch device for ML potential calculations.
 
     Returns:
         Modified ForceField with MSM-derived parameters.
@@ -841,7 +848,7 @@ def apply_msm_to_molecules(
 
         # Calculate MSM parameters for this molecule
         mol_bond_params, mol_angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, settings
+            mol, bond_indices, angle_indices, settings, device
         )
 
         # Collect parameters by SMIRKS
