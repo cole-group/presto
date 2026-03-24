@@ -13,6 +13,7 @@
 
 ### Improvements
 
+- Make linting more strict and improve docstrings in [#39](https://github.com/cole-group/presto/pull/39)
 - Update aromaticity model used for selecting rotatable torsions for metadynamics to give more intuitive results (ditch MDL and go for RDKit default) in [#33](https://github.com/cole-group/presto/pull/33).
 - Improve consistency of how the device arguments are passed around (literal or torch device). [#36](https://github.com/cole-group/presto/pull/36)
 - Refactor simulation creation logic to reduce duplication and always set the platform to CPU for ML systems (required so that MACE models work with PythonForce). See [this commit](https://github.com/cole-group/presto/commit/c0f9dfc7fd3055c20ca87975ec9703c129e2a070).
