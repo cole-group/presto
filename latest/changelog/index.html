@@ -1588,6 +1588,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#maintenance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1627,7 +1638,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes" class="md-nav__link">
+  <a href="#fixes_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -1666,7 +1677,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_1" class="md-nav__link">
+  <a href="#fixes_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -1705,7 +1716,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_2" class="md-nav__link">
+  <a href="#fixes_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -1867,6 +1878,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#maintenance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1906,7 +1928,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes" class="md-nav__link">
+  <a href="#fixes_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -1945,7 +1967,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_1" class="md-nav__link">
+  <a href="#fixes_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -1984,7 +2006,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_2" class="md-nav__link">
+  <a href="#fixes_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2121,6 +2143,10 @@
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">#</a></h1>
 <h2 id="060">0.6.0<a class="headerlink" href="#060" title="Permanent link">#</a></h2>
+<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
+<ul>
+<li>Remove stereochemical information from generated types in <a href="https://github.com/cole-group/presto/pull/37">#36</a>. This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.</li>
+</ul>
 <h3 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Permanent link">#</a></h3>
 <ul>
 <li>Update Egret-1 model to the lastest version in <a href="https://github.com/cole-group/presto/pull/35">#35</a></li>
@@ -2132,7 +2158,7 @@
 <li>Update environments to OpenMM 8.5 (with PythonForce) and OpenMM-ML. This simplifies the environments required (as we can drop NNPOPs) and means we have have all MLPs in one env. The only issue is that we can now only support CUDA 12.9. <a href="https://github.com/cole-group/presto/pull/34">#34</a>.</li>
 </ul>
 <h2 id="051">0.5.1<a class="headerlink" href="#051" title="Permanent link">#</a></h2>
-<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
+<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Fixes typo in default settings which meant that linear torsions matching <code>[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]</code> were not excluded from training (<a href="https://github.com/cole-group/presto/pull/32">#32</a>)</li>
 </ul>
@@ -2142,7 +2168,7 @@
 <li>Use MDTraj to calculate torsions rather than doing this manually</li>
 <li>Make metadynamics more aggressive, allow user to specify torsions targeted by metadynamics, and include in-ring aliphatic torsions by default in <a href="https://github.com/cole-group/presto/pull/26">#26</a></li>
 </ul>
-<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">#</a></h3>
+<h3 id="fixes_2">Fixes<a class="headerlink" href="#fixes_2" title="Permanent link">#</a></h3>
 <ul>
 <li>Remove unused settings fields in <a href="https://github.com/cole-group/presto/pull/25#issuecomment-3861009692">#25</a></li>
 </ul>
@@ -2155,7 +2181,7 @@
 <li>Update environments with explicit python and cuda versions and document installation with different cuda versions</li>
 <li>Plot sampling of rotatable torsions in <a href="https://github.com/cole-group/presto/pull/23">#23</a></li>
 </ul>
-<h3 id="fixes_2">Fixes<a class="headerlink" href="#fixes_2" title="Permanent link">#</a></h3>
+<h3 id="fixes_3">Fixes<a class="headerlink" href="#fixes_3" title="Permanent link">#</a></h3>
 <ul>
 <li>Update ParameterConfig defaults so that linear torsions are not trained in <a href="https://github.com/cole-group/presto/pull/18">#18</a></li>
 </ul>
