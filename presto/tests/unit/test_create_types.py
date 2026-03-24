@@ -933,6 +933,54 @@ class TestAddTypesToForcefieldExtended:
         # Should have generated parameters for all molecules
         assert len(bespoke_params) > 0
 
+    @pytest.mark.parametrize(
+        "smiles",
+        [
+            "CC",
+            "c1ccccc1",
+            "O=[S@@](C)c1ccccc1",
+        ],
+    )
+    def test_add_types_increases_parameter_count(self, smiles):
+        """add_types_to_forcefield should increase counts for matching valence handlers."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        valence_handlers = (
+            "Bonds",
+            "Angles",
+            "ProperTorsions",
+            "ImproperTorsions",
+        )
+
+        type_gen_settings = {
+            handler: TypeGenerationSettings(max_extend_distance=-1, exclude=[])
+            for handler in valence_handlers
+        }
+
+        original_counts = {
+            handler: len(ff.get_parameter_handler(handler).parameters)
+            for handler in valence_handlers
+        }
+        match_counts = {
+            handler: len(
+                ff.get_parameter_handler(handler).find_matches(mol.to_topology())
+            )
+            for handler in valence_handlers
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        for handler in valence_handlers:
+            new_count = len(ff_with_types.get_parameter_handler(handler).parameters)
+            if match_counts[handler] > 0:
+                assert new_count > original_counts[handler], (
+                    f"No bespoke {handler} parameters added for {smiles}"
+                )
+            else:
+                assert new_count == original_counts[handler]
+            breakpoint()
+
 
 class TestEdgeCases:
     """Test edge cases and corner cases."""
@@ -1041,3 +1089,43 @@ class TestEdgeCases:
         # Should handle stereochemistry without error
         bond_handler = ff_with_types.get_parameter_handler("Bonds")
         assert len(bond_handler.parameters) > 0
+
+    def test_chiral_sulfoxide(self):
+        """Test with chiral sulfoxide O=[S@@](C)c1ccccc1.
+
+        This test checks that bespoke parameters are correctly generated for
+        the sulfoxide functional group with stereochemistry. This is tricky with
+        OpenEye in the env because RDKit and OpenEye handle sulfoxide stereochemistry
+        differently, so it's important to check we get usable types.
+        """
+        mol = openff.toolkit.Molecule.from_smiles("O=[S@@](C)c1ccccc1")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+            "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Check that bespoke parameters were generated
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        angle_handler = ff_with_types.get_parameter_handler("Angles")
+
+        bond_bespoke = [p for p in bond_handler.parameters if "bespoke" in p.id]
+        angle_bespoke = [p for p in angle_handler.parameters if "bespoke" in p.id]
+
+        # Should have generated parameters for sulfoxide bonds/angles
+        assert len(bond_bespoke) > 0, (
+            "No bespoke bond parameters generated for chiral sulfoxide"
+        )
+        assert len(angle_bespoke) > 0, (
+            "No bespoke angle parameters generated for chiral sulfoxide"
+        )
+
+        # Verify that the molecule can be parameterized with the new force field
+        labelled_bonds = bond_handler.find_matches(mol.to_topology())
+        labelled_angles = angle_handler.find_matches(mol.to_topology())
+
+        assert len(labelled_bonds) > 0, "Sulfoxide bonds could not be matched"
+        assert len(labelled_angles) > 0, "Sulfoxide angles could not be matched"
