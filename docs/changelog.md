@@ -2,6 +2,10 @@
 
 ## 0.6.0
 
+### Fixes
+
+- Remove stereochemical information from generated types in [#36](https://github.com/cole-group/presto/pull/37). This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.
+
 ### Maintenance
 - Update Egret-1 model to the lastest version in [#35](https://github.com/cole-group/presto/pull/35)
 

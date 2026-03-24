@@ -206,8 +206,12 @@ def _remove_stereochemical_information(
         warnings.warn(
             (
                 "Input molecule contains stereochemical information that will be "
-                "removed before bespoke type generation to ensure consistent typing "
-                "across toolkits."
+                "removed before bespoke type generation. This avoids toolkit "
+                "disagreements between OpenEye and RDKit (see "
+                "https://github.com/openforcefield/openff-toolkit/issues/146) that "
+                "can otherwise cause type generation failures. The resulting types "
+                "will match alternative stereoisomers, which should not be an issue "
+                "unless torsion phase shifts are being trained."
             ),
             UserWarning,
             stacklevel=2,
