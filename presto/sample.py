@@ -96,6 +96,66 @@ def _get_integrator(
     return LangevinMiddleIntegrator(temp, 1 / _OMM_PS, timestep)
 
 
+def _create_simulation(
+    topology: openmm.app.Topology,
+    system: openmm.System,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create an OpenMM simulation with a standard Langevin integrator."""
+    integrator = _get_integrator(temperature, timestep)
+    platform = _get_openmm_platform(device)
+    simulation = Simulation(
+        topology,
+        system,
+        integrator,
+        platform=platform,
+    )
+    return simulation, integrator
+
+
+def _get_openmm_platform(device: torch.device) -> openmm.Platform:
+    """Map a torch device to an OpenMM platform."""
+    if device.type == "cuda":
+        return openmm.Platform.getPlatformByName("CUDA")
+
+    if device.type == "cpu":
+        return openmm.Platform.getPlatformByName("CPU")
+
+    raise ValueError(f"Unsupported device type for OpenMM platform selection: {device}")
+
+
+def _build_ml_simulation(
+    mol: openff.toolkit.Molecule,
+    topology: openmm.app.Topology,
+    ml_potential: mlp.AvailableModels,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create a simulation that uses an ML potential system."""
+    ml_system = _get_ml_omm_system(mol, ml_potential, device)
+
+    # As a temporary hack to get around an OpeMM-ML issue, set the device to CPU for the ML simulation
+    # This doesn't slow things down as the MLP is still loaded on the GPU when requested.
+    return _create_simulation(
+        topology, ml_system, temperature, timestep, device=torch.device("cpu")
+    )
+
+
+def _build_mm_simulation(
+    interchange: openff.interchange.Interchange,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create a simulation that uses an MM system from an Interchange object."""
+    mm_system = interchange.to_openmm_system()
+    mm_topology = interchange.topology.to_openmm()
+    return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
+
+
 def _run_md(
     mol: openff.toolkit.Molecule,
     simulation: Simulation,
@@ -202,7 +262,7 @@ def _run_md(
 
 
 def _get_ml_omm_system(
-    mol: openff.toolkit.Molecule, mlp_name: mlp.AvailableModels
+    mol: openff.toolkit.Molecule, mlp_name: mlp.AvailableModels, device: torch.device
 ) -> openmm.System:
     """Get an OpenMM system for a molecule using a machine learning potential.
 
@@ -212,6 +272,8 @@ def _get_ml_omm_system(
         The molecule for which to create the system.
     mlp_name : mlp.AvailableModels
         The name of the ML potential to use.
+    device : torch.device
+        The device to load the ML potential on.
 
     Returns
     -------
@@ -233,6 +295,7 @@ def _get_ml_omm_system(
     system = potential.createSystem(
         mol.to_topology().to_openmm(),
         charge=charge,
+        device=str(device),
     )
 
     return system
@@ -319,9 +382,9 @@ def sample_mmmd(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        system = interchange.to_openmm_system()
-        integrator = _get_integrator(settings.temperature, settings.timestep)
-        simulation = Simulation(interchange.topology.to_openmm(), system, integrator)
+        simulation, integrator = _build_mm_simulation(
+            interchange, settings.temperature, settings.timestep, device
+        )
 
         # Create molecule-specific PDB path
         pdb_path = None
@@ -343,12 +406,13 @@ def sample_mmmd(
         cleanup_simulation(simulation, integrator)
 
         # Recalculate energies and forces using the ML potential
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology,
-            ml_system,
-            ml_integrator,
+            settings.ml_potential,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -409,10 +473,13 @@ def sample_mlmd(
 
     for mol_idx, mol in enumerate(mols):
         mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
-            mol_with_conformers.to_topology().to_openmm(), ml_system, integrator
+        ml_simulation, integrator = _build_ml_simulation(
+            mol_with_conformers,
+            mol_with_conformers.to_topology().to_openmm(),
+            settings.ml_potential,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Create molecule-specific PDB path
@@ -548,10 +615,8 @@ def sample_mmmd_metadynamics(
                 f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
             )
             # Fall back to regular MD for this molecule
-            system = interchange.to_openmm_system()
-            integrator = _get_integrator(settings.temperature, settings.timestep)
-            simulation = Simulation(
-                interchange.topology.to_openmm(), system, integrator
+            simulation, integrator = _build_mm_simulation(
+                interchange, settings.temperature, settings.timestep, device
             )
 
             pdb_path = None
@@ -599,10 +664,12 @@ def sample_mmmd_metadynamics(
                 independentCVs=True,
             )
 
-            simulation = Simulation(
+            simulation, integrator = _create_simulation(
                 interchange.topology.to_openmm(),
                 system,
-                _get_integrator(settings.temperature, settings.timestep),
+                settings.temperature,
+                settings.timestep,
+                device,
             )
 
             step_fn = functools.partial(metad.step, simulation)
@@ -624,15 +691,16 @@ def sample_mmmd_metadynamics(
             )
 
             # Clean up MM simulation to free GPU memory
-            cleanup_simulation(simulation)
+            cleanup_simulation(simulation, integrator)
 
         # Recalculate with ML potential
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_system,
-            ml_integrator,
+            settings.ml_potential,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -1166,9 +1234,12 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 "Falling back to regular MD without torsion minimisation."
             )
             # Fall back to regular MD for this molecule
-            integrator = _get_integrator(settings.temperature, settings.timestep)
-            simulation = Simulation(
-                interchange.topology.to_openmm(), system, integrator
+            simulation, integrator = _create_simulation(
+                interchange.topology.to_openmm(),
+                system,
+                settings.temperature,
+                settings.timestep,
+                device,
             )
 
             pdb_path = None
@@ -1190,12 +1261,13 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             cleanup_simulation(simulation, integrator)
 
             # Recalculate with ML potential
-            ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-            ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-            ml_simulation = Simulation(
+            ml_simulation, ml_integrator = _build_ml_simulation(
+                mol_with_conformers,
                 interchange.topology.to_openmm(),
-                ml_system,
-                ml_integrator,
+                settings.ml_potential,
+                settings.temperature,
+                settings.timestep,
+                device,
             )
             ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -1241,10 +1313,12 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             independentCVs=True,
         )
 
-        simulation = Simulation(
+        simulation, integrator = _create_simulation(
             interchange.topology.to_openmm(),
             system,
-            _get_integrator(settings.temperature, settings.timestep),
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         step_fn = functools.partial(metad.step, simulation)
@@ -1267,15 +1341,16 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         )
 
         # Clean up MM simulation to free GPU memory
-        cleanup_simulation(simulation)
+        cleanup_simulation(simulation, integrator)
 
         # Create ML simulation for energy/force recalculation
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_system,
-            ml_integrator,
+            settings.ml_potential,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Step 2: Recalculate energies and forces with ML potential
@@ -1298,21 +1373,18 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
         # Step 3: Generate torsion-minimised structures
         # Create a fresh MM simulation for minimisation (without metadynamics biases)
-        mm_min_system = interchange.to_openmm_system()
-        mm_min_integrator = _get_integrator(settings.temperature, settings.timestep)
-        mm_min_simulation = Simulation(
-            interchange.topology.to_openmm(),
-            mm_min_system,
-            mm_min_integrator,
+        mm_min_simulation, mm_min_integrator = _build_mm_simulation(
+            interchange, settings.temperature, settings.timestep, device
         )
 
         # Create a fresh ML simulation for minimisation
-        ml_min_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_min_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_min_simulation = Simulation(
+        ml_min_simulation, ml_min_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_min_system,
-            ml_min_integrator,
+            settings.ml_potential,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Create molecule-specific PDB paths for minimised structures

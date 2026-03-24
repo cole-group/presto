@@ -245,7 +245,7 @@ def train_adam(
                         initial_parameters,
                         topologies,
                         settings.regularisation_target,
-                        str(device),
+                        device,
                     )
 
                     logger.debug(
@@ -262,7 +262,7 @@ def train_adam(
                             initial_parameters,
                             topologies,
                             settings.regularisation_target,
-                            str(device),
+                            device,
                             compute_grad=False,
                         )
 
@@ -296,7 +296,7 @@ def train_adam(
             initial_parameters,
             topologies,
             settings.regularisation_target,
-            str(device),
+            device,
             compute_grad=False,
         )
         losses_test, _ = compute_overall_loss_and_grad(
@@ -306,7 +306,7 @@ def train_adam(
             initial_parameters,
             topologies,
             settings.regularisation_target,
-            str(device),
+            device,
             compute_grad=False,
         )
 

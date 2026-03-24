@@ -230,7 +230,7 @@ class TestPredictWithWeights:
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
         result = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
         assert len(result) == 6
 
@@ -239,7 +239,7 @@ class TestPredictWithWeights:
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
         _, _, _, _, energy_weights, _ = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
         assert energy_weights is not None
         assert len(energy_weights) == 3  # n_confs
@@ -249,7 +249,7 @@ class TestPredictWithWeights:
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
         _, _, _, _, _, forces_weights = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
         assert forces_weights is not None
         assert len(forces_weights) == 3  # n_confs
@@ -259,7 +259,7 @@ class TestPredictWithWeights:
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
         _, _, _, _, energy_weights, forces_weights = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
 
         # Energy weight was set to 1000.0
@@ -339,7 +339,7 @@ class TestPredictionLossWithWeights:
             initial,
             topologies,
             "initial",
-            "cpu",
+            torch.device("cpu"),
             compute_grad=False,
         )
 
@@ -361,7 +361,7 @@ class TestPredictionLossWithWeights:
             initial,
             topologies,
             "initial",
-            "cpu",
+            torch.device("cpu"),
             compute_grad=False,
         )
 
@@ -380,7 +380,7 @@ class TestPredictionLossWithWeights:
             initial,
             topologies,
             "initial",
-            "cpu",
+            torch.device("cpu"),
             compute_grad=False,
         )
 
@@ -431,7 +431,7 @@ class TestPredictionLossWithWeights:
             trainable_params.clone(),
             [tensor_top],
             "initial",
-            "cpu",
+            torch.device("cpu"),
             compute_grad=False,
         )
 
@@ -486,7 +486,7 @@ class TestPredictionLossWithWeights:
             trainable_params.clone(),
             [tensor_top],
             "initial",
-            "cpu",
+            torch.device("cpu"),
             compute_grad=False,
         )
 
@@ -617,7 +617,7 @@ class TestPredictWithWeightsMultipleEntries:
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
         result = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
 
         # Should return 6 tensors
@@ -643,7 +643,7 @@ class TestPredictWithWeightsMultipleEntries:
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
         _, _, _, _, energy_weights, forces_weights = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu"
+            dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
 
         # First 2 conformations should have weight 1000.0
@@ -660,7 +660,11 @@ class TestPredictWithWeightsMultipleEntries:
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
         energy_ref, _, _, _, _, _ = predict_with_weights(
-            dataset, tensor_ff, {smiles: tensor_top}, device_type="cpu", normalize=False
+            dataset,
+            tensor_ff,
+            {smiles: tensor_top},
+            device=torch.device("cpu"),
+            normalize=False,
         )
 
         # Due to how predict_with_weights works, each entry's energies are

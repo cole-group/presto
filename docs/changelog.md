@@ -2,8 +2,13 @@
 
 ## 0.6.0
 
+### Maintenance
+- Update Egret-1 model to the lastest version in [#35](https://github.com/cole-group/presto/pull/35)
+
 ### Improvements
 
+- Improve consistency of how the device arguments are passed around (literal or torch device). [#36](https://github.com/cole-group/presto/pull/36)
+- Refactor simulation creation logic to reduce duplication and always set the platform to CPU for ML systems (required so that MACE models work with PythonForce). See [this commit](https://github.com/cole-group/presto/commit/c0f9dfc7fd3055c20ca87975ec9703c129e2a070).
 - Update environments to OpenMM 8.5 (with PythonForce) and OpenMM-ML. This simplifies the environments required (as we can drop NNPOPs) and means we have have all MLPs in one env. The only issue is that we can now only support CUDA 12.9. [#34](https://github.com/cole-group/presto/pull/34).
 
 ## 0.5.1
