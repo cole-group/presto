@@ -61,7 +61,7 @@ exclude_lines = [
 # Pixi configuration
 # -----------------------------
 [tool.pixi.workspace]
-channels = ["conda-forge"]
+channels = ["conda-forge", "openeye"]
 platforms = ["linux-64"]
 name = "presto"
 preview = ["pixi-build"]
@@ -141,6 +141,7 @@ rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
 openmm = ">=8.5.0"
+openeye-toolkits = ">=2025.2.1,<2026"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]

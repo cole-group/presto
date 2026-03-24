@@ -1,5 +1,7 @@
 """Tests for the create_types module."""
 
+import warnings
+
 import openff.toolkit
 import pytest
 from openff.toolkit import ForceField
@@ -7,9 +9,9 @@ from rdkit import Chem
 
 from presto.create_types import (
     _add_parameter_with_overwrite,
-    _add_types_to_parameter_handler,
     _create_smarts,
     _remove_redundant_smarts,
+    _remove_stereochemical_information,
     add_types_to_forcefield,
 )
 from presto.settings import TypeGenerationSettings
@@ -286,6 +288,48 @@ def test_create_smarts(
 
     if expected_smarts is not None:
         assert smarts == expected_smarts
+
+
+class TestRemoveStereochemicalInformation:
+    """Tests for the _remove_stereochemical_information helper."""
+
+    @pytest.mark.parametrize("smiles", ["C[C@H](O)N", "F/C=C/F"])
+    def test_returns_copy_with_stereo_removed(self, smiles):
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+
+        original_atom_stereo = [atom.stereochemistry for atom in mol.atoms]
+        original_bond_stereo = [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ]
+
+        with pytest.warns(UserWarning, match="stereochemical information.*removed"):
+            mol_stripped = _remove_stereochemical_information(mol)
+
+        # Ensure a distinct molecule object is returned.
+        assert mol_stripped is not mol
+
+        # Original molecule should remain unchanged.
+        assert [atom.stereochemistry for atom in mol.atoms] == original_atom_stereo
+        assert [getattr(bond, "_stereochemistry", None) for bond in mol.bonds] == (
+            original_bond_stereo
+        )
+
+        # Returned copy should have no atom or bond stereochemistry.
+        assert all(atom.stereochemistry is None for atom in mol_stripped.atoms)
+        assert all(
+            getattr(bond, "_stereochemistry", None) is None
+            for bond in mol_stripped.bonds
+        )
+
+    def test_no_warning_for_non_stereochemical_molecule(self):
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            mol_stripped = _remove_stereochemical_information(mol)
+
+        assert len(record) == 0
+        assert mol_stripped is not mol
 
 
 class TestRemoveRedundantSmarts:
@@ -677,116 +721,32 @@ class TestAddTypesToForcefield:
         # Full extension should add more parameters
         assert count_full > count_limited
 
-
-class TestAddTypesToParameterHandler:
-    """Tests for _add_types_to_parameter_handler function."""
-
-    def test_excluded_and_included_mutually_exclusive(self):
-        """Test that excluded_smirks and included_smirks cannot both be provided."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
+    @pytest.mark.parametrize("smiles", ["C[C@H](O)N", "F/C=C/F", "O=[S@@](C)c1ccccc1"])
+    def test_stereochemistry_removed_on_copy_with_warning(self, smiles):
+        """Stereo should be stripped on copied molecules and emit a warning."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
         ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
 
-        with pytest.raises(
-            ValueError,
-            match="excluded_smirks and included_smirks are mutually exclusive",
-        ):
-            _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                excluded_smirks=["[#6:1]-[#6:2]"],
-                included_smirks=["[#6:1]-[#1:2]"],
-            )
+        original_atom_stereo = [atom.stereochemistry for atom in mol.atoms]
+        original_bond_stereo = [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ]
 
-    def test_with_excluded_smirks(self):
-        """Test parameter generation with excluded SMIRKS."""
-        mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
 
-        # Get matches to find a SMIRKS to exclude
-        matches = bond_handler.find_matches(mol.to_topology())
-        if matches:
-            first_match = next(iter(matches.values()))
-            excluded_smirks = first_match.parameter_type.smirks
+        with pytest.warns(UserWarning, match="stereochemical information.*removed"):
+            ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
 
-            original_count = len(bond_handler.parameters)
+        # Ensure original molecule stereochemistry was not modified in place.
+        assert [atom.stereochemistry for atom in mol.atoms] == original_atom_stereo
+        assert [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ] == original_bond_stereo
 
-            handler_with_types = _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                excluded_smirks=[excluded_smirks],
-            )
-
-            new_count = len(handler_with_types.parameters)
-
-            # Should have added some parameters, but not for excluded SMIRKS
-            assert new_count > original_count
-
-    def test_with_included_smirks(self):
-        """Test parameter generation with included SMIRKS."""
-        mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        # Get matches to find SMIRKS to include
-        matches = bond_handler.find_matches(mol.to_topology())
-        if len(matches) >= 2:
-            # Include only one specific SMIRKS
-            first_match = next(iter(matches.values()))
-            included_smirks = first_match.parameter_type.smirks
-
-            original_count = len(bond_handler.parameters)
-
-            handler_with_types = _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                included_smirks=[included_smirks],
-            )
-
-            new_count = len(handler_with_types.parameters)
-
-            # Should have added fewer parameters than without restrictions
-            assert new_count > original_count
-
-    def test_handler_not_modified_in_place(self):
-        """Test that original handler is not modified."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        original_count = len(bond_handler.parameters)
-
-        _add_types_to_parameter_handler(
-            mol, bond_handler, "Bonds", max_extend_distance=-1
-        )
-
-        # Original should be unchanged
-        assert len(bond_handler.parameters) == original_count
-
-    def test_preserves_parameter_attributes(self):
-        """Test that parameter attributes are correctly preserved."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        handler_with_types = _add_types_to_parameter_handler(
-            mol, bond_handler, "Bonds", max_extend_distance=-1
-        )
-
-        # Check that bespoke parameters have proper attributes
-        for param in handler_with_types.parameters:
-            if "bespoke" in param.id:
-                # Should have k and length
-                assert hasattr(param, "k")
-                assert hasattr(param, "length")
-                assert param.k.m > 0  # Should be positive
+        # Sanity check that type generation still succeeded.
+        assert isinstance(ff_with_types, openff.toolkit.ForceField)
 
 
 class TestAddTypesToForcefieldExtended:
@@ -936,6 +896,42 @@ class TestAddTypesToForcefieldExtended:
     @pytest.mark.parametrize(
         "smiles",
         [
+            "CCO",
+            "c1ccccc1",
+            "C[C@H](O)N",
+            "O=[S@@](C)c1ccccc1",
+        ],
+    )
+    def test_molecule_assigned_only_bespoke_valence_types(self, smiles):
+        """Generated FF should assign only bespoke valence parameters."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        valence_handlers = (
+            "Bonds",
+            "Angles",
+            "ProperTorsions",
+            "ImproperTorsions",
+        )
+        type_gen_settings = {
+            handler: TypeGenerationSettings(max_extend_distance=-1, exclude=[])
+            for handler in valence_handlers
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+        labels_by_handler = ff_with_types.label_molecules(mol.to_topology())[0]
+
+        for handler_name in valence_handlers:
+            labels = labels_by_handler[handler_name]
+            if len(labels) == 0:
+                continue
+            assert all("bespoke" in param.id for param in labels.values()), (
+                f"Found non-bespoke assignment in {handler_name} for {smiles}"
+            )
+
+    @pytest.mark.parametrize(
+        "smiles",
+        [
             "CC",
             "c1ccccc1",
             "O=[S@@](C)c1ccccc1",
@@ -979,7 +975,6 @@ class TestAddTypesToForcefieldExtended:
                 )
             else:
                 assert new_count == original_counts[handler]
-            breakpoint()
 
 
 class TestEdgeCases:
