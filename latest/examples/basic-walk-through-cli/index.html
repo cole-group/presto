@@ -18808,7 +18808,7 @@ interchange = force_field.create_interchange(molecule.to_topology())</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
@@ -18832,7 +18832,8 @@ interchange = force_field.create_interchange(molecule.to_topology())</div>
     <span class="n">interchange</span><span class="p">:</span> <span class="n">Interchange</span><span class="p">,</span>
     <span class="n">reporter_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span> <span class="c1"># Decrease this to save more frames!</span>
     <span class="n">trajectory_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"small_mol_solvated.pdb"</span><span class="p">,</span>
-<span class="p">):</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Run a simulation using OpenMM."""</span>
     <span class="n">simulation</span> <span class="o">=</span> <span class="n">interchange</span><span class="o">.</span><span class="n">to_openmm_simulation</span><span class="p">(</span>
         <span class="n">integrator</span><span class="o">=</span><span class="n">openmm</span><span class="o">.</span><span class="n">LangevinMiddleIntegrator</span><span class="p">(</span>
             <span class="mi">300</span> <span class="o">*</span> <span class="n">openmm</span><span class="o">.</span><span class="n">unit</span><span class="o">.</span><span class="n">kelvin</span><span class="p">,</span>
@@ -18877,7 +18878,8 @@ def run_openmm(
     interchange: Interchange,
     reporter_frequency: int = 1000, # Decrease this to save more frames!
     trajectory_name: str = "small_mol_solvated.pdb",
-):
+) -&gt; None:
+    """Run a simulation using OpenMM."""
     simulation = interchange.to_openmm_simulation(
         integrator=openmm.LangevinMiddleIntegrator(
             300 * openmm.unit.kelvin,

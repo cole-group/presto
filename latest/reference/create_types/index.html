@@ -1915,8 +1915,8 @@
 
     <div class="doc doc-contents ">
 
-        <p>Create a mapped SMARTS representation of a molecule.
-Crucially, this uses MergeQueryHs to merge non-mapped
+        <p>Create a mapped SMARTS representation of a molecule.</p>
+<p>Crucially, this uses MergeQueryHs to merge non-mapped
 hydrogens into their heavy atom. This dramatically increases
 the speed of SMARTS matching in RDKit for complex SMARTS patterns
 (thanks to Niels Maeder for suggesting this!).</p>
@@ -1954,17 +1954,11 @@ If -1, include the entire molecule.</p>
     </ul>
 
 
-<p><span class="doc-section-title">Returns:</span></p>
-    <ul>
-        <li class="doc-section-item field-body">
-              <code><span title="str">str</span></code>
-          –
-          <div class="doc-md-description">
-            <p>The SMARTS pattern with atom maps.</p>
-          </div>
-        </li>
-    </ul>
-
+<details class="returns:" open>
+  <summary>Returns:</summary>
+  <p>str
+    The SMARTS pattern with atom maps.</p>
+</details>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>presto/create_types.py</code></summary>
@@ -2054,27 +2048,27 @@ If -1, include the entire molecule.</p>
 </span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a>    <span class="n">max_extend_distance</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
 </span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 </span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a mapped SMARTS representation of a molecule.</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">    Crucially, this uses MergeQueryHs to merge non-mapped</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">    hydrogens into their heavy atom. This dramatically increases</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">    the speed of SMARTS matching in RDKit for complex SMARTS patterns</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    (thanks to Niels Maeder for suggesting this!).</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="sd">    Parameters</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">    ----------</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">    mol: openff.toolkit.Molecule</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        The molecule to create SMARTS for.</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">    idxs: tuple[int, ...]</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        Indices of the atoms to map (and from which to extend).</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">    max_extend_distance: int, default -1</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        Maximum number of bonds to extend from the mapped atoms.</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">        If -1, include the entire molecule.</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">    Returns</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">    -------</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">    str</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">        The SMARTS pattern with atom maps.</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">    Crucially, this uses MergeQueryHs to merge non-mapped</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">    hydrogens into their heavy atom. This dramatically increases</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">    the speed of SMARTS matching in RDKit for complex SMARTS patterns</span>
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="sd">    (thanks to Niels Maeder for suggesting this!).</span>
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a>
+</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">    Parameters</span>
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">    ----------</span>
+</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">    mol: openff.toolkit.Molecule</span>
+</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        The molecule to create SMARTS for.</span>
+</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">    idxs: tuple[int, ...]</span>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">        Indices of the atoms to map (and from which to extend).</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">    max_extend_distance: int, default -1</span>
+</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">        Maximum number of bonds to extend from the mapped atoms.</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">        If -1, include the entire molecule.</span>
+</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">    -------</span>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    str</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">        The SMARTS pattern with atom maps.</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>    <span class="n">mol_rdkit</span> <span class="o">=</span> <span class="n">mol</span><span class="o">.</span><span class="n">to_rdkit</span><span class="p">()</span>
 </span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>
 </span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>    <span class="c1"># Determine which atoms to include in the SMARTS</span>
@@ -2192,17 +2186,11 @@ If None, no parameters are removed.</p>
     </ul>
 
 
-<p><span class="doc-section-title">Returns:</span></p>
-    <ul>
-        <li class="doc-section-item field-body">
-              <code><span title="openff.toolkit.ForceField">ForceField</span></code>
-          –
-          <div class="doc-md-description">
-            <p>Force field with redundant parameters removed</p>
-          </div>
-        </li>
-    </ul>
-
+<details class="returns:" open>
+  <summary>Returns:</summary>
+  <p>openff.toolkit.ForceField
+    Force field with redundant parameters removed</p>
+</details>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>presto/create_types.py</code></summary>
@@ -2299,7 +2287,7 @@ If None, no parameters are removed.</p>
 </span><span id="__span-0-141"><a id="__codelineno-0-141" name="__codelineno-0-141"></a><span class="sd">        Only remove parameters whose ID contains this substring.</span>
 </span><span id="__span-0-142"><a id="__codelineno-0-142" name="__codelineno-0-142"></a><span class="sd">        If None, no parameters are removed.</span>
 </span><span id="__span-0-143"><a id="__codelineno-0-143" name="__codelineno-0-143"></a>
-</span><span id="__span-0-144"><a id="__codelineno-0-144" name="__codelineno-0-144"></a><span class="sd">    Returns</span>
+</span><span id="__span-0-144"><a id="__codelineno-0-144" name="__codelineno-0-144"></a><span class="sd">    Returns:</span>
 </span><span id="__span-0-145"><a id="__codelineno-0-145" name="__codelineno-0-145"></a><span class="sd">    -------</span>
 </span><span id="__span-0-146"><a id="__codelineno-0-146" name="__codelineno-0-146"></a><span class="sd">    openff.toolkit.ForceField</span>
 </span><span id="__span-0-147"><a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="sd">        Force field with redundant parameters removed</span>
@@ -2505,17 +2493,11 @@ If None, no parameters are removed.</p>
     </ul>
 
 
-<p><span class="doc-section-title">Returns:</span></p>
-    <ul>
-        <li class="doc-section-item field-body">
-              <code><span title="openff.toolkit.ForceField">ForceField</span></code>
-          –
-          <div class="doc-md-description">
-            <p>Force field with bespoke parameters added, deduplicated across all molecules</p>
-          </div>
-        </li>
-    </ul>
-
+<details class="returns:" open>
+  <summary>Returns:</summary>
+  <p>openff.toolkit.ForceField
+    Force field with bespoke parameters added, deduplicated across all molecules</p>
+</details>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>presto/create_types.py</code></summary>
@@ -2635,7 +2617,7 @@ If None, no parameters are removed.</p>
 </span><span id="__span-0-242"><a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">    type_generation_settings : dict[NonLinearValenceType, TypeGenerationSettings]</span>
 </span><span id="__span-0-243"><a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">        Settings for generating tagged SMARTS types for each valence type</span>
 </span><span id="__span-0-244"><a id="__codelineno-0-244" name="__codelineno-0-244"></a>
-</span><span id="__span-0-245"><a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">    Returns</span>
+</span><span id="__span-0-245"><a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">    Returns:</span>
 </span><span id="__span-0-246"><a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">    -------</span>
 </span><span id="__span-0-247"><a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">    openff.toolkit.ForceField</span>
 </span><span id="__span-0-248"><a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">        Force field with bespoke parameters added, deduplicated across all molecules</span>
