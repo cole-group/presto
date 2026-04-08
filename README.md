@@ -22,6 +22,8 @@
 
 ---
 
+**Warning**:  ⚠️ There are currently [issues with AceFF 2.0](https://github.com/openmm/openmm-ml/issues/137) so we recommend using AIMNet2 (`aimnet2` in the settings toml) as the default MLP for the moment.
+
 Train bespoke SMIRNOFF force fields quickly using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-group.github.io/presto/latest/).
 
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
