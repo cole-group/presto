@@ -212,6 +212,11 @@ def train_adam(
 
     # run the ML training
 
+    ff_trajectory_dir = (
+        Path(output_paths[OutputType.TRAINING_METRICS]).parent / "ff_trajectory"
+    )
+    ff_trajectory_dir.mkdir(parents=True, exist_ok=True)
+
     with open(output_paths[OutputType.TRAINING_METRICS], "w") as metrics_file:
         with open_writer(Path(output_paths[OutputType.TENSORBOARD])) as writer:
             optimizer = torch.optim.Adam(
@@ -230,6 +235,8 @@ def train_adam(
                 MofNCompleteColumn(),
                 TimeRemainingColumn(),
             )
+            ff_initial = trainable.to_force_field(trainable_parameters)
+            torch.save(ff_initial, ff_trajectory_dir / "ff_epoch_0000.pt")
             with progress:
                 for i in progress.track(
                     range(settings.n_epochs),
@@ -277,6 +284,9 @@ def train_adam(
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
                     trainable.clamp(trainable_parameters)
+
+                    ff = trainable.to_force_field(trainable_parameters)
+                    torch.save(ff, ff_trajectory_dir / f"ff_epoch_{i + 1:04d}.pt")
 
                     if i % settings.learning_rate_decay_step == 0:
                         scheduler.step()
