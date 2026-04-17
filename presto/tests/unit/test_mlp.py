@@ -25,7 +25,9 @@ NNPOPS_MODELS = {
 }
 
 EXPECTED_MODEL_ENERGIES = {
-    "aceff-2.0": -89.77400970458984,
+    # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
+    # this energy is the one after fixes and should be correct (currently failing).
+    "aceff-2.0": -89.407890319824,
     "mace-off23-small": -963.051142471468,
     "mace-off23-medium": -963.073736333697,
     "mace-off23-large": -963.177635381956,

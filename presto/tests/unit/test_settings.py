@@ -37,7 +37,7 @@ class TestSamplingSettingsBase:
 
     def test_default_values(self, valid_mm_md_settings):
         """Test that default values are set correctly."""
-        assert valid_mm_md_settings.ml_potential == "aceff-2.0"
+        assert valid_mm_md_settings.ml_potential == "aimnet2"
         assert valid_mm_md_settings.timestep.value_in_unit(omm_unit.femtoseconds) == 1.0
         assert valid_mm_md_settings.temperature.value_in_unit(omm_unit.kelvin) == 500.0
         assert valid_mm_md_settings.n_conformers == 10
@@ -316,8 +316,8 @@ class TestMSMSettings:
     def test_default_settings(self):
         """Test default MSM settings."""
         settings = MSMSettings()
-        assert settings.vib_scaling == 0.958
-        assert settings.ml_potential == "aceff-2.0"
+        assert settings.vib_scaling == 1.0
+        assert settings.ml_potential == "aimnet2"
 
     def test_custom_vib_scaling(self):
         """Test custom vibrational scaling."""

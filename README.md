@@ -22,14 +22,14 @@
 
 ---
 
-**Warning**:  ⚠️ There are currently [issues with AceFF 2.0](https://github.com/openmm/openmm-ml/issues/137) so we recommend using AIMNet2 (`aimnet2` in the settings toml) as the default MLP for the moment.
+**Warning**:  ⚠️ There are currently [issues with AceFF 2.0](https://github.com/openmm/openmm-ml/issues/137) so AIMNet2 (`aimnet2` in the settings yaml) has been set as the default MLP for the moment.
 
 Train bespoke SMIRNOFF force fields quickly using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-group.github.io/presto/latest/).
 
 ***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
 the documentation and testing is incomplete, and the API may change without notice.*
 
-Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AceFF-2.0 model (as well as Egret-1 and AIMNet-2) does.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AIMNet-2 model (as well as Egret-1, AceFF-2.0, and Orb-v3 OMOL) does.
 
 ## Installation
 

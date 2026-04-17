@@ -1549,7 +1549,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/versioneer-0.29-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/verspec-0.1.0-pyh29332c3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/virtualenv-21.2.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.0-cuda129_py313hd42f3a7_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.1-cuda129_py313hd42f3a7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/watchdog-6.0.0-py313hd5f5364_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wcwidth-0.6.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/webcolors-25.10.0-pyhd8ed1ab_0.conda
@@ -2116,7 +2116,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/versioneer-0.29-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/verspec-0.1.0-pyh29332c3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/virtualenv-21.2.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.0-cuda129_py312h41f24bb_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.1-cuda129_py312h41f24bb_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/watchdog-6.0.0-py312h20c3967_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wcwidth-0.6.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/webcolors-25.10.0-pyhd8ed1ab_0.conda
@@ -2683,7 +2683,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/versioneer-0.29-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/verspec-0.1.0-pyh29332c3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/virtualenv-21.2.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.0-cuda129_py313hd42f3a7_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.1-cuda129_py313hd42f3a7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/watchdog-6.0.0-py313hd5f5364_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wcwidth-0.6.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/webcolors-25.10.0-pyhd8ed1ab_0.conda
@@ -5437,7 +5437,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/jax?source=compressed-mapping
+  - pkg:pypi/jax?source=hash-mapping
   size: 1945726
   timestamp: 1773744352001
 - conda: https://conda.anaconda.org/conda-forge/linux-64/jaxlib-0.9.0-cpu_py312h88dcde8_0.conda
@@ -9358,7 +9358,7 @@ packages:
   timestamp: 1765937577534
 - pypi: ./
   name: presto
-  version: 0.6.1.dev3+g850acf9b4.d20260417
+  version: 0.6.1.dev4+g8a9bd2387.d20260417
   sha256: 141f949019d99e0c446b586df0d05b68baa941cf3d3027c45021c63b80481519
   requires_python: '>=3.11,<3.15'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
@@ -11846,50 +11846,50 @@ packages:
   - pkg:pypi/warp-lang?source=hash-mapping
   size: 27674917
   timestamp: 1770219414233
-- conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.0-cuda129_py312h41f24bb_2.conda
-  sha256: e4ba4d7924098d0fd73faef7c92f3a1762ebf1fcae3329be89313fdfeadcf5cf
-  md5: 1ada8bc48fcb27f9d3f7fed9416d281f
+- conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.1-cuda129_py312h41f24bb_0.conda
+  sha256: b1e32306eb64d0c8380a142bc0baab9769652f7a275da9935446775ebfdbcab3
+  md5: 764b24692a8116ac0e35fb4521c25e25
   depends:
   - __cuda
   - libnvjitlink >=12.9.86,<12.10.0a0
   - python
-  - libgcc >=14
   - cuda-version >=12.9,<13
-  - __glibc >=2.17,<3.0.a0
   - libstdcxx >=14
+  - libgcc >=14
+  - __glibc >=2.17,<3.0.a0
+  - cuda-nvrtc >=12.9.86,<13.0a0
+  - libmathdx >=0.3.1,<0.3.2.0a0
+  - libmathdx0 >=0.3.1,<0.3.2.0a0
+  - cuda-cudart >=12.9.79,<13.0a0
+  - numpy >=1.23,<3
   - python_abi 3.12.* *_cp312
-  - numpy >=1.23,<3
-  - cuda-nvrtc >=12.9.86,<13.0a0
-  - libmathdx >=0.3.1,<0.3.2.0a0
-  - libmathdx0 >=0.3.1,<0.3.2.0a0
-  - cuda-cudart >=12.9.79,<13.0a0
   license: Apache-2.0 AND MIT AND CC0-1.0 AND LicenseRef-NvidiaProprietary
   purls:
   - pkg:pypi/warp-lang?source=hash-mapping
-  size: 50981091
-  timestamp: 1774051603235
-- conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.0-cuda129_py313hd42f3a7_2.conda
-  sha256: a371647fbd7f79046c7e082418c28118e00d925609cbc2494f633e53344ed1e4
-  md5: f752386f24a224cf0d08728166578760
+  size: 51093718
+  timestamp: 1775560665389
+- conda: https://conda.anaconda.org/conda-forge/linux-64/warp-lang-1.12.1-cuda129_py313hd42f3a7_0.conda
+  sha256: d13aefd583b35d230e81ce3e17b4b866111fdf86059075b76d2bceb97138a3d2
+  md5: e620e0ff18f73631f381d4378e61fff1
   depends:
   - __cuda
   - libnvjitlink >=12.9.86,<12.10.0a0
   - python
+  - libgcc >=14
+  - libstdcxx >=14
   - __glibc >=2.17,<3.0.a0
   - cuda-version >=12.9,<13
-  - libstdcxx >=14
-  - libgcc >=14
+  - cuda-nvrtc >=12.9.86,<13.0a0
+  - python_abi 3.13.* *_cp313
   - libmathdx >=0.3.1,<0.3.2.0a0
   - libmathdx0 >=0.3.1,<0.3.2.0a0
-  - cuda-nvrtc >=12.9.86,<13.0a0
   - numpy >=1.23,<3
-  - python_abi 3.13.* *_cp313
   - cuda-cudart >=12.9.79,<13.0a0
   license: Apache-2.0 AND MIT AND CC0-1.0 AND LicenseRef-NvidiaProprietary
   purls:
   - pkg:pypi/warp-lang?source=hash-mapping
-  size: 50995479
-  timestamp: 1774051617892
+  size: 51110899
+  timestamp: 1775560664317
 - conda: https://conda.anaconda.org/conda-forge/linux-64/watchdog-6.0.0-py312h20c3967_3.conda
   sha256: b91e504d9bac172fd8f9f8902c8df85f65ceabd1e7e5a737183a494c49edbc15
   md5: 67d76e548cb09501c0f22071c7d86b26

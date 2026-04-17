@@ -109,7 +109,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
     )
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aceff-2.0",
+        "aimnet2",
         description="The machine learning potential to use for calculating energies and forces of "
         " the snapshots. Note that this is not generally the potential used for sampling.",
     )
@@ -601,7 +601,7 @@ class MSMSettings(_DefaultSettings):
     """Settings for the modified Seminario method."""
 
     ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aceff-2.0",
+        "aimnet2",
         description="The machine learning potential to use for calculating the Hessian matrix",
     )
 
@@ -616,9 +616,7 @@ class MSMSettings(_DefaultSettings):
     )
 
     vib_scaling: float = Field(
-        0.958,
-        description="Vibrational scaling factor. This is a reasonable default for ωB97M-V/def2-TZVPPD (AceFF-2.0 LOT), "
-        " see https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0152838",
+        1.0, description="Vibrational scaling factor. Set as appropriate for your MLP."
     )
 
     n_conformers: int = Field(
