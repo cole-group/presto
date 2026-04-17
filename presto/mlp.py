@@ -21,6 +21,7 @@ AvailableModels = Literal[
     "mace-omol-0-extra-large",
     "egret-1",
     "aimnet2",
+    "orb-v3-conservative-omol",
 ]
 """Available MLPotential models."""
 
@@ -31,6 +32,7 @@ _CHARGE_SUPPORTING_MODELS: set[str] = {
     "aimnet2",
     "aceff-2.0",
     "mace-omol-0-extra-large",
+    "orb-v3-conservative-omol",
 }
 
 

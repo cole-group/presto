@@ -1,7 +1,11 @@
 """Unit tests for mlp module."""
 
+import math
+
+import numpy as np
 import pytest
 from openff.toolkit import Molecule
+from openff.units import unit as off_unit
 from openmmml import MLPotential
 
 from presto._exceptions import InvalidSettingsError
@@ -20,6 +24,17 @@ NNPOPS_MODELS = {
     "mace-off23-large",
 }
 
+EXPECTED_MODEL_ENERGIES = {
+    "aceff-2.0": -89.407890319824,
+    "mace-off23-small": -963.051142471468,
+    "mace-off23-medium": -963.073736333697,
+    "mace-off23-large": -963.177635381956,
+    "mace-omol-0-extra-large": -19.449931963902,
+    "egret-1": -963.030539966774,
+    "aimnet2": -200784.718554282794,
+    "orb-v3-conservative-omol": -200671.118723808293,
+}
+
 
 class TestAvailableModels:
     """Tests for AvailableModels type."""
@@ -36,13 +51,12 @@ class TestAvailableModels:
 
         This is an integration test that actually loads models and creates systems.
         """
-        import openmm
         from openff.toolkit import Molecule
 
         _cache.clear()
 
-        # Use a neutral molecule for compatibility with all models
-        mol = Molecule.from_smiles("CCO")  # Ethanol
+        # Use a small neutral molecule for compatibility with all models
+        mol = Molecule.from_smiles("O")  # Water
         topology = mol.to_topology().to_openmm()
 
         # Actually load the model
@@ -52,12 +66,60 @@ class TestAvailableModels:
 
         # Create a real OpenMM system
         system = potential.createSystem(topology)
-        assert system is not None
-        assert isinstance(system, openmm.System)
 
         # Basic sanity checks on the system
         assert system.getNumParticles() == topology.getNumAtoms()
         assert system.getNumForces() > 0
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            pytest.param(model, id=model)
+            for model in __import__("typing").get_args(AvailableModels)
+        ],
+    )
+    @pytest.mark.slow
+    def test_all_models_can_calculate_energy(self, model_name):
+        """Test that all available models can calculate an energy for water.
+
+        Also check we don't have any regressions that have changed the energy,
+        though OpenMM-ML does have energy tests in CI now.
+        """
+        import openmm
+
+        _cache.clear()
+
+        POSITIONS = (
+            np.array(
+                [
+                    [-0.00081616, 0.36637843, -0.0],
+                    [-0.8123162, -0.18348211, -0.0],
+                    [0.81313236, -0.18289632, 0.0],
+                ]
+            )
+            * off_unit.angstroms
+        )
+
+        # Use a small neutral molecule for compatibility with all models.
+        mol = Molecule.from_smiles("O")
+        mol.add_conformer(POSITIONS)
+        topology = mol.to_topology().to_openmm()
+
+        potential = get_mlp(model_name)
+        system = potential.createSystem(topology)
+
+        integrator = openmm.VerletIntegrator(1.0 * openmm.unit.femtoseconds)
+        context = openmm.Context(system, integrator)
+        context.setPositions(mol.conformers[0].to_openmm())
+
+        state = context.getState(getEnergy=True)
+        energy = state.getPotentialEnergy().value_in_unit(
+            openmm.unit.kilojoule_per_mole
+        )
+        assert math.isfinite(energy)
+        assert energy == pytest.approx(
+            EXPECTED_MODEL_ENERGIES[model_name], rel=1e-6, abs=1e-3
+        )
 
     def test_invalid_model_name_raises_error(self):
         """Test that invalid model name raises error."""

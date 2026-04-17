@@ -85,16 +85,15 @@ channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
 # Default is equivalent to gpu-py313-cuda129. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312", "cuda129"]}
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312", "cuda129"]}
 # CPU
-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py312"] }
-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "py313"] }
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
-rich = ">=14.3.1,<15"
 
 # -----------------------------
 # Python version features
@@ -131,9 +130,11 @@ nglview = "*"
 "openff-units" = "*"
 "openff-interchange" = ">=0.4.11" # Required for numpy 2.4 compatibility
 "openff-forcefields" = ">=2026.01.0"
+openmm-ml = ">=1.6"
 tensorboardX = "*"
 tensorboard = "*"
 versioneer = "*"
+rich = ">=14.3.1, <15"
 "pydantic" = ">=2"
 "pydantic-settings" = "*"
 "pydantic-units"= "*"
@@ -151,8 +152,6 @@ openmm = ">=8.5.0"
 # Issue: https://github.com/conda-forge/nnpops-feedstock/issues/50
 descent = { git = "https://github.com/openforcefield/descent.git", rev = "40d40519408d9f0cf2ba6da1f68e2900791e003b" }
 smee = { git = "https://github.com/openforcefield/smee.git", rev = "0d0b42d2096b27ea518bc24c18979b40de5ce93e" }
-# Need newest version of OpenMM-ML which doesn't need openmmtorch or nnpops
-openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "e2b3ed8f630f6898ad4bf60603fe382f99479da5"}
 presto ={ path = ".", editable = true }
 
 # -----------------------------
@@ -195,11 +194,19 @@ torchmd-net = ">=3.0.3"
 
 [tool.pixi.feature.aimnet.pypi-dependencies]
 aimnet = ">=0.1.0"
-# aimnet doesn't like more recent versions
+# aimnet doesn't like more recent versions but doesn't specify an upper bound...
 nvalchemi-toolkit-ops = "==0.2.0"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"
+
+[tool.pixi.feature.orb.pypi-dependencies]
+orb-models = ">=0.5.5"
+# Pixi doesn't seem to detect the
+# Current annoyance is https://github.com/allenai/cached_path/issues/263 -- cached-path does
+# not allow new rich versions, though they should work fine. To get round this, install directly
+# from fork on GitHub which allows newer rich versions.
+cached-path = { git = "https://github.com/fjclark/cached_path.git", rev = "1cb8bdecd22e3af70182b8075bc86d7c18184c9e" }
 
 # -----------------------------
 # Dev/test tools
@@ -267,11 +274,17 @@ lint = { cmd = "ruff check presto" }
 format = { cmd = "ruff format presto && ruff check --fix --select I presto" }
 
 # Testing requires dev + common + GPU/CPU
-test = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests" }
-"test-unit" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/unit" }
-"test-integration" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/integration" }
-
+test = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests" }
+"test-slow" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m slow presto/tests" }
+"test-unit" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests/unit" }
+"test-unit-slow" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m slow presto/tests/unit" }
+"test-integration" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests/integration" }
 type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict presto" }
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: marks tests as slow (excluded from default test tasks)",
+]
 
 # Docs tasks require docs feature
 "docs-build" = { cmd = "mkdocs build" }
