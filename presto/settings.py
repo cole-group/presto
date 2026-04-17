@@ -546,7 +546,7 @@ class OutlierFilterSettings(_DefaultSettings):
     energy_outlier_threshold: float | None = Field(
         2.0,
         description="Absolute threshold in kcal/mol/atom for energy outlier detection. "
-        "Conformations where |energy_mm - energy_ref| / n_atoms (relative to minimum) "
+        "Conformations where |energy_mm - energy_ref| / n_atoms (energies relative to median) "
         "exceeds this threshold will be removed. Set to None to disable energy-based filtering.",
     )
 
