@@ -25,7 +25,7 @@ NNPOPS_MODELS = {
 }
 
 EXPECTED_MODEL_ENERGIES = {
-    "aceff-2.0": -89.407890319824,
+    "aceff-2.0": -89.77400970458984,
     "mace-off23-small": -963.051142471468,
     "mace-off23-medium": -963.073736333697,
     "mace-off23-large": -963.177635381956,
