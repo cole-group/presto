@@ -2,12 +2,12 @@
 
 `presto` can be run directly using its CLI
 ```bash
-presto train --parameterisation-settings.smiles "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
+presto train --parameterisation-settings.molecule-input-type smiles --parameterisation-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
 or from a YAML file
 ```bash
 presto write-default-yaml default.yaml
-# Modify the yaml to set the desired smiles
+# Modify the yaml to set the desired molecule_input_type and molecule input(s)
 presto train-from-yaml default.yaml
 ```
 
@@ -37,10 +37,11 @@ Specifically, the [`max_extend_distance`](reference/settings/#presto.settings.Ty
 ```bash
 presto write-default-yaml congeneric_fit.yaml
 ```
-Then modify the `smiles` and `max_extend_distance` (within `type_generation_settings`) options `parameterisation_settings` section to read:
+Then modify the `input_type`, `input`, and `max_extend_distance` (within `type_generation_settings`) options in the `parameterisation_settings` section to read:
 ```yaml
 parameterisation_settings:
-    smiles:
+        molecule_input_type: smiles
+        molecules:
       - CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2
       - CCC(=O)Nc1cc(NC(=O)c2c(Cl)cccc2Cl)ccn1
     initial_force_field: openff_unconstrained-2.3.0.offxml
@@ -73,6 +74,8 @@ parameterisation_settings:
             include: []
             exclude: []
 ```
+
+For SDF-based fits, set `molecule_input_type: sdf` and provide one or more `.sdf` file paths in the `molecules` list. Multiple unique molecules in a single SDF file are supported.
 
 Run this with
 ```bash

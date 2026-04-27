@@ -216,7 +216,7 @@ def parameterise(
         symmetric term.
     """
     # Create molecules from SMILES
-    mols = settings.molecules
+    mols = settings.openff_molecules
 
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 

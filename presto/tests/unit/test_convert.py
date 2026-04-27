@@ -231,7 +231,8 @@ def test_linearise_harmonics_topology():
 def test_parameterise(tmp_path):
     """Parameterise."""
     settings = ParameterisationSettings(
-        smiles="CC",
+        molecule_input_type="smiles",
+        molecules="CC",
         initial_force_field="openff-2.1.0.offxml",
         msm_settings=MSMSettings(ml_potential="aimnet2"),
     )
@@ -249,7 +250,10 @@ def test_parameterise(tmp_path):
 def test_parameterise_linear(tmp_path):
     """Parameterise linear."""
     settings = ParameterisationSettings(
-        smiles="C", initial_force_field="openff-2.1.0.offxml", linearise_harmonics=True
+        molecule_input_type="smiles",
+        molecules="C",
+        initial_force_field="openff-2.1.0.offxml",
+        linearise_harmonics=True,
     )
     _mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
     assert "LinearBonds" in tensor_ff.potentials_by_type
@@ -653,7 +657,8 @@ class TestParameteriseExtended:
     def test_parameterise_with_expand_torsions(self):
         """Test parameterise with expand_torsions enabled."""
         settings = ParameterisationSettings(
-            smiles="CCCC",
+            molecule_input_type="smiles",
+            molecules="CCCC",
             initial_force_field="openff_unconstrained-2.3.0.offxml",
             expand_torsions=True,
         )
@@ -678,7 +683,8 @@ class TestParameteriseExtended:
     def test_parameterise_multiple_molecules(self):
         """Test parameterise with multiple molecules."""
         settings = ParameterisationSettings(
-            smiles=["C", "CC"],
+            molecule_input_type="smiles",
+            molecules=["C", "CC"],
             initial_force_field="openff_unconstrained-2.3.0.offxml",
         )
 
