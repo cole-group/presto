@@ -642,12 +642,12 @@ class ParameterisationSettings(_DefaultSettings):
         description="Input type for molecule loading.",
     )
 
-    molecules: list[str] = Field(
+    molecules: tuple[str, ...] = Field(
         ...,
         description="Molecule input(s). Meaning depends on molecule_input_type.",
     )
 
-    _opeff_molecules: list[Molecule] = PrivateAttr(default_factory=list)
+    _opeff_molecules: tuple[Molecule, ...] = PrivateAttr(default_factory=tuple)
 
     initial_force_field: str = Field(
         "openff_unconstrained-2.3.0.offxml",
@@ -693,12 +693,15 @@ class ParameterisationSettings(_DefaultSettings):
 
     @field_validator("molecules", mode="before")
     @classmethod
-    def normalize_input(cls, value: Any) -> list[str]:
-        """Normalize molecule input to a unique, non-empty list of strings."""
+    def normalize_input(cls, value: Any) -> tuple[str, ...]:
+        """Normalize molecule input to a unique, non-empty tuple of strings."""
+        normalized: tuple[str, ...]
         if isinstance(value, (str, Path)):
-            normalized = [str(value)]
+            normalized = (str(value),)
         elif isinstance(value, list):
-            normalized = [str(v) for v in value]
+            normalized = tuple(str(v) for v in value)
+        elif isinstance(value, tuple):
+            normalized = tuple(str(v) for v in value)
         else:
             raise ValueError(
                 "input must be a string/path or a list of string/path values"
@@ -720,15 +723,15 @@ class ParameterisationSettings(_DefaultSettings):
         if self.molecule_input_type not in MOLECULE_LOADERS:
             raise ValueError(f"Unsupported input_type: {self.molecule_input_type}")
         loader = MOLECULE_LOADERS[self.molecule_input_type]
-        self._opeff_molecules = [
+        self._opeff_molecules = tuple(
             molecule
             for input_value in self.molecules
             for molecule in loader(input_value)
-        ]
+        )
         return self
 
     @property
-    def openff_molecules(self) -> list[Molecule]:
+    def openff_molecules(self) -> tuple[Molecule, ...]:
         """Return the loaded OpenFF Molecule objects."""
         return self._opeff_molecules
 

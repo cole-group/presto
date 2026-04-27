@@ -3,7 +3,7 @@
 import copy
 import functools
 import pathlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Protocol, TypedDict, Unpack
 
 import datasets
@@ -54,7 +54,7 @@ _OMM_RADIAN = openmm.unit.radian
 class SampleFnArgs(TypedDict):
     """Arguments for sampling functions."""
 
-    mols: list[openff.toolkit.Molecule]
+    mols: Iterable[openff.toolkit.Molecule]
     off_ff: openff.toolkit.ForceField
     device: torch.device
     settings: settings.SamplingSettings

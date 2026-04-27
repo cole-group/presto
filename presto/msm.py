@@ -10,6 +10,7 @@ doi:10.1021/acs.jctc.7b00785
 
 import copy
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from operator import itemgetter
 from typing import Any
@@ -799,7 +800,7 @@ def _mean_angle_params(params_list: list[AngleParams]) -> AngleParams:
 
 
 def apply_msm_to_molecules(
-    mols: list[openff.toolkit.Molecule],
+    mols: Iterable[openff.toolkit.Molecule],
     off_ff: openff.toolkit.ForceField,
     settings: MSMSettings,
     device: torch.device,
@@ -810,7 +811,7 @@ def apply_msm_to_molecules(
     that share the same SMIRKS pattern, and updates the force field accordingly.
 
     Args:
-        mols: List of molecules to parameterize.
+        mols: Iterable of molecules to parameterize.
         off_ff: OpenFF ForceField to modify.
         settings: MSM settings.
         device: Torch device for ML potential calculations.

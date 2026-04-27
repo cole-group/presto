@@ -488,7 +488,7 @@ class TestParameterisationSettings:
         settings = ParameterisationSettings(
             molecule_input_type="smiles", molecules="CCO"
         )
-        assert settings.molecules == ["CCO"]
+        assert settings.molecules == ("CCO",)
         assert len(settings.openff_molecules) == 1
         assert settings.openff_molecules[0].n_atoms == 9
 
@@ -515,7 +515,7 @@ class TestParameterisationSettings:
             molecule_input_type="sdf", molecules=str(sdf)
         )
 
-        assert settings.molecules == [str(sdf)]
+        assert settings.molecules == (str(sdf),)
         assert len(settings.openff_molecules) == 1
         assert settings.openff_molecules[0].n_atoms == 9
 
@@ -541,6 +541,28 @@ class TestParameterisationSettings:
         assert len(settings.openff_molecules) == 2
         assert (
             settings.openff_molecules[0].n_atoms != settings.openff_molecules[1].n_atoms
+        )
+
+    def test_multi_and_single_molecule(self, tmp_path):
+        """Test that SDF with multiple molecules and an SDF with a single molecule is accepted."""
+        multi_sdf = tmp_path / "multi.sdf"
+        with Chem.SDWriter(str(multi_sdf)) as writer:
+            writer.write(Chem.MolFromSmiles("CC"))
+            writer.write(Chem.MolFromSmiles("CCC"))
+
+        single_sdf = tmp_path / "single.sdf"
+        with Chem.SDWriter(str(single_sdf)) as writer:
+            writer.write(Chem.MolFromSmiles("CCCC"))
+
+        settings = ParameterisationSettings(
+            molecule_input_type="sdf", molecules=[str(multi_sdf), str(single_sdf)]
+        )
+
+        assert len(settings.openff_molecules) == 3
+        assert (
+            settings.openff_molecules[0].n_atoms
+            != settings.openff_molecules[1].n_atoms
+            != settings.openff_molecules[2].n_atoms
         )
 
     def test_duplicate_molecules_in_sdf_raises_error(self, tmp_path):
@@ -610,7 +632,7 @@ class TestParameterisationSettings:
         settings = ParameterisationSettings(
             molecule_input_type="smiles", molecules=smiles
         )
-        assert settings.molecules == [smiles]
+        assert settings.molecules == (smiles,)
 
 
 class TestWorkflowSettings:
