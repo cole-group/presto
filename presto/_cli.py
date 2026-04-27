@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand
 from rich.logging import RichHandler
 
+from . import __version__
 from .analyse import analyse_workflow
 from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
 from .settings import (
@@ -29,10 +30,16 @@ def setup_logging_for_cli(log_level: str = "INFO") -> None:
     logger.remove()
     logger.add(
         RichHandler(show_time=True, markup=True),
-        # format="{level} | {message}",
         format="{message}",
         level=log_level.upper(),
     )
+
+
+class Version(BaseModel):
+    """Print the version of presto and exit."""
+
+    def cli_cmd(self) -> None:
+        print(f"presto {__version__}")
 
 
 class TrainFromCli(WorkflowSettings):
@@ -111,6 +118,10 @@ class Analyse(BaseModel):
 class CLI(BaseModel):
     """presto: parameterise a bespoke force field from high-temperature MD data."""
 
+    version: CliSubCommand[Version] = Field(
+        description="Print the version of presto and exit.",
+    )
+
     train: CliSubCommand[TrainFromCli] = Field(
         description="Train a bespoke force field from high-temperature MD data",
     )
@@ -140,7 +151,4 @@ class CLI(BaseModel):
 
 def run_cli() -> None:
     suppress_unwanted_output()
-
-    CliApp.run(
-        CLI,
-    )
+    CliApp.run(CLI)

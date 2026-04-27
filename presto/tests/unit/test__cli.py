@@ -17,6 +17,8 @@ from presto.settings import (
     WorkflowSettings,
 )
 
+from ... import __version__
+
 
 class TestWriteDefaultYAML:
     """Tests for WriteDefaultYAML command."""
@@ -166,6 +168,16 @@ class TestAnalyse:
 
 class TestCLISubprocess:
     """Test the CLI via subprocess calls."""
+
+    def test_cli_version(self):
+        """Test that CLI --version prints the package version and exits cleanly."""
+        result = subprocess.run(
+            ["presto", "version"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert __version__ in result.stdout
 
     def test_cli_help(self):
         """Test that CLI help works."""
