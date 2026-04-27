@@ -60,7 +60,7 @@ class TestWriteDefaultYAML:
 
         # Should be able to load now
         settings = WorkflowSettings.from_yaml(yaml_path)
-        assert settings.parameterisation_settings.molecules == ("CCO",)
+        assert settings.parameterisation_settings.molecules == ["CCO"]
 
 
 class TestTrainFromYAML:

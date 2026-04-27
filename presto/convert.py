@@ -186,7 +186,7 @@ def parameterise(
     settings: ParameterisationSettings,
     device: TorchDevice = "cuda",
 ) -> tuple[
-    tuple[openff.toolkit.Molecule, ...],
+    list[openff.toolkit.Molecule],
     openff.toolkit.ForceField,
     list[smee.TensorTopology],
     smee.TensorForceField,
@@ -205,7 +205,7 @@ def parameterise(
 
     Returns:
     -------
-    mols: tuple[openff.toolkit.Molecule, ...]
+    mols: list[openff.toolkit.Molecule]
         The molecules that have been parameterised.
     off_ff: openff.toolkit.ForceField
         The original force field, used as a base for the bespoke force field.
