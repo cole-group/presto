@@ -17,7 +17,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -647,8 +646,6 @@ class ParameterisationSettings(_DefaultSettings):
         description="Molecule input(s). Meaning depends on molecule_input_type.",
     )
 
-    _opeff_molecules: list[Molecule] = PrivateAttr(default_factory=list)
-
     initial_force_field: str = Field(
         "openff_unconstrained-2.3.0.offxml",
         description="The force field from which to start. This can be any"
@@ -714,23 +711,30 @@ class ParameterisationSettings(_DefaultSettings):
 
         return normalized
 
-    @model_validator(mode="after")
-    def _load_molecules(self) -> Self:
+    def _load_molecules(self) -> list[Molecule]:
         """Load and validate molecules from input on every instantiation/update."""
         if self.molecule_input_type not in MOLECULE_LOADERS:
             raise ValueError(f"Unsupported input_type: {self.molecule_input_type}")
         loader = MOLECULE_LOADERS[self.molecule_input_type]
-        self._opeff_molecules = [
+        return [
             molecule
             for input_value in self.molecules
             for molecule in loader(input_value)
         ]
+
+    @model_validator(mode="after")
+    def _check_molecule_loading(self) -> Self:
+        """Check that molecules can be loaded."""
+        # It's a waste reloading every time, but this is pretty cheap,
+        # and avoids issues with appending to `molecules` not-causing re-validation
+        # if caching. Setting `molecules` to a tuple messes with the CLI.
+        _ = self._load_molecules()
         return self
 
     @property
     def openff_molecules(self) -> list[Molecule]:
         """Return the loaded OpenFF Molecule objects."""
-        return self._opeff_molecules
+        return self._load_molecules()
 
 
 class WorkflowSettings(_DefaultSettings):

@@ -543,6 +543,18 @@ class TestParameterisationSettings:
             settings.openff_molecules[0].n_atoms != settings.openff_molecules[1].n_atoms
         )
 
+    def test_append_to_molecules_changes_openff_molecules(self, tmp_path):
+        """Test that appending to molecules updates openff_molecules."""
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules=["CC", "CCC"]
+        )
+        assert len(settings.openff_molecules) == 2
+
+        # Append another molecule
+        settings.molecules.append("CCCO")
+
+        assert len(settings.openff_molecules) == 3  # Now should have 4 molecules
+
     def test_duplicate_molecules_in_sdf_raises_error(self, tmp_path):
         """Test that duplicate molecules in a single SDF file are rejected."""
         sdf = tmp_path / "duplicate.sdf"
