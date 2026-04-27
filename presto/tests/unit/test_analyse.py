@@ -65,7 +65,7 @@ def path_manager(workflow_settings: WorkflowSettings):
 @pytest.fixture(scope="module")
 def test_molecule(workflow_settings: WorkflowSettings) -> Molecule:
     """Get the test molecule from workflow settings."""
-    return workflow_settings.parameterisation_settings.molecules[0]
+    return workflow_settings.parameterisation_settings.openff_molecules[0]
 
 
 @pytest.fixture(scope="module")

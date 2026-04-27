@@ -48,7 +48,9 @@ The bespoke parameters are added on to the end of the input force field and this
 
 ## Congeneric series fitting
 
-If more than one smiles is provided in the input file, samples will be generated seperately for each of the molecules, but all types will be trained together. If you use the default settings, completely bespoke types will be generated for each the result will be the same as running fits for each molecule in parallel. However, by changing the type generation settings (specifically `max_extend`, see [settings guide](settings_guide.md))to generate less specific types, parameters shared between the molecules will be trained together on all of the data.
+If more than one input molecule is provided, samples will be generated separately for each molecule, but all types will be trained together. If you use the default settings, completely bespoke types will be generated for each molecule, so the result will be the same as running fits for each molecule in parallel. However, by changing the type generation settings (specifically `max_extend`, see [settings guide](settings_guide.md)) to generate less specific types, parameters shared between the molecules will be trained together on all of the data.
+
+This also applies when you provide multiple unique molecules in a single SDF file.
 
 ---
 

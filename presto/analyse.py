@@ -727,7 +727,7 @@ def plot_torsion_sampling(
 
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
     """Analyse the results of a presto workflow."""
-    mols = workflow_settings.parameterisation_settings.molecules
+    mols = workflow_settings.parameterisation_settings.openff_molecules
 
     # Suppress matplotlib categorical units warning by setting logger level
     import logging
