@@ -4,6 +4,7 @@
 
 ## Fixes
 
+- Guard against lack of any constaints in the input force field in [#56](https://github.com/cole-group/presto/pull/56). This allows use of the unconstrained version of Parsely.
 - Set default model to AIMNet2 in light of current AceFF 2.0 OpenMM-ML issues in [#49](https://github.com/cole-group/presto/pull/49). Also add README warning about AceFF 2.0.
 
 ## Improvements

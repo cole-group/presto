@@ -220,12 +220,14 @@ def parameterise(
 
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
-    if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
-        logger.warning(
-            "The force field contains a constraint for [#1:1]-[*:2] which "
-            "is not supported. Removing this constraint."
-        )
-        del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
+    # First check required as Parsely does not contain constraints
+    if "Constraints" in off_ff.registered_parameter_handlers:
+        if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
+            logger.warning(
+                "The force field contains a constraint for [#1:1]-[*:2] which "
+                "is not supported. Removing this constraint."
+            )
+            del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
 
     if settings.expand_torsions:
         torsion_generation_settings = settings.type_generation_settings.get(
