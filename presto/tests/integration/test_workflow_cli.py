@@ -41,7 +41,6 @@ def test_workflow_cli(tmp_cwd) -> None:
         capture_output=True,
         text=True,
     )
-    breakpoint()
 
     # Check the command executed successfully
     assert result.returncode == 0, f"Command failed: {result.stderr}"
