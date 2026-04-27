@@ -1,10 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+## Fixes
+
+- Set default model to AIMNet2 in light of current AceFF 2.0 OpenMM-ML issues in [#49](https://github.com/cole-group/presto/pull/49). Also add README warning about AceFF 2.0.
+
+## Improvements
+
+- Add Orb-v3 OMOL model in [#49](https://github.com/cole-group/presto/pull/49).
+
 ## 0.6.0
 
 ### Fixes
 
-- Raise an error if too few conformers survive filtering in [38](https://github.com/cole-group/presto/pull/38). Fixes [#30](https://github.com/cole-group/presto/issues/30).
+- Raise an error if too few conformers survive filtering in [#38](https://github.com/cole-group/presto/pull/38). Fixes [#30](https://github.com/cole-group/presto/issues/30).
 - Remove stereochemical information from generated types in [#36](https://github.com/cole-group/presto/pull/37). This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.
 
 ### Maintenance
