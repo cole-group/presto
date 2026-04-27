@@ -30,7 +30,7 @@ jobs:
       with:
         pixi-version: v0.67.2
         cache: true
-        environments: cpu-py313
+        environments: cpu-py312 # Use Python 3.12 for documentation deployment as 3.13 needs to build dm-tree from source
 
     - name: Build and Deploy Documentation
       run: |
