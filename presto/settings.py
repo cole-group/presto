@@ -3,7 +3,7 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Literal, Self, TypeVar
+from typing import Any, Literal, Self, TypeVar
 
 import numpy as np
 import torch
@@ -17,11 +17,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     field_validator,
     model_validator,
 )
 from pydantic_units import OpenMMQuantity
-from rdkit import Chem
 
 from . import __version__, mlp
 from ._exceptions import InvalidSettingsError
@@ -29,6 +29,7 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
 )
+from .load_molecules import MOLECULE_LOADERS, MoleculeInputType
 from .outputs import OutputType, WorkflowPathManager
 from .utils.typing import (
     AllowedAttributeType,
@@ -39,17 +40,22 @@ from .utils.typing import (
     ValenceType,
 )
 
-_DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
+_DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
 
 _DEFAULT_MODEL_CONFIG = ConfigDict(
     extra="forbid",
     validate_assignment=True,
+    arbitrary_types_allowed=True,
 )
 
 
-def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
+def _model_to_yaml(
+    model: BaseModel, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+) -> None:
     """Save the settings to a YAML file."""
     data = model.model_dump(mode="json")
+    if overwrite:
+        data.update(overwrite)
     with open(yaml_path, "w") as file:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
 
@@ -69,9 +75,11 @@ class _DefaultSettings(BaseModel, ABC):
 
     model_config = _DEFAULT_MODEL_CONFIG
 
-    def to_yaml(self, yaml_path: PathLike) -> None:
+    def to_yaml(
+        self, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+    ) -> None:
         """Save the settings to a YAML file."""
-        _model_to_yaml(self, yaml_path)
+        _model_to_yaml(self, yaml_path, overwrite=overwrite)
 
     @classmethod
     def from_yaml(cls, yaml_path: PathLike) -> Self:
@@ -629,10 +637,17 @@ class MSMSettings(_DefaultSettings):
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
-    smiles: list[str] = Field(
-        ...,
-        description="SMILES string or list of SMILES for molecules to fit",
+    input_type: MoleculeInputType = Field(
+        "smiles",
+        description="Input type for molecule loading.",
     )
+
+    input: list[str] = Field(
+        ...,
+        description="Molecule input(s). Meaning depends on input_type.",
+    )
+
+    _molecules: list[Molecule] = PrivateAttr(default_factory=list)
 
     initial_force_field: str = Field(
         "openff_unconstrained-2.3.0.offxml",
@@ -676,36 +691,44 @@ class ParameterisationSettings(_DefaultSettings):
         )
     )
 
-    # Validate that all SMILES strings are valid
-    @field_validator("smiles", mode="before")
-    def validate_smiles(cls, value: str | list[str]) -> list[str]:
-        """Validate all SMILES are valid, unique. Accepts string or list."""
-        # Convert single string to list for backward compatibility
-        if isinstance(value, str):
-            value = [value]
+    @field_validator("input", mode="before")
+    @classmethod
+    def normalize_input(cls, value: Any) -> list[str]:
+        """Normalize molecule input to a unique, non-empty list of strings."""
+        if isinstance(value, (str, Path)):
+            normalized = [str(value)]
+        elif isinstance(value, list):
+            normalized = [str(v) for v in value]
+        else:
+            raise ValueError(
+                "input must be a string/path or a list of string/path values"
+            )
 
-        if not value:
-            raise ValueError("smiles list cannot be empty")
+        if not normalized:
+            raise ValueError("input list cannot be empty")
 
-        # Check for duplicates
-        if len(value) != len(set(value)):
-            duplicates = [s for s in value if value.count(s) > 1]
-            unique_duplicates = list(set(duplicates))
-            raise ValueError(f"Duplicate SMILES found: {unique_duplicates}")
+        if len(normalized) != len(set(normalized)):
+            duplicates = [item for item in normalized if normalized.count(item) > 1]
+            unique_duplicates = sorted(set(duplicates))
+            raise ValueError(f"Duplicate inputs found: {unique_duplicates}")
 
-        # Validate each SMILES string
-        for smiles in value:
-            if Chem.MolFromSmiles(smiles) is None:
-                raise ValueError(f"Invalid SMILES string: {smiles}")
-        return value
+        return normalized
+
+    @model_validator(mode="after")
+    def _load_molecules(self) -> Self:
+        """Load and validate molecules from input on every instantiation/update."""
+        if self.input_type not in MOLECULE_LOADERS:
+            raise ValueError(f"Unsupported input_type: {self.input_type}")
+        loader = MOLECULE_LOADERS[self.input_type]
+        self._molecules = [
+            molecule for input_value in self.input for molecule in loader(input_value)
+        ]
+        return self
 
     @property
     def molecules(self) -> list[Molecule]:
-        """Return the list of OpenFF Molecule objects for the SMILES strings."""
-        return [
-            Molecule.from_smiles(smiles, allow_undefined_stereo=True)
-            for smiles in self.smiles
-        ]
+        """Return the loaded OpenFF Molecule objects."""
+        return self._molecules
 
 
 class WorkflowSettings(_DefaultSettings):
@@ -833,9 +856,8 @@ class WorkflowSettings(_DefaultSettings):
 
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
-        # Get the number of molecules from the smiles list
-        smiles = self.parameterisation_settings.smiles
-        n_mols = len(smiles) if isinstance(smiles, list) else 1
+        # Get the number of molecules from the validated molecule list
+        n_mols = len(self.parameterisation_settings.molecules)
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,

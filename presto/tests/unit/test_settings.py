@@ -8,12 +8,14 @@ import torch
 from hypothesis import given
 from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
+from openff.toolkit import Molecule
 from openmm import unit as omm_unit
 from pydantic import ValidationError
+from rdkit import Chem
 
 from presto import __version__
 from presto.settings import (
-    _DEFAULT_SMILES_PLACEHOLDER,
+    _DEFAULT_INPUT_PLACEHOLDER,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
@@ -481,29 +483,87 @@ class TestTypeGenerationSettings:
 class TestParameterisationSettings:
     """Tests for parameterisation settings."""
 
-    def test_valid_smiles(self):
-        """Test that valid SMILES are accepted and converted to list."""
-        settings = ParameterisationSettings(smiles="CCO")
-        assert settings.smiles == ["CCO"]
+    def test_valid_smiles_input(self):
+        """Test that valid SMILES input is accepted and converted to list."""
+        settings = ParameterisationSettings(input_type="smiles", input="CCO")
+        assert settings.input == ["CCO"]
+        assert len(settings.molecules) == 1
+        assert settings.molecules[0].n_atoms == 9
 
     def test_invalid_smiles_raises_error(self):
         """Test that invalid SMILES raise error."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
-            ParameterisationSettings(smiles="invalid_smiles_123")
+            ParameterisationSettings(input_type="smiles", input="invalid_smiles_123")
 
-    def test_placeholder_smiles_raises_error(self):
-        """Test that placeholder SMILES raise error."""
+    def test_placeholder_input_raises_error(self):
+        """Test that placeholder input raises error for smiles mode."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
-            ParameterisationSettings(smiles=_DEFAULT_SMILES_PLACEHOLDER)
+            ParameterisationSettings(
+                input_type="smiles", input=_DEFAULT_INPUT_PLACEHOLDER
+            )
+
+    def test_valid_single_molecule_sdf_path(self, tmp_path):
+        """Test that valid SDF paths are accepted."""
+        sdf_path = tmp_path / "ethanol.sdf"
+        Molecule.from_smiles("CCO").to_file(str(sdf_path), "SDF")
+
+        settings = ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+
+        assert settings.input == [str(sdf_path)]
+        assert len(settings.molecules) == 1
+        assert settings.molecules[0].n_atoms == 9
+
+    def test_missing_sdf_path_raises_error(self, tmp_path):
+        """Test that missing SDF file raises error."""
+        missing_path = tmp_path / "missing.sdf"
+        with pytest.raises(ValidationError, match="SDF file does not exist"):
+            ParameterisationSettings(input_type="sdf_path", input=str(missing_path))
+
+    def test_multi_molecule_sdf_accepts_unique_molecules(self, tmp_path):
+        """Test that SDF with multiple distinct molecules is accepted."""
+        sdf_path = tmp_path / "multi.sdf"
+        with Chem.SDWriter(str(sdf_path)) as writer:
+            writer.write(Chem.MolFromSmiles("CC"))
+            writer.write(Chem.MolFromSmiles("CCC"))
+
+        settings = ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+
+        assert len(settings.molecules) == 2
+        assert settings.molecules[0].n_atoms != settings.molecules[1].n_atoms
+
+    def test_duplicate_molecules_in_sdf_raises_error(self, tmp_path):
+        """Test that duplicate molecules in a single SDF file are rejected."""
+        sdf_path = tmp_path / "duplicate.sdf"
+        with Chem.SDWriter(str(sdf_path)) as writer:
+            writer.write(Chem.MolFromSmiles("CC"))
+            writer.write(Chem.MolFromSmiles("CC"))
+
+        with pytest.raises(ValidationError, match="duplicate molecule entries"):
+            ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+
+    def test_unsupported_input_type_raises_error(self):
+        """Test that unsupported input_type is rejected."""
+        with pytest.raises(ValidationError):
+            ParameterisationSettings(input_type="unsupported", input="CCO")
+
+    def test_empty_input_list_raises_error(self):
+        """Test that empty input list raises error."""
+        with pytest.raises(ValidationError, match="input list cannot be empty"):
+            ParameterisationSettings(input_type="smiles", input=[])
+
+    def test_duplicate_inputs_raise_error(self):
+        """Test that duplicate inputs are rejected."""
+        with pytest.raises(ValidationError, match="Duplicate inputs found"):
+            ParameterisationSettings(input_type="smiles", input=["CC", "CC"])
 
     def test_default_initial_force_field(self):
         """Test default initial force field."""
-        settings = ParameterisationSettings(smiles="CCO")
+        settings = ParameterisationSettings(input_type="smiles", input="CCO")
         assert settings.initial_force_field == "openff_unconstrained-2.3.0.offxml"
 
     def test_default_type_generation_settings(self):
         """Test that default type generation settings are set."""
-        settings = ParameterisationSettings(smiles="CCO")
+        settings = ParameterisationSettings(input_type="smiles", input="CCO")
         assert "ProperTorsions" in settings.type_generation_settings
         assert len(settings.type_generation_settings["ProperTorsions"].exclude) == 3
         assert (
@@ -513,20 +573,20 @@ class TestParameterisationSettings:
 
     def test_linearise_harmonics(self):
         """Test linear harmonics setting."""
-        settings = ParameterisationSettings(smiles="CCO")
+        settings = ParameterisationSettings(input_type="smiles", input="CCO")
         assert settings.linearise_harmonics is True
 
     def test_expand_torsions_default(self):
         """Test that expand torsions is True by default."""
-        settings = ParameterisationSettings(smiles="CCO")
+        settings = ParameterisationSettings(input_type="smiles", input="CCO")
         assert settings.expand_torsions is True
 
     @given(smiles=st.sampled_from(["CCO", "CC", "C", "CCCC", "c1ccccc1"]))
     @hypothesis_settings(max_examples=5)
     def test_valid_simple_smiles(self, smiles):
         """Test that simple valid SMILES are accepted and converted to list."""
-        settings = ParameterisationSettings(smiles=smiles)
-        assert settings.smiles == [smiles]
+        settings = ParameterisationSettings(input_type="smiles", input=smiles)
+        assert settings.input == [smiles]
 
 
 class TestWorkflowSettings:
@@ -536,7 +596,9 @@ class TestWorkflowSettings:
     def valid_workflow_settings(self):
         """Test that default values are set correctly."""
         return WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             device_type="cpu",
         )
 
@@ -552,14 +614,18 @@ class TestWorkflowSettings:
         # Should accept same major.minor version
         settings = WorkflowSettings(
             version=__version__,
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
         )
         assert settings.version == __version__
 
     def test_device_type_cpu(self):
         """Test that CPU device type is accepted."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             device_type="cpu",
         )
         assert settings.device_type == "cpu"
@@ -568,7 +634,9 @@ class TestWorkflowSettings:
     def test_device_type_cuda(self):
         """Test that CUDA device type is accepted when available."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             device_type="cuda",
         )
         assert settings.device_type == "cuda"
@@ -579,7 +647,9 @@ class TestWorkflowSettings:
 
         with pytest.raises(ValueError, match="CUDA is not available"):
             WorkflowSettings(
-                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+                parameterisation_settings=ParameterisationSettings(
+                    input_type="smiles", input="CCO"
+                ),
                 device_type="cuda",
             )
 
@@ -604,29 +674,35 @@ class TestWorkflowSettings:
         assert loaded.n_iterations == valid_workflow_settings.n_iterations
         assert loaded.memory == valid_workflow_settings.memory
         assert (
-            loaded.parameterisation_settings.smiles
-            == valid_workflow_settings.parameterisation_settings.smiles
+            loaded.parameterisation_settings.input
+            == valid_workflow_settings.parameterisation_settings.input
         )
 
     def test_discriminated_union_for_sampling_settings(self):
         """Test that discriminated union works for sampling settings."""
         # MM MD
         settings_mm = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             training_sampling_settings=MMMDSamplingSettings(),
         )
         assert settings_mm.training_sampling_settings.sampling_protocol == "mm_md"
 
         # ML MD
         settings_ml = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             training_sampling_settings=MLMDSamplingSettings(),
         )
         assert settings_ml.training_sampling_settings.sampling_protocol == "ml_md"
 
         # Metadynamics
         settings_metad = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             training_sampling_settings=MMMDMetadynamicsSamplingSettings(),
         )
         assert (
@@ -636,7 +712,9 @@ class TestWorkflowSettings:
 
         # Metadynamics with torsion minimisation
         settings_metad_torsion = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         )
         assert (
@@ -648,7 +726,9 @@ class TestWorkflowSettings:
         """Test that extra fields are not allowed."""
         with pytest.raises(ValidationError):
             WorkflowSettings(
-                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+                parameterisation_settings=ParameterisationSettings(
+                    input_type="smiles", input="CCO"
+                ),
                 invalid_field="should_fail",
             )
 
@@ -660,7 +740,9 @@ class TestWorkflowSettings:
     def test_workflow_configuration_property(self, n_iterations, memory):
         """Test that workflow configuration can be set."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             n_iterations=n_iterations,
             memory=memory,
         )
@@ -682,7 +764,9 @@ class TestWorkflowSettings:
     def test_outlier_filter_settings_can_be_set(self):
         """Test that outlier_filter_settings can be configured."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=5.0,  # kcal/mol/atom
@@ -696,7 +780,9 @@ class TestWorkflowSettings:
     def test_outlier_filter_settings_yaml_round_trip(self, tmp_path):
         """Test that outlier_filter_settings survives YAML round-trip."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            parameterisation_settings=ParameterisationSettings(
+                input_type="smiles", input="CCO"
+            ),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=7.5,  # kcal/mol/atom

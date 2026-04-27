@@ -10,7 +10,7 @@ from rich.logging import RichHandler
 from .analyse import analyse_workflow
 from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
 from .settings import (
-    _DEFAULT_SMILES_PLACEHOLDER,
+    _DEFAULT_INPUT_PLACEHOLDER,
     ParameterisationSettings,
     WorkflowSettings,
 )
@@ -67,13 +67,14 @@ class WriteDefaultYAML(BaseModel):
 
     def cli_cmd(self) -> None:
         logger.info(f"Writing default YAML settings to {self.file_name}.")
-        # Temporarily set a valid SMILES string to pass validation, then overwrite it
+        # Temporarily set a valid molecule input to pass validation, then overwrite it
         # with a placeholder value before writing the file
-        param_settings = ParameterisationSettings(smiles="O")
-        # Bypass validation
-        object.__setattr__(param_settings, "smiles", [_DEFAULT_SMILES_PLACEHOLDER])
+        param_settings = ParameterisationSettings(input_type="smiles", input="O")
         WorkflowSettings(parameterisation_settings=param_settings).to_yaml(
-            self.file_name
+            self.file_name,
+            overwrite={
+                "parameterisation_settings": {"input": [_DEFAULT_INPUT_PLACEHOLDER]}
+            },
         )
 
 
