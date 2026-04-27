@@ -36,6 +36,11 @@ jobs:
           df -h
           ulimit -a
 
+      - name: Install build dependencies
+        # Orb models requires an old dm-tree (https://github.com/orbital-materials/orb-models/blob/main/pyproject.toml)
+        # which doesn't have pre-built wheels for Python 3.13, so we need to install cmake and g++ to build it from source.
+        run: if [ "${{ matrix.python-version }}" = "3.13" ]; then sudo apt-get install -y cmake g++ git; fi
+
       - uses: prefix-dev/setup-pixi@v0.9.5
         with:
           pixi-version: v0.67.2
