@@ -954,6 +954,8 @@
       
         
       
+        
+      
     
     
     
@@ -1135,6 +1137,34 @@
     
   
     hessian
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/load_molecules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    load_molecules
   
 
     
@@ -1434,7 +1464,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_16" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_17" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1456,14 +1486,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_16" id="__nav_6_1_16_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_1_17" id="__nav_6_1_17_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_16_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_16">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_17">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1903,7 +1933,8 @@ where the phase, <span class="arithmatex">\(\phi_0\)</span>, and the magnitude, 
 <h2 id="final-force-field">Final force field<a class="headerlink" href="#final-force-field" title="Permanent link">#</a></h2>
 <p>The bespoke parameters are added on to the end of the input force field and this is saved (see <code>bespoke_ff.offxml</code> in the relevant output directory). Because parameters lower down the <code>.offxml</code> file are given higher priority, these parameters are used instead of the original non-specific parameters from the input force field when you parameterise your molecule of interest.</p>
 <h2 id="congeneric-series-fitting">Congeneric series fitting<a class="headerlink" href="#congeneric-series-fitting" title="Permanent link">#</a></h2>
-<p>If more than one smiles is provided in the input file, samples will be generated seperately for each of the molecules, but all types will be trained together. If you use the default settings, completely bespoke types will be generated for each the result will be the same as running fits for each molecule in parallel. However, by changing the type generation settings (specifically <code>max_extend</code>, see <a href="../settings_guide/">settings guide</a>)to generate less specific types, parameters shared between the molecules will be trained together on all of the data.</p>
+<p>If more than one input molecule is provided, samples will be generated separately for each molecule, but all types will be trained together. If you use the default settings, completely bespoke types will be generated for each molecule, so the result will be the same as running fits for each molecule in parallel. However, by changing the type generation settings (specifically <code>max_extend</code>, see <a href="../settings_guide/">settings guide</a>) to generate less specific types, parameters shared between the molecules will be trained together on all of the data.</p>
+<p>This also applies when you provide multiple unique molecules in a single SDF file.</p>
 <hr />
 <h3 id="footnote">Footnote<a class="headerlink" href="#footnote" title="Permanent link">#</a></h3>
 <p>To stabilise and speed up convergence of the parameter fitting, harmonic potentials are <em>linearized</em>.</p>
