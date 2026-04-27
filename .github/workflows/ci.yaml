@@ -16,7 +16,9 @@ on:
 jobs:
   test:
     name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    # Run on 22.04 rather than latest to match my machine (as we install using --locked). This avoids issues
+    # with e.g. different gcc versions when building dm-tree from source for Python 3.13.
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         python-version: ["3.12", "3.13"]
