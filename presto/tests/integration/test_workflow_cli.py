@@ -15,9 +15,9 @@ def test_workflow_cli(tmp_cwd) -> None:
         "cpu",  # So we can run on GH actions
         "--n-iterations",
         "1",  # Super short run for testing
-        "--parameterisation-settings.input-type",
+        "--parameterisation-settings.molecule-input-type",
         "smiles",
-        "--parameterisation-settings.input",
+        "--parameterisation-settings.molecules",
         "CCCO",  # Propanol - 1 heavy-atom dihedral to plot
         "--training-settings.n-epochs",
         "10",

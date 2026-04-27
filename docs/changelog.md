@@ -8,6 +8,7 @@
 
 ## Improvements
 
+- Make molecule loading more modular and accept SDFs in [#55](https://github.com/cole-group/presto/pull/55). Note this is a breaking change -- the old parameterisation_settings.smiles field must now be replaced by parameterisation_settings.molecules.
 - Add CLI sub-command which shows version in [#54](https://github.com/cole-group/presto/pull/54).
 - Add Orb-v3 OMOL model in [#49](https://github.com/cole-group/presto/pull/49).
 

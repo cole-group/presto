@@ -485,85 +485,103 @@ class TestParameterisationSettings:
 
     def test_valid_smiles_input(self):
         """Test that valid SMILES input is accepted and converted to list."""
-        settings = ParameterisationSettings(input_type="smiles", input="CCO")
-        assert settings.input == ["CCO"]
-        assert len(settings.molecules) == 1
-        assert settings.molecules[0].n_atoms == 9
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="CCO"
+        )
+        assert settings.molecules == ["CCO"]
+        assert len(settings.openff_molecules) == 1
+        assert settings.openff_molecules[0].n_atoms == 9
 
     def test_invalid_smiles_raises_error(self):
         """Test that invalid SMILES raise error."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
-            ParameterisationSettings(input_type="smiles", input="invalid_smiles_123")
+            ParameterisationSettings(
+                molecule_input_type="smiles", molecules="invalid_smiles_123"
+            )
 
     def test_placeholder_input_raises_error(self):
         """Test that placeholder input raises error for smiles mode."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
             ParameterisationSettings(
-                input_type="smiles", input=_DEFAULT_INPUT_PLACEHOLDER
+                molecule_input_type="smiles", molecules=_DEFAULT_INPUT_PLACEHOLDER
             )
 
-    def test_valid_single_molecule_sdf_path(self, tmp_path):
+    def test_valid_single_molecule_sdf(self, tmp_path):
         """Test that valid SDF paths are accepted."""
-        sdf_path = tmp_path / "ethanol.sdf"
-        Molecule.from_smiles("CCO").to_file(str(sdf_path), "SDF")
+        sdf = tmp_path / "ethanol.sdf"
+        Molecule.from_smiles("CCO").to_file(str(sdf), "SDF")
 
-        settings = ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+        settings = ParameterisationSettings(
+            molecule_input_type="sdf", molecules=str(sdf)
+        )
 
-        assert settings.input == [str(sdf_path)]
-        assert len(settings.molecules) == 1
-        assert settings.molecules[0].n_atoms == 9
+        assert settings.molecules == [str(sdf)]
+        assert len(settings.openff_molecules) == 1
+        assert settings.openff_molecules[0].n_atoms == 9
 
-    def test_missing_sdf_path_raises_error(self, tmp_path):
+    def test_missing_sdf_raises_error(self, tmp_path):
         """Test that missing SDF file raises error."""
         missing_path = tmp_path / "missing.sdf"
         with pytest.raises(ValidationError, match="SDF file does not exist"):
-            ParameterisationSettings(input_type="sdf_path", input=str(missing_path))
+            ParameterisationSettings(
+                molecule_input_type="sdf", molecules=str(missing_path)
+            )
 
     def test_multi_molecule_sdf_accepts_unique_molecules(self, tmp_path):
         """Test that SDF with multiple distinct molecules is accepted."""
-        sdf_path = tmp_path / "multi.sdf"
-        with Chem.SDWriter(str(sdf_path)) as writer:
+        sdf = tmp_path / "multi.sdf"
+        with Chem.SDWriter(str(sdf)) as writer:
             writer.write(Chem.MolFromSmiles("CC"))
             writer.write(Chem.MolFromSmiles("CCC"))
 
-        settings = ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+        settings = ParameterisationSettings(
+            molecule_input_type="sdf", molecules=str(sdf)
+        )
 
-        assert len(settings.molecules) == 2
-        assert settings.molecules[0].n_atoms != settings.molecules[1].n_atoms
+        assert len(settings.openff_molecules) == 2
+        assert (
+            settings.openff_molecules[0].n_atoms != settings.openff_molecules[1].n_atoms
+        )
 
     def test_duplicate_molecules_in_sdf_raises_error(self, tmp_path):
         """Test that duplicate molecules in a single SDF file are rejected."""
-        sdf_path = tmp_path / "duplicate.sdf"
-        with Chem.SDWriter(str(sdf_path)) as writer:
+        sdf = tmp_path / "duplicate.sdf"
+        with Chem.SDWriter(str(sdf)) as writer:
             writer.write(Chem.MolFromSmiles("CC"))
             writer.write(Chem.MolFromSmiles("CC"))
 
         with pytest.raises(ValidationError, match="duplicate molecule entries"):
-            ParameterisationSettings(input_type="sdf_path", input=str(sdf_path))
+            ParameterisationSettings(molecule_input_type="sdf", molecules=str(sdf))
 
     def test_unsupported_input_type_raises_error(self):
         """Test that unsupported input_type is rejected."""
         with pytest.raises(ValidationError):
-            ParameterisationSettings(input_type="unsupported", input="CCO")
+            ParameterisationSettings(molecule_input_type="unsupported", molecules="CCO")
 
     def test_empty_input_list_raises_error(self):
         """Test that empty input list raises error."""
         with pytest.raises(ValidationError, match="input list cannot be empty"):
-            ParameterisationSettings(input_type="smiles", input=[])
+            ParameterisationSettings(molecule_input_type="smiles", molecules=[])
 
     def test_duplicate_inputs_raise_error(self):
         """Test that duplicate inputs are rejected."""
         with pytest.raises(ValidationError, match="Duplicate inputs found"):
-            ParameterisationSettings(input_type="smiles", input=["CC", "CC"])
+            ParameterisationSettings(
+                molecule_input_type="smiles", molecules=["CC", "CC"]
+            )
 
     def test_default_initial_force_field(self):
         """Test default initial force field."""
-        settings = ParameterisationSettings(input_type="smiles", input="CCO")
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="CCO"
+        )
         assert settings.initial_force_field == "openff_unconstrained-2.3.0.offxml"
 
     def test_default_type_generation_settings(self):
         """Test that default type generation settings are set."""
-        settings = ParameterisationSettings(input_type="smiles", input="CCO")
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="CCO"
+        )
         assert "ProperTorsions" in settings.type_generation_settings
         assert len(settings.type_generation_settings["ProperTorsions"].exclude) == 3
         assert (
@@ -573,20 +591,26 @@ class TestParameterisationSettings:
 
     def test_linearise_harmonics(self):
         """Test linear harmonics setting."""
-        settings = ParameterisationSettings(input_type="smiles", input="CCO")
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="CCO"
+        )
         assert settings.linearise_harmonics is True
 
     def test_expand_torsions_default(self):
         """Test that expand torsions is True by default."""
-        settings = ParameterisationSettings(input_type="smiles", input="CCO")
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="CCO"
+        )
         assert settings.expand_torsions is True
 
     @given(smiles=st.sampled_from(["CCO", "CC", "C", "CCCC", "c1ccccc1"]))
     @hypothesis_settings(max_examples=5)
     def test_valid_simple_smiles(self, smiles):
         """Test that simple valid SMILES are accepted and converted to list."""
-        settings = ParameterisationSettings(input_type="smiles", input=smiles)
-        assert settings.input == [smiles]
+        settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules=smiles
+        )
+        assert settings.molecules == [smiles]
 
 
 class TestWorkflowSettings:
@@ -597,7 +621,7 @@ class TestWorkflowSettings:
         """Test that default values are set correctly."""
         return WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             device_type="cpu",
         )
@@ -615,7 +639,7 @@ class TestWorkflowSettings:
         settings = WorkflowSettings(
             version=__version__,
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
         )
         assert settings.version == __version__
@@ -624,7 +648,7 @@ class TestWorkflowSettings:
         """Test that CPU device type is accepted."""
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             device_type="cpu",
         )
@@ -635,7 +659,7 @@ class TestWorkflowSettings:
         """Test that CUDA device type is accepted when available."""
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             device_type="cuda",
         )
@@ -648,7 +672,7 @@ class TestWorkflowSettings:
         with pytest.raises(ValueError, match="CUDA is not available"):
             WorkflowSettings(
                 parameterisation_settings=ParameterisationSettings(
-                    input_type="smiles", input="CCO"
+                    molecule_input_type="smiles", molecules="CCO"
                 ),
                 device_type="cuda",
             )
@@ -674,8 +698,8 @@ class TestWorkflowSettings:
         assert loaded.n_iterations == valid_workflow_settings.n_iterations
         assert loaded.memory == valid_workflow_settings.memory
         assert (
-            loaded.parameterisation_settings.input
-            == valid_workflow_settings.parameterisation_settings.input
+            loaded.parameterisation_settings.molecules
+            == valid_workflow_settings.parameterisation_settings.molecules
         )
 
     def test_discriminated_union_for_sampling_settings(self):
@@ -683,7 +707,7 @@ class TestWorkflowSettings:
         # MM MD
         settings_mm = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             training_sampling_settings=MMMDSamplingSettings(),
         )
@@ -692,7 +716,7 @@ class TestWorkflowSettings:
         # ML MD
         settings_ml = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             training_sampling_settings=MLMDSamplingSettings(),
         )
@@ -701,7 +725,7 @@ class TestWorkflowSettings:
         # Metadynamics
         settings_metad = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             training_sampling_settings=MMMDMetadynamicsSamplingSettings(),
         )
@@ -713,7 +737,7 @@ class TestWorkflowSettings:
         # Metadynamics with torsion minimisation
         settings_metad_torsion = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         )
@@ -727,7 +751,7 @@ class TestWorkflowSettings:
         with pytest.raises(ValidationError):
             WorkflowSettings(
                 parameterisation_settings=ParameterisationSettings(
-                    input_type="smiles", input="CCO"
+                    molecule_input_type="smiles", molecules="CCO"
                 ),
                 invalid_field="should_fail",
             )
@@ -741,7 +765,7 @@ class TestWorkflowSettings:
         """Test that workflow configuration can be set."""
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             n_iterations=n_iterations,
             memory=memory,
@@ -765,7 +789,7 @@ class TestWorkflowSettings:
         """Test that outlier_filter_settings can be configured."""
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(
@@ -781,7 +805,7 @@ class TestWorkflowSettings:
         """Test that outlier_filter_settings survives YAML round-trip."""
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input="CCO"
+                molecule_input_type="smiles", molecules="CCO"
             ),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(

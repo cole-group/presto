@@ -18,8 +18,8 @@ class TestMultiMoleculeParameterisation:
     def test_single_molecule_compatibility(self):
         """Test that single molecule works as a list of one."""
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CCO"],
+            molecule_input_type="smiles",
+            molecules=["CCO"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
@@ -34,8 +34,8 @@ class TestMultiMoleculeParameterisation:
     def test_multiple_molecules_parameterisation(self):
         """Test parameterisation with multiple molecules."""
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CC", "CCO", "CCCC"],
+            molecule_input_type="smiles",
+            molecules=["CC", "CCO", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
@@ -85,29 +85,29 @@ class TestMultiMoleculeParameterisation:
         """Test that invalid SMILES in list raises error."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
             ParameterisationSettings(
-                input_type="smiles",
-                input=["CCO", "invalid_smiles_123", "CC"],
+                molecule_input_type="smiles",
+                molecules=["CCO", "invalid_smiles_123", "CC"],
             )
 
     def test_empty_smiles_list(self):
         """Test that empty SMILES list is handled."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            ParameterisationSettings(input_type="smiles", input=[])
+            ParameterisationSettings(molecule_input_type="smiles", molecules=[])
 
     def test_single_invalid_smiles(self):
         """Test that one invalid SMILES in list fails."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
             ParameterisationSettings(
-                input_type="smiles",
-                input=["CCO", "INVALID", "CCC"],
+                molecule_input_type="smiles",
+                molecules=["CCO", "INVALID", "CCC"],
             )
 
     def test_duplicate_smiles(self):
         """Test that duplicate SMILES are rejected."""
         with pytest.raises(ValueError, match="Duplicate inputs found"):
             ParameterisationSettings(
-                input_type="smiles",
-                input=["CC", "CCO", "CC", "CCC"],
+                molecule_input_type="smiles",
+                molecules=["CC", "CCO", "CC", "CCC"],
             )
 
 
@@ -185,13 +185,13 @@ class TestMultiMoleculeWorkflowSettings:
 
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input=["CCO", "CC", "CCC"]
+                molecule_input_type="smiles", molecules=["CCO", "CC", "CCC"]
             ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.input) == 3
+        assert len(settings.parameterisation_settings.molecules) == 3
 
     def test_backward_compatibility_single_molecule(self):
         """Test that single molecule still works."""
@@ -202,13 +202,13 @@ class TestMultiMoleculeWorkflowSettings:
 
         settings = WorkflowSettings(
             parameterisation_settings=ParameterisationSettings(
-                input_type="smiles", input=["CCO"]
+                molecule_input_type="smiles", molecules=["CCO"]
             ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.input) == 1
+        assert len(settings.parameterisation_settings.molecules) == 1
 
 
 class TestMultiMoleculeEnergyCalculations:
@@ -218,8 +218,8 @@ class TestMultiMoleculeEnergyCalculations:
     def test_energy_calculation_single_molecule(self, linearise_harmonics: bool):
         """Test energy calculation with single molecule."""
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CCO"],
+            molecule_input_type="smiles",
+            molecules=["CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
             msm_settings=None,
@@ -243,8 +243,8 @@ class TestMultiMoleculeEnergyCalculations:
     def test_energy_calculation_multiple_molecules(self, linearise_harmonics: bool):
         """Test that parameterisation works for multiple molecules."""
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CC", "CCO"],
+            molecule_input_type="smiles",
+            molecules=["CC", "CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
             msm_settings=None,
@@ -268,8 +268,8 @@ class TestMultiMoleculeParameterSharing:
     def test_same_force_field_for_all_molecules(self):
         """Test that all molecules use the same force field."""
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CC", "CCC", "CCCC"],
+            molecule_input_type="smiles",
+            molecules=["CC", "CCC", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
@@ -288,8 +288,8 @@ class TestMultiMoleculeParameterSharing:
         from descent.train import ParameterConfig, Trainable
 
         settings = ParameterisationSettings(
-            input_type="smiles",
-            input=["CC", "CCC"],
+            molecule_input_type="smiles",
+            molecules=["CC", "CCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,

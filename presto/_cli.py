@@ -76,11 +76,13 @@ class WriteDefaultYAML(BaseModel):
         logger.info(f"Writing default YAML settings to {self.file_name}.")
         # Temporarily set a valid molecule input to pass validation, then overwrite it
         # with a placeholder value before writing the file
-        param_settings = ParameterisationSettings(input_type="smiles", input="O")
+        param_settings = ParameterisationSettings(
+            molecule_input_type="smiles", molecules="O"
+        )
         WorkflowSettings(parameterisation_settings=param_settings).to_yaml(
             self.file_name,
             overwrite={
-                "parameterisation_settings": {"input": [_DEFAULT_INPUT_PLACEHOLDER]}
+                "parameterisation_settings": {"molecules": [_DEFAULT_INPUT_PLACEHOLDER]}
             },
         )
 

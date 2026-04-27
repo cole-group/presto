@@ -637,17 +637,17 @@ class MSMSettings(_DefaultSettings):
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
-    input_type: MoleculeInputType = Field(
+    molecule_input_type: MoleculeInputType = Field(
         "smiles",
         description="Input type for molecule loading.",
     )
 
-    input: list[str] = Field(
+    molecules: list[str] = Field(
         ...,
-        description="Molecule input(s). Meaning depends on input_type.",
+        description="Molecule input(s). Meaning depends on molecule_input_type.",
     )
 
-    _molecules: list[Molecule] = PrivateAttr(default_factory=list)
+    _opeff_molecules: list[Molecule] = PrivateAttr(default_factory=list)
 
     initial_force_field: str = Field(
         "openff_unconstrained-2.3.0.offxml",
@@ -691,7 +691,7 @@ class ParameterisationSettings(_DefaultSettings):
         )
     )
 
-    @field_validator("input", mode="before")
+    @field_validator("molecules", mode="before")
     @classmethod
     def normalize_input(cls, value: Any) -> list[str]:
         """Normalize molecule input to a unique, non-empty list of strings."""
@@ -717,18 +717,20 @@ class ParameterisationSettings(_DefaultSettings):
     @model_validator(mode="after")
     def _load_molecules(self) -> Self:
         """Load and validate molecules from input on every instantiation/update."""
-        if self.input_type not in MOLECULE_LOADERS:
-            raise ValueError(f"Unsupported input_type: {self.input_type}")
-        loader = MOLECULE_LOADERS[self.input_type]
-        self._molecules = [
-            molecule for input_value in self.input for molecule in loader(input_value)
+        if self.molecule_input_type not in MOLECULE_LOADERS:
+            raise ValueError(f"Unsupported input_type: {self.molecule_input_type}")
+        loader = MOLECULE_LOADERS[self.molecule_input_type]
+        self._opeff_molecules = [
+            molecule
+            for input_value in self.molecules
+            for molecule in loader(input_value)
         ]
         return self
 
     @property
-    def molecules(self) -> list[Molecule]:
+    def openff_molecules(self) -> list[Molecule]:
         """Return the loaded OpenFF Molecule objects."""
-        return self._molecules
+        return self._opeff_molecules
 
 
 class WorkflowSettings(_DefaultSettings):
@@ -857,7 +859,7 @@ class WorkflowSettings(_DefaultSettings):
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
         # Get the number of molecules from the validated molecule list
-        n_mols = len(self.parameterisation_settings.molecules)
+        n_mols = len(self.parameterisation_settings.openff_molecules)
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,

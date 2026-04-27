@@ -7,7 +7,7 @@ from typing import Literal
 from openff.toolkit import Molecule
 from rdkit import Chem
 
-MoleculeInputType = Literal["smiles", "sdf_path"]
+MoleculeInputType = Literal["smiles", "sdf"]
 
 MoleculeLoader = Callable[[str], list[Molecule]]
 
@@ -26,7 +26,7 @@ def load_smiles_molecules(input_value: str) -> list[Molecule]:
     return [molecule]
 
 
-def load_sdf_path_molecules(input_value: str) -> list[Molecule]:
+def load_sdf_molecules(input_value: str) -> list[Molecule]:
     """Load one or more unique OpenFF Molecules from an SDF file."""
     path = Path(input_value)
 
@@ -70,5 +70,5 @@ def load_sdf_path_molecules(input_value: str) -> list[Molecule]:
 
 MOLECULE_LOADERS: dict[MoleculeInputType, MoleculeLoader] = {
     "smiles": load_smiles_molecules,
-    "sdf_path": load_sdf_path_molecules,
+    "sdf": load_sdf_molecules,
 }
