@@ -8,6 +8,7 @@
 
 ## Improvements
 
+- Add CLI sub-command which shows version in [#54](https://github.com/cole-group/presto/pull/54).
 - Add Orb-v3 OMOL model in [#49](https://github.com/cole-group/presto/pull/49).
 
 ## 0.6.0
