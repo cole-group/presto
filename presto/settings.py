@@ -31,7 +31,7 @@ from .find_torsions import (
 )
 from .load_molecules import MOLECULE_LOADERS, MoleculeInputType
 from .outputs import OutputType, WorkflowPathManager
-from .utils import deep_update
+from .utils.dicts import deep_update
 from .utils.typing import (
     AllowedAttributeType,
     NonLinearValenceType,
