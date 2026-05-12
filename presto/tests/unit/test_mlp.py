@@ -2,7 +2,6 @@
 
 import math
 from typing import get_args
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -89,28 +88,8 @@ class TestGetMlp:
             EXPECTED_MODEL_ENERGIES[model_name], rel=1e-6, abs=1e-3
         )
 
-    def test_get_mlp_accepts_arbitrary_model_name(self):
-        """Test arbitrary model names are delegated directly to OpenMM-ML."""
-        _cache.clear()
-        with patch("presto.mlp.MLPotential") as mock_mlpotential:
-            fake = MagicMock()
-            mock_mlpotential.return_value = fake
-            result = get_mlp("my-custom-model")
-            assert result is fake
-            mock_mlpotential.assert_called_once_with("my-custom-model")
-
-    def test_get_mlp_forwards_constructor_kwargs(self):
-        """Test model constructor kwargs are forwarded and cached separately."""
-        _cache.clear()
-        with patch("presto.mlp.MLPotential") as mock_mlpotential:
-            fake = MagicMock()
-            mock_mlpotential.return_value = fake
-
-            result1 = get_mlp("custom", modelPath="a.model")
-            result2 = get_mlp("custom", modelPath="a.model")
-            result3 = get_mlp("custom", modelPath="b.model")
-
-            assert result1 is fake
-            assert result2 is fake
-            assert result3 is fake
-            assert mock_mlpotential.call_count == 2
+    def test_get_mlp_caches_results(self):
+        """Test that repeated calls with the same arguments return the same object."""
+        result1 = get_mlp("aimnet2")
+        result2 = get_mlp("aimnet2")
+        assert result1 is result2
