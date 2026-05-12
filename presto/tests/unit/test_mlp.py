@@ -1,6 +1,8 @@
 """Unit tests for mlp module."""
 
 import math
+from typing import get_args
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -8,21 +10,8 @@ from openff.toolkit import Molecule
 from openff.units import unit as off_unit
 from openmmml import MLPotential
 
-from presto._exceptions import InvalidSettingsError
-from presto.mlp import (
-    AvailableModels,
-    _cache,
-    get_mlp,
-    validate_model_charge_compatibility,
-)
+from presto.mlp import KnownModels, _cache, get_mlp
 
-# Models that require NNPOps
-NNPOPS_MODELS = {
-    "egret-1",
-    "mace-off23-small",
-    "mace-off23-medium",
-    "mace-off23-large",
-}
 
 EXPECTED_MODEL_ENERGIES = {
     # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
@@ -38,60 +27,39 @@ EXPECTED_MODEL_ENERGIES = {
 }
 
 
-class TestAvailableModels:
-    """Tests for AvailableModels type."""
+class TestGetMlp:
+    """Tests for get_mlp function."""
 
     @pytest.mark.parametrize(
         "model_name",
-        [
-            pytest.param(model, id=model)
-            for model in __import__("typing").get_args(AvailableModels)
-        ],
+        [pytest.param(model, id=model) for model in get_args(KnownModels)],
     )
-    def test_all_models_can_create_systems(self, model_name):
-        """Test that all available models can be loaded and create OpenMM systems.
-
-        This is an integration test that actually loads models and creates systems.
-        """
-        from openff.toolkit import Molecule
-
+    def test_all_known_models_can_create_systems(self, model_name):
+        """Test that known models can be loaded and create OpenMM systems."""
         _cache.clear()
-
-        # Use a small neutral molecule for compatibility with all models
         mol = Molecule.from_smiles("O")  # Water
         topology = mol.to_topology().to_openmm()
 
-        # Actually load the model
         potential = get_mlp(model_name)
         assert potential is not None
         assert isinstance(potential, MLPotential)
 
-        # Create a real OpenMM system
         system = potential.createSystem(topology)
-
-        # Basic sanity checks on the system
         assert system.getNumParticles() == topology.getNumAtoms()
         assert system.getNumForces() > 0
 
     @pytest.mark.parametrize(
         "model_name",
-        [
-            pytest.param(model, id=model)
-            for model in __import__("typing").get_args(AvailableModels)
-        ],
+        [pytest.param(model, id=model) for model in get_args(KnownModels)],
     )
     @pytest.mark.slow
-    def test_all_models_can_calculate_energy(self, model_name):
-        """Test that all available models can calculate an energy for water.
-
-        Also check we don't have any regressions that have changed the energy,
-        though OpenMM-ML does have energy tests in CI now.
-        """
+    def test_all_known_models_can_calculate_energy(self, model_name):
+        """Test that known models can calculate an energy for water."""
         import openmm
 
         _cache.clear()
 
-        POSITIONS = (
+        positions = (
             np.array(
                 [
                     [-0.00081616, 0.36637843, -0.0],
@@ -102,9 +70,8 @@ class TestAvailableModels:
             * off_unit.angstroms
         )
 
-        # Use a small neutral molecule for compatibility with all models.
         mol = Molecule.from_smiles("O")
-        mol.add_conformer(POSITIONS)
+        mol.add_conformer(positions)
         topology = mol.to_topology().to_openmm()
 
         potential = get_mlp(model_name)
@@ -123,82 +90,28 @@ class TestAvailableModels:
             EXPECTED_MODEL_ENERGIES[model_name], rel=1e-6, abs=1e-3
         )
 
-    def test_invalid_model_name_raises_error(self):
-        """Test that invalid model name raises error."""
-        with pytest.raises(ValueError, match="Invalid model name"):
-            get_mlp("invalid-model-name")
+    def test_get_mlp_accepts_arbitrary_model_name(self):
+        """Test arbitrary model names are delegated directly to OpenMM-ML."""
+        _cache.clear()
+        with patch("presto.mlp.MLPotential") as mock_mlpotential:
+            fake = MagicMock()
+            mock_mlpotential.return_value = fake
+            result = get_mlp("my-custom-model")
+            assert result is fake
+            mock_mlpotential.assert_called_once_with("my-custom-model")
 
+    def test_get_mlp_forwards_constructor_kwargs(self):
+        """Test model constructor kwargs are forwarded and cached separately."""
+        _cache.clear()
+        with patch("presto.mlp.MLPotential") as mock_mlpotential:
+            fake = MagicMock()
+            mock_mlpotential.return_value = fake
 
-class TestValidateModelChargeCompatibility:
-    """Tests for validate_model_charge_compatibility function."""
+            result1 = get_mlp("custom", modelPath="a.model")
+            result2 = get_mlp("custom", modelPath="a.model")
+            result3 = get_mlp("custom", modelPath="b.model")
 
-    @pytest.mark.parametrize(
-        "model_name",
-        ["egret-1", "mace-off23-small", "aceff-2.0", "aimnet2"],
-    )
-    def test_neutral_molecule_with_any_model(self, model_name):
-        """Test that neutral molecules work with any model."""
-        mol = Molecule.from_smiles("CCO")  # Neutral ethanol
-        # Should not raise for any model
-        validate_model_charge_compatibility(model_name, mol)
-
-    @pytest.mark.parametrize(
-        "model_name",
-        ["aimnet2", "aceff-2.0"],
-    )
-    def test_charged_molecule_with_supporting_model(self, model_name):
-        """Test that charged molecules work with charge-supporting models."""
-        mol = Molecule.from_smiles("[NH4+]")  # Ammonium cation
-        # Should not raise
-        validate_model_charge_compatibility(model_name, mol)
-
-    @pytest.mark.parametrize(
-        "model_name",
-        ["egret-1", "mace-off23-small"],
-    )
-    def test_charged_molecule_with_unsupported_model_raises(self, model_name):
-        """Test that charged molecules with unsupported models raise an error."""
-        mol = Molecule.from_smiles("[NH4+]")  # Ammonium cation
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            validate_model_charge_compatibility(model_name, mol)
-
-    def test_error_message_contains_charge_value(self):
-        """Test that the error message contains the charge value."""
-        mol = Molecule.from_smiles("[NH4+]")  # Ammonium cation
-
-        with pytest.raises(InvalidSettingsError, match=r"charge 1\.0"):
-            validate_model_charge_compatibility("egret-1", mol)
-
-    def test_error_message_lists_compatible_models(self):
-        """Test that the error message lists compatible models."""
-        mol = Molecule.from_smiles("[Cl-]")  # Chloride anion
-
-        with pytest.raises(InvalidSettingsError, match=r"aceff-2.0"):
-            validate_model_charge_compatibility("mace-off23-medium", mol)
-
-        with pytest.raises(InvalidSettingsError, match="aimnet2"):
-            validate_model_charge_compatibility("mace-off23-medium", mol)
-
-    @pytest.mark.parametrize(
-        "smiles,charge",
-        [
-            ("[NH4+]", 1.0),
-            ("[Cl-]", -1.0),
-            ("[Ca+2]", 2.0),
-        ],
-    )
-    def test_various_charged_molecules(self, smiles, charge):
-        """Test various charged molecules."""
-        mol = Molecule.from_smiles(smiles)
-        assert abs(mol.total_charge.m - charge) < 1e-6
-
-        # Should work with charge-supporting models
-        validate_model_charge_compatibility("aceff-2.0", mol)
-        validate_model_charge_compatibility("aimnet2", mol)
-
-        # Should fail with non-supporting models
-        with pytest.raises(InvalidSettingsError):
-            validate_model_charge_compatibility("egret-1", mol)
+            assert result1 is fake
+            assert result2 is fake
+            assert result3 is fake
+            assert mock_mlpotential.call_count == 2

@@ -11,6 +11,72 @@ presto write-default-yaml default.yaml
 presto train-from-yaml default.yaml
 ```
 
+## Using the fitting workflow via the Python API
+
+You can call the workflow directly from Python instead of the CLI:
+
+```python
+from presto.settings import ParameterisationSettings, WorkflowSettings
+from presto.workflow import get_bespoke_force_field
+
+settings = WorkflowSettings(
+    parameterisation_settings=ParameterisationSettings(
+        molecule_input_type="smiles",
+        molecules="CCO",
+    ),
+    device_type="cpu",
+)
+
+bespoke_ff = get_bespoke_force_field(settings)
+```
+
+You can also use an arbitrary ASE calculator through OpenMM-ML by setting
+`mlp_settings.ml_potential="ase"` and passing runtime arguments through
+`mlp_settings.ml_system_kwargs`:
+
+```python
+from presto.settings import MLPSettings, MLMDSamplingSettings, ParameterisationSettings, WorkflowSettings
+from presto.workflow import get_bespoke_force_field
+
+# Example only: replace with your own ASE calculator instance
+calculator = ...
+
+settings = WorkflowSettings(
+    parameterisation_settings=ParameterisationSettings(
+        molecule_input_type="smiles",
+        molecules="CCO",
+    ),
+    device_type="cpu",
+    training_sampling_settings=MLMDSamplingSettings(
+        mlp_settings=MLPSettings(
+            ml_potential="ase",
+            ml_system_kwargs={"calculator": calculator},
+        ),
+    ),
+)
+
+bespoke_ff = get_bespoke_force_field(settings)
+```
+
+Runtime objects (for example an in-memory calculator object) are written to YAML as placeholders.
+If you reload such a YAML, inject the calculator before validation:
+
+```python
+loaded = WorkflowSettings.from_yaml(
+    "workflow_settings.yaml",
+    overwrite={
+        "training_sampling_settings": {
+            "mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}
+        }
+    },
+)
+```
+
+**Charge handling note:** for non-ASE models, `presto` automatically passes molecular
+charge to `MLPotential.createSystem(...)`. For `ml_potential="ase"`, charge is **not**
+automatically propagated. Supply it explicitly in `mlp_settings.ml_system_kwargs`
+(for example under `info`), or use preconfigured `aseAtoms`.
+
 ## How to get help
 
 For details on available options and defaults, see the [settings API reference](reference/settings.md#presto.settings).
@@ -24,6 +90,16 @@ will also show available options.
 Note that the key option when specifying `training_sampling_settings` or `testing_sampling_settings` is `sampling_protocol`, which determines the available sampling settings. See the available [`SamplingSettings`](reference/settings.md#presto.settings.SamplingSettings) classes for a description of all implemented sampling protocols. See the associated sampling_protocol field in each class for the string identifier which should be supplied to `training_sampling_settings` and `testing_sampling_settings` fields in `WorkflowSettings`.
 
 ## Recommended defaults
+
+### Recommended MLP choices
+
+- `aimnet2`: robust default and generally a good first choice.
+- `orb-v3-conservative-omol`: often a strong alternative for broader chemistry.
+- `mace-omol-0-extra-large`: can be accurate, but typically heavier computationally.
+- `aceff-2.0`: available, but see the current warning in the project README before use.
+
+You can use any OpenMM-ML model name (and model-specific kwargs) supported by your
+environment; `presto` does not enforce a fixed allowlist.
 
 ### Single-molecule fit
 
@@ -48,7 +124,8 @@ parameterisation_settings:
     expand_torsions: true
     linearise_harmonics: true
     msm_settings:
-        ml_potential: aceff-2.0
+        mlp_settings:
+            ml_potential: aceff-2.0
         finite_step: 0.0005291772 nm
         tolerance: 0.005291772 kcal * mol**-1 * A**-1
         vib_scaling: 0.958

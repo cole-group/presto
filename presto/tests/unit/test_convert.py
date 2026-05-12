@@ -21,7 +21,7 @@ from presto.convert import (
     linearise_harmonics_topology,
     parameterise,
 )
-from presto.settings import MSMSettings, ParameterisationSettings
+from presto.settings import MLPSettings, MSMSettings, ParameterisationSettings
 
 
 @pytest.mark.parametrize(
@@ -234,7 +234,7 @@ def test_parameterise(tmp_path):
         molecule_input_type="smiles",
         molecules="CC",
         initial_force_field="openff-2.1.0.offxml",
-        msm_settings=MSMSettings(ml_potential="aimnet2"),
+        msm_settings=MSMSettings(mlp_settings=MLPSettings(ml_potential="aimnet2")),
     )
 
     # We can use small molecules and real FF for a fast enough test

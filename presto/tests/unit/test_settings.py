@@ -14,8 +14,11 @@ from pydantic import ValidationError
 from rdkit import Chem
 
 from presto import __version__
+from presto._exceptions import InvalidSettingsError
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
+    _RUNTIME_OBJECT_PLACEHOLDER,
+    MLPSettings,
     MLMDSamplingSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
@@ -39,7 +42,7 @@ class TestSamplingSettingsBase:
 
     def test_default_values(self, valid_mm_md_settings):
         """Test that default values are set correctly."""
-        assert valid_mm_md_settings.ml_potential == "aimnet2"
+        assert valid_mm_md_settings.mlp_settings.ml_potential == "aimnet2"
         assert valid_mm_md_settings.timestep.value_in_unit(omm_unit.femtoseconds) == 1.0
         assert valid_mm_md_settings.temperature.value_in_unit(omm_unit.kelvin) == 500.0
         assert valid_mm_md_settings.n_conformers == 10
@@ -91,6 +94,87 @@ class TestSamplingSettingsBase:
         from presto.outputs import OutputType
 
         assert OutputType.PDB_TRAJECTORY in valid_mm_md_settings.output_types
+
+    def test_ase_does_not_require_special_fields(self):
+        """Test ASE settings can be configured only through ml_system_kwargs."""
+        settings = MLMDSamplingSettings(mlp_settings=MLPSettings(ml_potential="ase"))
+        assert settings.mlp_settings.ml_potential == "ase"
+
+    def test_runtime_object_yaml_placeholder_round_trip(self, tmp_path):
+        """Test runtime objects are written as placeholders and must be overridden on load."""
+        yaml_path = tmp_path / "ase_settings.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"calculator": object()},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        assert _RUNTIME_OBJECT_PLACEHOLDER in yaml_path.read_text()
+
+        with pytest.raises(InvalidSettingsError, match="runtime-only placeholder values"):
+            MLMDSamplingSettings.from_yaml(yaml_path)
+
+        loaded = MLMDSamplingSettings.from_yaml(
+            yaml_path,
+            overwrite={"mlp_settings": {"ml_system_kwargs": {"calculator": object()}}},
+        )
+        assert loaded.mlp_settings.ml_potential == "ase"
+
+    def test_runtime_placeholder_supports_nested_ml_system_kwargs(self, tmp_path):
+        """Test nested ml_system_kwargs values are preserved unless runtime-only."""
+        yaml_path = tmp_path / "runtime_placeholder_nested.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"info": {"charge": 1, "calculator_obj": object()}},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        text = yaml_path.read_text()
+        assert _RUNTIME_OBJECT_PLACEHOLDER in text
+
+        with pytest.raises(
+            InvalidSettingsError, match="info.calculator_obj"
+        ):
+            MLMDSamplingSettings.from_yaml(yaml_path)
+
+        loaded = MLMDSamplingSettings.from_yaml(
+            yaml_path,
+            overwrite={
+                "mlp_settings": {
+                    "ml_system_kwargs": {
+                        "info": {"charge": 1, "calculator_obj": object()}
+                    },
+                }
+            },
+        )
+        assert loaded.mlp_settings.ml_system_kwargs["info"]["charge"] == 1
+
+    def test_yaml_round_trip_keeps_serializable_nested_ml_system_kwargs(self, tmp_path):
+        """Test serializable nested ml_system_kwargs values survive YAML round-trip."""
+        yaml_path = tmp_path / "runtime_placeholder_serializable.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"info": {"charge": 1, "foo": "bar"}},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        assert _RUNTIME_OBJECT_PLACEHOLDER not in yaml_path.read_text()
+        loaded = MLMDSamplingSettings.from_yaml(yaml_path)
+        assert loaded.mlp_settings.ml_system_kwargs["info"] == {"charge": 1, "foo": "bar"}
+
+    def test_legacy_flat_mlp_fields_are_rejected(self):
+        """Test old flat ml_potential fields are no longer accepted."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MLMDSamplingSettings(
+                ml_potential="aimnet2",
+                ml_potential_kwargs={"foo": "bar"},
+            )
 
 
 class TestMMMDSamplingSettings:
@@ -319,7 +403,7 @@ class TestMSMSettings:
         """Test default MSM settings."""
         settings = MSMSettings()
         assert settings.vib_scaling == 1.0
-        assert settings.ml_potential == "aimnet2"
+        assert settings.mlp_settings.ml_potential == "aimnet2"
 
     def test_custom_vib_scaling(self):
         """Test custom vibrational scaling."""
@@ -328,8 +412,15 @@ class TestMSMSettings:
 
     def test_custom_ml_potential(self):
         """Test custom ML potential."""
-        settings = MSMSettings(ml_potential="mace-off23-medium")
-        assert settings.ml_potential == "mace-off23-medium"
+        settings = MSMSettings(
+            mlp_settings=MLPSettings(ml_potential="mace-off23-medium")
+        )
+        assert settings.mlp_settings.ml_potential == "mace-off23-medium"
+
+    def test_legacy_flat_mlp_fields_are_rejected(self):
+        """Test old flat ml_potential fields are no longer accepted."""
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            MSMSettings(ml_potential="aimnet2")
 
 
 class TestTrainingSettings:
@@ -713,6 +804,36 @@ class TestWorkflowSettings:
             loaded.parameterisation_settings.molecules
             == valid_workflow_settings.parameterisation_settings.molecules
         )
+
+    def test_workflow_yaml_with_runtime_object_requires_override(self, tmp_path):
+        """Test workflow YAML with runtime placeholders requires overwrite before load."""
+        settings = WorkflowSettings(
+            parameterisation_settings=ParameterisationSettings(
+                molecule_input_type="smiles", molecules="CCO"
+            ),
+            device_type="cpu",
+            training_sampling_settings=MLMDSamplingSettings(
+                mlp_settings=MLPSettings(
+                    ml_potential="ase",
+                    ml_system_kwargs={"calculator": object()},
+                ),
+            ),
+        )
+        yaml_path = tmp_path / "workflow_settings_ase.yaml"
+        settings.to_yaml(yaml_path)
+
+        with pytest.raises(InvalidSettingsError, match="runtime-only placeholder values"):
+            WorkflowSettings.from_yaml(yaml_path)
+
+        loaded = WorkflowSettings.from_yaml(
+            yaml_path,
+            overwrite={
+                "training_sampling_settings": {
+                    "mlp_settings": {"ml_system_kwargs": {"calculator": object()}}
+                }
+            },
+        )
+        assert loaded.training_sampling_settings.mlp_settings.ml_potential == "ase"
 
     def test_discriminated_union_for_sampling_settings(self):
         """Test that discriminated union works for sampling settings."""
