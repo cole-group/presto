@@ -24,7 +24,7 @@ settings = WorkflowSettings(
         molecule_input_type="smiles",
         molecules="CCO",
     ),
-    device_type="cpu",
+    device_type="cuda",
 )
 
 bespoke_ff = get_bespoke_force_field(settings)
@@ -46,7 +46,7 @@ settings = WorkflowSettings(
         molecule_input_type="smiles",
         molecules="CCO",
     ),
-    device_type="cpu",
+    device_type="cuda",
     training_sampling_settings=MLMDSamplingSettings(
         mlp_settings=MLPSettings(
             ml_potential="ase",
@@ -72,10 +72,11 @@ loaded = WorkflowSettings.from_yaml(
 )
 ```
 
-**Charge handling note:** for non-ASE models, `presto` automatically passes molecular
-charge to `MLPotential.createSystem(...)`. For `ml_potential="ase"`, charge is **not**
-automatically propagated. Supply it explicitly in `mlp_settings.ml_system_kwargs`
-(for example under `info`), or use preconfigured `aseAtoms`.
+!!! warning "Charge handling"
+    For non-ASE models, `presto` automatically passes molecular charge to
+    `MLPotential.createSystem(...)`. For `ml_potential="ase"`, charge is **not**
+    automatically propagated. Supply it explicitly in `mlp_settings.ml_system_kwargs`
+    (for example under `info`), or use preconfigured `aseAtoms`.
 
 ## How to get help
 
@@ -93,13 +94,13 @@ Note that the key option when specifying `training_sampling_settings` or `testin
 
 ### Recommended MLP choices
 
-- `aimnet2`: robust default and generally a good first choice.
-- `orb-v3-conservative-omol`: often a strong alternative for broader chemistry.
-- `mace-omol-0-extra-large`: can be accurate, but typically heavier computationally.
-- `aceff-2.0`: available, but see the current warning in the project README before use.
+The choices below are installed by default if you pixi install from the GitHub repo. Both have licenses which allow industry use and included charged molecules during training.
+
+- `aimnet2` (MIT): Relatively fast but generally robust default and generally a good first choice. `aimnet2` fits with the default protocol, 1 A4500, and a ~ 50 atom molecule should take ~ 15 minutes.
+- `orb-v3-conservative-omol` (Apache-2.0): A very accurate model trained on OMol25. Expect fits to take ~ twice as long as with `aimnet2`, depending on the size of the molecule.
 
 You can use any OpenMM-ML model name (and model-specific kwargs) supported by your
-environment; `presto` does not enforce a fixed allowlist.
+environment; `presto` does not enforce a fixed allowlist. For a helpful MLP benchmark, see [here](https://arxiv.org/abs/2601.16331).
 
 ### Single-molecule fit
 
