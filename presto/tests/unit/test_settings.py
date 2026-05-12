@@ -14,12 +14,11 @@ from pydantic import ValidationError
 from rdkit import Chem
 
 from presto import __version__
-from presto._exceptions import InvalidSettingsError
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
-    MLPSettings,
     MLMDSamplingSettings,
+    MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
@@ -113,7 +112,7 @@ class TestSamplingSettingsBase:
 
         assert _RUNTIME_OBJECT_PLACEHOLDER in yaml_path.read_text()
 
-        with pytest.raises(InvalidSettingsError, match="runtime-only placeholder values"):
+        with pytest.raises(ValidationError, match="runtime-only placeholder values"):
             MLMDSamplingSettings.from_yaml(yaml_path)
 
         loaded = MLMDSamplingSettings.from_yaml(
@@ -136,9 +135,7 @@ class TestSamplingSettingsBase:
         text = yaml_path.read_text()
         assert _RUNTIME_OBJECT_PLACEHOLDER in text
 
-        with pytest.raises(
-            InvalidSettingsError, match="info.calculator_obj"
-        ):
+        with pytest.raises(ValidationError, match=r"\[info\]\[calculator_obj\]"):
             MLMDSamplingSettings.from_yaml(yaml_path)
 
         loaded = MLMDSamplingSettings.from_yaml(
@@ -166,7 +163,10 @@ class TestSamplingSettingsBase:
 
         assert _RUNTIME_OBJECT_PLACEHOLDER not in yaml_path.read_text()
         loaded = MLMDSamplingSettings.from_yaml(yaml_path)
-        assert loaded.mlp_settings.ml_system_kwargs["info"] == {"charge": 1, "foo": "bar"}
+        assert loaded.mlp_settings.ml_system_kwargs["info"] == {
+            "charge": 1,
+            "foo": "bar",
+        }
 
     def test_legacy_flat_mlp_fields_are_rejected(self):
         """Test old flat ml_potential fields are no longer accepted."""
@@ -822,7 +822,7 @@ class TestWorkflowSettings:
         yaml_path = tmp_path / "workflow_settings_ase.yaml"
         settings.to_yaml(yaml_path)
 
-        with pytest.raises(InvalidSettingsError, match="runtime-only placeholder values"):
+        with pytest.raises(ValidationError, match="runtime-only placeholder values"):
             WorkflowSettings.from_yaml(yaml_path)
 
         loaded = WorkflowSettings.from_yaml(

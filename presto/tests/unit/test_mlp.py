@@ -12,7 +12,6 @@ from openmmml import MLPotential
 
 from presto.mlp import KnownModels, _cache, get_mlp
 
-
 EXPECTED_MODEL_ENERGIES = {
     # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
     # this energy is the one after fixes and should be correct (currently failing).

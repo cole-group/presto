@@ -40,8 +40,8 @@ from presto.sample import (
     sample_mmmd_metadynamics_with_torsion_minimisation,
 )
 from presto.settings import (
-    MLPSettings,
     MLMDSamplingSettings,
+    MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
@@ -454,7 +454,9 @@ class TestGetMlOmmSystem:
         mol = Molecule.from_smiles("[NH4+]")
         mol.generate_conformers(n_conformers=1)
 
-        with pytest.warns(UserWarning, match="does not automatically pass molecular charge"):
+        with pytest.warns(
+            UserWarning, match="does not automatically pass molecular charge"
+        ):
             get_ml_omm_system(
                 mol,
                 MLPSettings(

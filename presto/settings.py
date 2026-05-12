@@ -44,6 +44,31 @@ from .utils.typing import (
 _DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
 _RUNTIME_OBJECT_PLACEHOLDER = "__PRESTO_RUNTIME_OBJECT_PLACEHOLDER__"
 
+
+def _replace_non_serializable(obj: dict[str, Any]) -> dict[str, Any]:
+    """Recursively replace non-JSON-serializable values with the runtime placeholder."""
+    return {k: _replace_value(v) for k, v in obj.items()}
+
+
+def _replace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _replace_non_serializable(value)
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return _RUNTIME_OBJECT_PLACEHOLDER
+
+
+def _find_placeholder_paths(obj: Any, prefix: str = "") -> list[str]:
+    """Return bracket-notation paths of all placeholder values in a (possibly nested) dict."""
+    paths: list[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            paths.extend(_find_placeholder_paths(v, f"{prefix}[{k}]"))
+    elif obj == _RUNTIME_OBJECT_PLACEHOLDER:
+        paths.append(prefix)
+    return paths
+
+
 _DEFAULT_MODEL_CONFIG = ConfigDict(
     extra="forbid",
     validate_assignment=True,
@@ -129,25 +154,20 @@ class MLPSettings(_DefaultSettings):
     @field_serializer("ml_system_kwargs")
     def serialize_ml_system_kwargs(self, value: dict[str, Any]) -> dict[str, Any]:
         """Replace non-serializable runtime objects (e.g. ASE calculators) with placeholders."""
-        return {
-            k: v if isinstance(v, (str, int, float, bool, type(None))) else _RUNTIME_OBJECT_PLACEHOLDER
-            for k, v in value.items()
-        }
+        return _replace_non_serializable(value)
 
     @model_validator(mode="after")
     def validate_no_runtime_placeholders(self) -> Self:
         """Raise if ml_system_kwargs contains runtime placeholder values (i.e. was loaded from YAML without overwrite)."""
-        placeholder_keys = [
-            k for k, v in self.ml_system_kwargs.items()
-            if v == _RUNTIME_OBJECT_PLACEHOLDER
-        ]
-        if placeholder_keys:
+        placeholder_paths = _find_placeholder_paths(self.ml_system_kwargs)
+        if placeholder_paths:
             raise InvalidSettingsError(
                 f"ml_system_kwargs contains runtime-only placeholder values at keys: "
-                f"{placeholder_keys}. Supply the actual objects via from_yaml(..., overwrite=...) "
+                f"{placeholder_paths}. Supply the actual objects via from_yaml(..., overwrite=...) "
                 "before validation."
             )
         return self
+
 
 class _SamplingSettingsBase(_DefaultSettings, ABC):
     """Settings for sampling (usually molecular dynamics)."""
@@ -676,6 +696,7 @@ class MSMSettings(_DefaultSettings):
         description="Number of conformers to generate and calculate MSM parameters for. "
         "The resulting bond and angle parameters will be averaged over all conformers.",
     )
+
 
 class ParameterisationSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
