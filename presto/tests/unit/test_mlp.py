@@ -2,14 +2,30 @@
 
 import math
 from typing import get_args
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+import openmm
 import pytest
+import torch
 from openff.toolkit import Molecule
 from openff.units import unit as off_unit
 from openmmml import MLPotential
 
-from presto.mlp import KnownModels, _cache, get_mlp
+from presto.mlp import KnownModels, _cache, get_ml_omm_system, get_mlp
+from presto.settings import MLPSettings
+
+try:
+    import NNPOps  # noqa: F401
+
+    _NNPOPS_AVAILABLE = True
+except ImportError:
+    _NNPOPS_AVAILABLE = False
+
+requires_nnpops = pytest.mark.skipif(
+    not _NNPOPS_AVAILABLE,
+    reason="NNPOps not available (required for EGRET-1 and MACE models)",
+)
 
 EXPECTED_MODEL_ENERGIES = {
     # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
@@ -93,3 +109,89 @@ class TestGetMlp:
         result1 = get_mlp("aimnet2")
         result2 = get_mlp("aimnet2")
         assert result1 is result2
+
+
+class TestGetMlOmmSystem:
+    """Tests for get_ml_omm_system function."""
+
+    @pytest.fixture(autouse=True)
+    def mock_get_mlp(self):
+        """Mock get_mlp to avoid loading real models and pass isinstance checks."""
+        with patch("presto.mlp.get_mlp") as mock:
+            mock_potential = MagicMock()
+
+            def create_mock_system(topology, **kwargs):
+                system = openmm.System()
+                for _ in range(topology.getNumAtoms()):
+                    system.addParticle(1.0)
+                return system
+
+            mock_potential.createSystem.side_effect = create_mock_system
+            mock.return_value = mock_potential
+            yield mock
+
+    def test_passes_potential_and_system_kwargs(self, mock_get_mlp):
+        """Test constructor and createSystem kwargs are forwarded."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=1)
+
+        get_ml_omm_system(
+            mol,
+            MLPSettings(
+                ml_potential="custom-model",
+                ml_potential_kwargs={"modelPath": "my.model"},
+                ml_system_kwargs={"precision": "single"},
+            ),
+            torch.device("cpu"),
+        )
+
+        mock_get_mlp.assert_called_once_with("custom-model", modelPath="my.model")
+        create_kwargs = mock_get_mlp.return_value.createSystem.call_args.kwargs
+        assert create_kwargs["precision"] == "single"
+        assert create_kwargs["device"] == "cpu"
+        assert create_kwargs["charge"] == pytest.approx(0.0)  # CCO is neutral
+        assert (
+            "modelPath" not in create_kwargs
+        )  # ml_potential_kwargs must not bleed through
+
+    def test_ase_ml_system_kwargs_path(self, mock_get_mlp):
+        """Test ASE calculator/info kwargs in ml_system_kwargs are passed through."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=1)
+        calculator = object()
+
+        get_ml_omm_system(
+            mol,
+            MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={
+                    "calculator": calculator,
+                    "info": {"foo": "bar", "charge": 1},
+                },
+            ),
+            torch.device("cpu"),
+        )
+
+        mock_get_mlp.assert_called_once_with("ase")
+        create_kwargs = mock_get_mlp.return_value.createSystem.call_args.kwargs
+        assert create_kwargs["calculator"] is calculator
+        assert create_kwargs["info"] == {"foo": "bar", "charge": 1}
+        assert "charge" not in create_kwargs
+        assert "device" not in create_kwargs
+
+    def test_warns_charged_molecule_with_ase(self):
+        """Test charge warning for ASE path."""
+        mol = Molecule.from_smiles("[NH4+]")
+        mol.generate_conformers(n_conformers=1)
+
+        with pytest.warns(
+            UserWarning, match="does not automatically pass molecular charge"
+        ):
+            get_ml_omm_system(
+                mol,
+                MLPSettings(
+                    ml_potential="ase",
+                    ml_system_kwargs={"calculator": object()},
+                ),
+                torch.device("cpu"),
+            )

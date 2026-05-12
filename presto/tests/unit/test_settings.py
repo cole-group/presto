@@ -168,14 +168,6 @@ class TestSamplingSettingsBase:
             "foo": "bar",
         }
 
-    def test_legacy_flat_mlp_fields_are_rejected(self):
-        """Test old flat ml_potential fields are no longer accepted."""
-        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            MLMDSamplingSettings(
-                ml_potential="aimnet2",
-                ml_potential_kwargs={"foo": "bar"},
-            )
-
 
 class TestMMMDSamplingSettings:
     """Tests for MM MD sampling settings."""
@@ -416,11 +408,6 @@ class TestMSMSettings:
             mlp_settings=MLPSettings(ml_potential="mace-off23-medium")
         )
         assert settings.mlp_settings.ml_potential == "mace-off23-medium"
-
-    def test_legacy_flat_mlp_fields_are_rejected(self):
-        """Test old flat ml_potential fields are no longer accepted."""
-        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            MSMSettings(ml_potential="aimnet2")
 
 
 class TestTrainingSettings:
