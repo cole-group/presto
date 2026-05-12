@@ -15,18 +15,6 @@ from openmmml import MLPotential
 from presto.mlp import KnownModels, _cache, get_ml_omm_system, get_mlp
 from presto.settings import MLPSettings
 
-try:
-    import NNPOps  # noqa: F401
-
-    _NNPOPS_AVAILABLE = True
-except ImportError:
-    _NNPOPS_AVAILABLE = False
-
-requires_nnpops = pytest.mark.skipif(
-    not _NNPOPS_AVAILABLE,
-    reason="NNPOps not available (required for EGRET-1 and MACE models)",
-)
-
 EXPECTED_MODEL_ENERGIES = {
     # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
     # this energy is the one after fixes and should be correct (currently failing).
