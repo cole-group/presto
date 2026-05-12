@@ -187,12 +187,14 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     timestep: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
         default=1 * unit.femtoseconds,
-        description="MD timestep",
+        description="MD timestep (femtoseconds). Must divide evenly into the "
+        "equilibration and production sampling times.",
     )
 
     temperature: OpenMMQuantity[unit.kelvin] = Field(  # type: ignore[type-arg]
         default=500 * unit.kelvin,
-        description="Temperature to run MD at",
+        description="Temperature to run MD at (kelvin). Defaults to 500 K to broaden "
+        "the sampled conformer distribution beyond room temperature.",
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
@@ -220,12 +222,15 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     loss_energy_weight: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for samples from this protocol.",
+        description="Scaling factor for the energy loss term (energies are in "
+        "kcal/mol). The default (1000) is much larger than `loss_force_weight` (0.1) "
+        "to balance the different units of energy and force contributions to the loss.",
     )
 
     loss_force_weight: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for samples from this protocol.",
+        description="Scaling factor for the force loss term (forces are in "
+        "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
     )
 
     @property
@@ -317,17 +322,19 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
         1.0 * unit.kilojoules_per_mole,
-        description="Initial height of the bias",
+        description="Initial height of the Gaussian bias (kJ/mol). In well-tempered "
+        "metadynamics this is scaled down over time according to `bias_factor`.",
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         0.1 * unit.picoseconds,
-        description="Frequency at which to add bias",
+        description="How often to add a Gaussian to the bias (picoseconds). Must "
+        "divide evenly into the timestep.",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         10 * unit.picoseconds,
-        description="Frequency at which to save the bias",
+        description="How often to save the accumulated bias to disk (picoseconds).",
     )
 
     torsions_to_include_smarts: list[str] = Field(
@@ -585,7 +592,13 @@ class TrainingSettings(_DefaultSettings):
         "This allows 1-4 scaling for 'vdW' and 'Electrostatics' to be trained.",
     )
 
-    n_epochs: int = Field(1000, description="Number of epochs in the ML fit")
+    n_epochs: int = Field(
+        1000,
+        description="Number of training epochs. The default (1000) is comfortably "
+        "above the typical convergence point for the Adam optimiser on small "
+        "molecules; reduce for quick iteration and raise if the loss has not "
+        "flattened.",
+    )
     learning_rate: float = Field(0.01, description="Learning Rate in the ML fit")
     learning_rate_decay: float = Field(
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
@@ -669,7 +682,12 @@ class TypeGenerationSettings(_DefaultSettings):
 
 
 class MSMSettings(_DefaultSettings):
-    """Settings for the modified Seminario method."""
+    """Settings for the modified Seminario method (MSM).
+
+    The MSM derives bond and angle force constants and equilibrium values from
+    the molecular Hessian — here computed using the reference MLP. See
+    https://doi.org/10.1021/acs.jctc.7b00785 for the algorithm.
+    """
 
     mlp_settings: MLPSettings = Field(
         default_factory=MLPSettings,
@@ -816,18 +834,25 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     device_type: TorchDevice = Field(
-        "cuda", description="Device type for training, either 'cpu' or 'cuda'"
+        "cuda",
+        description="Device type for training and sampling, either 'cpu' or 'cuda'. "
+        "Using 'cuda' requires an NVIDIA driver compatible with CUDA >= 12.9 "
+        "(required by OpenMM 8.5's PythonForce). 'cpu' is supported but very slow.",
     )
 
     n_iterations: int = Field(
         2,
-        description="Number of iterations of sampling, then training the FF to run",
+        description="Number of (sample, train) iterations to run. Iteration 1 samples "
+        "with the initial force field; later iterations sample with the bespoke force "
+        "field produced by the previous iteration, which usually improves test loss.",
     )
 
     memory: bool = Field(
         False,
-        description="Whether to append new training data to training data from the previous iterations,"
-        " or overwrite it (False).",
+        description="If True, each iteration appends its newly sampled training data "
+        "to the data from previous iterations (growing dataset). If False (default), "
+        "each iteration replaces the previous training dataset. Enabling memory "
+        "increases peak GPU memory usage with each iteration.",
     )
 
     parameterisation_settings: ParameterisationSettings = Field(
