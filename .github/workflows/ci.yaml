@@ -15,18 +15,25 @@ on:
 
 jobs:
   test:
-    name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
-    # Run on 22.04 rather than latest to match my machine (as we install using --locked). This avoids issues
-    # with e.g. different gcc versions when building dm-tree from source for Python 3.13.
-    runs-on: ubuntu-22.04
+    name: Test on ${{ matrix.os }}, Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: ["ubuntu-22.04", "ubuntu-latest"]
         python-version: ["3.12", "3.13"]
         include:
-          - python-version: "3.12"
+          - os: "ubuntu-22.04"
+            python-version: "3.12"
             pixi-environment: "cpu-py312"
-          - python-version: "3.13"
+          - os: "ubuntu-22.04"
+            python-version: "3.13"
             pixi-environment: "cpu-py313"
+          - os: "ubuntu-latest"
+            python-version: "3.12"
+            pixi-environment: "cpu-py312"
+        exclude:
+          - os: "ubuntu-latest"
+            python-version: "3.13"
 
     steps:
       - uses: actions/checkout@v6
