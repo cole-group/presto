@@ -44,6 +44,9 @@ omit = ["**/tests/*", "**/_version.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
+# Required because newer mypy versions (in base env) complain about the use of
+# # type: ignore[comparison-overlap] but older versions (in dev env) require it.
+disable_error_code = ["unused-ignore"] # Required because ne
 exclude = [
   "presto/_version.py",
   "presto/tests/",
