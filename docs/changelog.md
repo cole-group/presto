@@ -10,6 +10,7 @@
 - Polish Pydantic Field descriptions in settings to improve auto-generated API reference.
 - Add example invocations to CLI subcommand docstrings.
 
+
 ## 0.8.0
 
 ### Breaking changes
