@@ -1,5 +1,6 @@
 """Unit tests for mlp module."""
 
+import importlib
 import math
 from typing import get_args
 from unittest.mock import MagicMock, patch
@@ -28,6 +29,24 @@ EXPECTED_MODEL_ENERGIES = {
     "orb-v3-conservative-omol": -200671.118723808293,
 }
 
+_MODEL_REQUIRED_PACKAGE = {
+    "aceff-2.0": "torchmdnet",
+    "mace-off23-small": "mace",
+    "mace-off23-medium": "mace",
+    "mace-off23-large": "mace",
+    "mace-omol-0-extra-large": "mace",
+    "egret-1": "mace",
+    "aimnet2": "aimnet",
+    "orb-v3-conservative-omol": "orb_models",
+}
+
+
+def _skip_if_model_unavailable(model_name: str) -> None:
+    """Skip the current test if the package required by model_name is not installed."""
+    pkg = _MODEL_REQUIRED_PACKAGE.get(model_name)
+    if pkg is not None and importlib.util.find_spec(pkg) is None:
+        pytest.skip(f"{pkg} not installed")
+
 
 class TestGetMlp:
     """Tests for get_mlp function."""
@@ -38,6 +57,7 @@ class TestGetMlp:
     )
     def test_all_known_models_can_create_systems(self, model_name):
         """Test that known models can be loaded and create OpenMM systems."""
+        _skip_if_model_unavailable(model_name)
         _cache.clear()
         mol = Molecule.from_smiles("O")  # Water
         topology = mol.to_topology().to_openmm()
@@ -57,6 +77,7 @@ class TestGetMlp:
     @pytest.mark.slow
     def test_all_known_models_can_calculate_energy(self, model_name):
         """Test that known models can calculate an energy for water."""
+        _skip_if_model_unavailable(model_name)
         import openmm
 
         _cache.clear()
@@ -94,6 +115,7 @@ class TestGetMlp:
 
     def test_get_mlp_caches_results(self):
         """Test that repeated calls with the same arguments return the same object."""
+        _skip_if_model_unavailable("aimnet2")
         result1 = get_mlp("aimnet2")
         result2 = get_mlp("aimnet2")
         assert result1 is result2
@@ -185,6 +207,7 @@ class TestGetMlOmmSystem:
             )
 
 
+@pytest.mark.skipif(importlib.util.find_spec("ase") is None, reason="ase not installed")
 class TestAseIntegration:
     """End-to-end tests using a real ASE calculator through OpenMM-ML."""
 

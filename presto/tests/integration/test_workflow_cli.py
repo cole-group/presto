@@ -1,10 +1,17 @@
 """Integration test for the presto package."""
 
+import importlib
 import subprocess
+
+import pytest
 
 from ...settings import WorkflowSettings
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("aimnet") is None,
+    reason="aimnet not installed (default MSM requires aimnet2)",
+)
 def test_workflow_cli(tmp_cwd) -> None:
     """Test running presto via CLI with ethanol, and analysing."""
     # Run the command
