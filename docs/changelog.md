@@ -4,11 +4,6 @@
 
 ### Documentation
 
-- Rewrite documentation with Diátaxis structure: Get started, How-to, Concepts, and Reference sections.
-- Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary.
-- Add Python API walk-through notebook.
-- Polish Pydantic Field descriptions in settings to improve auto-generated API reference.
-- Add example invocations to CLI subcommand docstrings.
 
 
 ## 0.8.0
@@ -21,7 +16,8 @@
 
 ### Documentation
 
-- Add Python API examples for running fitting via `get_bespoke_force_field(...)`, including optional OpenMM-ML ASE calculator usage through `ml_system_kwargs`.
+- Rewrite documentation with Diátaxis structure: Get started, How-to, Concepts, and Reference sections.
+- Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary. Add Python API walk-through notebook.  - Polish Pydantic Field descriptions in settings to improve auto-generated API reference. Add example invocations to CLI subcommand docstrings. Add Python API examples for running fitting via `get_bespoke_force_field(...)`, including optional OpenMM-ML ASE calculator usage through `ml_system_kwargs`. In [#61](https://github.com/cole-group/presto/pull/61).
 - Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for `ml_potential="ase"` charge must be passed explicitly in `ml_system_kwargs`.
 
 ## 0.7.0
