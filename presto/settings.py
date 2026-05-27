@@ -717,7 +717,7 @@ class MSMSettings(_DefaultSettings):
 
 
 class ParamSettings(_DefaultSettings):
-    """Settings for the starting parameterisation."""
+    """Settings controlling the initial parameterisation."""
 
     molecule_input_type: MoleculeInputType = Field(
         "smiles",
@@ -856,7 +856,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     param_settings: ParamSettings = Field(
-        description="Settings for the starting parameterisation",
+        description="Settings controlling the initial parameterisation",
     )
 
     training_sampling_settings: SamplingSettings = Field(
