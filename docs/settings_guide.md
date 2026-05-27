@@ -32,27 +32,37 @@ bespoke_ff = get_bespoke_force_field(settings)
 
 You can also use an arbitrary ASE calculator through OpenMM-ML by setting
 `mlp_settings.ml_potential="ase"` and passing runtime arguments through
-`mlp_settings.ml_system_kwargs`:
+`mlp_settings.ml_system_kwargs`. The MLP is used in three places — MSM
+initialisation, training sampling, and testing sampling — so all three
+must be updated:
 
 ```python
-from presto.settings import MLPSettings, MLMDSamplingSettings, ParameterisationSettings, WorkflowSettings
+from presto.settings import (
+    MLMDSamplingSettings,
+    MLPSettings,
+    MSMSettings,
+    ParameterisationSettings,
+    WorkflowSettings,
+)
 from presto.workflow import get_bespoke_force_field
 
 # Example only: replace with your own ASE calculator instance
 calculator = ...
 
+ase_mlp = MLPSettings(
+    ml_potential="ase",
+    ml_system_kwargs={"calculator": calculator},
+)
+
 settings = WorkflowSettings(
     parameterisation_settings=ParameterisationSettings(
         molecule_input_type="smiles",
         molecules="CCO",
+        msm_settings=MSMSettings(mlp_settings=ase_mlp),
     ),
     device_type="cuda",
-    training_sampling_settings=MLMDSamplingSettings(
-        mlp_settings=MLPSettings(
-            ml_potential="ase",
-            ml_system_kwargs={"calculator": calculator},
-        ),
-    ),
+    training_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
+    testing_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
 )
 
 bespoke_ff = get_bespoke_force_field(settings)
@@ -62,12 +72,16 @@ Runtime objects (for example an in-memory calculator object) are written to YAML
 If you reload such a YAML, inject the calculator before validation:
 
 ```python
+ase_kwargs = {"ml_system_kwargs": {"calculator": calculator}}
+
 loaded = WorkflowSettings.from_yaml(
     "workflow_settings.yaml",
     overwrite={
-        "training_sampling_settings": {
-            "mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}
-        }
+        "parameterisation_settings": {
+            "msm_settings": {"mlp_settings": ase_kwargs}
+        },
+        "training_sampling_settings": {"mlp_settings": ase_kwargs},
+        "testing_sampling_settings": {"mlp_settings": ase_kwargs},
     },
 )
 ```
