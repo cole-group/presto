@@ -9,13 +9,15 @@ The MLPs below are installed by default in the pixi environment. Both have licen
 - **`aimnet2`** (MIT) — relatively fast and robust. Currently the `presto` default. A ~50-atom molecule on a single A4500 fits in ~15 minutes.
 - **`orb-v3-conservative-omol`** (Apache-2.0) — more accurate, trained on OMol25. Expect fits to take ~2× longer than AIMNet2 at the same molecule size.
 
-You can use any OpenMM-ML model name (and model-specific kwargs) supported by your environment; `presto` does not enforce a fixed allowlist. For a benchmark of MLPs against QM, see [the MLP benchmark paper](https://arxiv.org/abs/2601.16331).
+You can use any OpenMM-ML model name (and model-specific kwargs) supported by your environment; `presto` does not enforce a fixed allowlist. For a benchmark of MLPs see [this paper](https://arxiv.org/abs/2601.16331).
 
-## Other supported names
+## Some other supported names
 
-- **`aceff-2.0`** — historically the default. !!! warning "Currently broken upstream"
-    There are open [issues with AceFF 2.0 in OpenMM-ML](https://github.com/openmm/openmm-ml/issues/137). Use AIMNet2 until they're resolved.
-- **`mace-off`** variants — !!! warning "Academic licence only"
+Other models which are installed in the default pixi environment when installing from GitHub.
+
+- **`aceff-2.0`** — historically the default. **warning "Currently broken upstream"***
+    There are open [issues with AceFF 2.0 in OpenMM-ML](https://github.com/openmm/openmm-ml/issues/136). Use alternatives until they're resolved.
+- **`mace-off`** variants — ***warning "Academic licence only"***
     [MACE-OFF](https://github.com/ACEsuit/mace) is released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md), which **does not permit commercial use**.
 - **`egret-1`** — permissive licence; supported by OpenMM-ML.
 

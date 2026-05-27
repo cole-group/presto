@@ -1,6 +1,6 @@
 # Run from Python
 
-The CLI is the recommended way to run `presto` for one-off fits, but the Python API gives you better control when you're sweeping settings, doing batch fits, or composing `presto` into a larger pipeline. The end-to-end notebook is at **[Walk-through (Python API)](../examples/basic-walk-through-python-api.ipynb)**; this page is the short prose reference.
+The CLI is an easy way to run `presto` for one-off fits, but the Python API gives you better control when you're sweeping settings, doing batch fits, or composing `presto` into a larger pipeline. The end-to-end notebook is at **[Walk-through (Python API)](../examples/basic-walk-through-python-api.ipynb)**; this page is the short prose reference.
 
 ## Build a `WorkflowSettings` object
 
@@ -34,19 +34,6 @@ settings = WorkflowSettings.from_yaml(
 
 This is the recommended way to inject runtime objects (e.g. an ASE calculator) that can't round-trip through YAML — see **[Use an ASE calculator](use-ase-calculator.md)**.
 
-## Catch validation errors early
-
-`WorkflowSettings` validates eagerly (Pydantic `validate_assignment=True`). Errors include the field path, e.g.:
-
-```
-InvalidSettingsError: ParameterisationSettings.linearise_harmonics is True, but
-TrainingSettings.parameter_configs contains valence types that are inconsistent
-with this setting: ('Bonds', 'Angles').
-```
-
-When sweeping settings, construct one master `WorkflowSettings` and use `.model_copy(update=…)` to create variants — each copy re-runs validation.
-
 ## Reference
 
 - API reference: [`WorkflowSettings`](../reference/api/settings.md#presto.settings.WorkflowSettings), [`get_bespoke_force_field`](../reference/api/workflow.md#presto.workflow.get_bespoke_force_field).
-- YAML shape: **[Settings reference](../reference/settings-reference.md)**.

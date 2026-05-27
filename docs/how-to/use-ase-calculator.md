@@ -76,8 +76,3 @@ loaded = WorkflowSettings.from_yaml(
     },
 )
 ```
-
-## Limitations
-
-- ASE calculators run on whatever device they were constructed for. If your calculator is CPU-only, the rest of the workflow can still use CUDA — but the MLP evaluation will be the bottleneck.
-- The modified Seminario method (used to initialise bond/angle parameters) needs to compute the Hessian via OpenMM-ML. The same ASE wrapper applies, so the calculator must support force evaluations.

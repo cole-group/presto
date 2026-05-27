@@ -8,47 +8,44 @@ For the underlying directory tree, see **[Concepts → Output directory layout](
 
 ### `plots/loss.png`
 
-Training and validation loss per epoch.
+Training and validation loss per epoch. Note that by default, the training (sampled with MM MD) and validation (sampled with MLP MD) sets are generated in a different way, so e.g. training loss may be far above validation loss due to the introduction of high-energy samples through the metadynamics.
 
 - **Good**: both curves drop and flatten by the end of training. Validation loss is comparable to training loss.
-- **Bad**: validation loss diverges from training loss (overfitting) or never flattens (under-trained — raise `n_epochs`, or check learning rate).
+- **Bad**: dramatic rise in validation loss -- often due to changes in connectivity during MLP minimisatinos (e.g. from proton hops). Switch to a sampling protocol without MLP minimisations.
 
 ### `plots/error_distributions_mol<n>.png`
 
 Distribution of per-snapshot energy and force errors on the test set.
-
-- **Good**: roughly Gaussian, mean near zero. Energy error spread under ~1 kcal/mol.
-- **Bad**: heavy tails (outlier conformations dominating) or a non-zero mean (a systematic offset has not been removed by the per-snapshot mean shift).
 
 ### `plots/correlation_mol<n>.png`
 
 Predicted vs reference energies and forces on the test set.
 
 - **Good**: tight scatter around the diagonal.
-- **Bad**: bowing (systematic curvature suggests a missing functional form, e.g. torsion periodicity).
+- **Bad**: large outliers. Often caused by non-bonded clashes incorrectly predicted by the MM force field for MLP configurations. There's no easy way to address these (if they are beyond 1-4 interactions) without modifing the non-bonded terms.
 
 ### `plots/force_error_by_atom_index_mol<n>.png`
 
 Force errors broken down by atom index in the molecule.
 
-- **Use**: if one or two atoms dominate the force error, look at their valence environment — likely a torsion or angle that isn't being captured.
+- **Use**: if one or two atoms dominate the force error, look at their valence environment — often pairs of atoms which closely approach have large force errors due to overly repulsive MM non-bonded interactions.
 
 ### `plots/parameter_values_mol<n>.png` and `parameter_differences_mol<n>.png`
 
 Fitted parameter values, and the change from the starting force field. The "initial" curve corresponds to the force field after the MSM step (not the raw OpenFF input).
 
-- **Use**: look for individual parameters that have moved unreasonably far from their starting value. The regularisation penalty on torsion `k` should keep most torsions close to their starting point.
+- **Use**: look for individual parameters that have moved unreasonably far from their starting value. The regularisation penalty on torsion `k` biases torsions towards to their starting point, but is fairly weak by default.
 
 ### `plots/torsion_sampling_mol<n>.png`
 
 Dihedral angle coverage during training trajectories.
 
-- **Good**: rotatable torsions visit most of the (-π, π) range. Aromatic and amide torsions stay localised.
-- **Bad**: a key rotatable torsion is stuck in one well — bump `n_conformers` in the training sampling settings, or check that `torsions_to_include_smarts` includes it.
+- **Good**: rotatable torsions visit most of the (-π, π) range.
+- **Bad**: a key rotatable torsion is stuck in one well — sample for longer or make the metadynamics more aggressive.
 
 ## The bespoke offxml file
 
-`<output_dir>/training_iteration_<n>/bespoke_ff.offxml` is a standard SMIRNOFF `.offxml` file. The bespoke parameters are appended to the end of the input force field; OpenFF's SMIRKS-priority rule means they override the original (less specific) parameters wherever they match.
+`<output_dir>/training_iteration_<n>/bespoke_ff.offxml` is a standard SMIRNOFF `.offxml` file. The bespoke parameters are appended to the end of the input force field and all have `bespoke` in their IDs, e.g. `id=p-bespoke-533` for proper torsion 533; as they're placed lower down than the original (more generic) parameters, they override the original (less specific) parameters wherever they match.
 
 Use it like any other OpenFF force field:
 
@@ -75,10 +72,12 @@ Each row holds energies and forces for one snapshot, plus the coordinates.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Validation loss > training loss by a lot | `loss.png` | Raise `n_iterations`, lower `learning_rate`, or check for too-specific types |
-| Bowed correlation plot | `correlation_mol<n>.png` | Check `expand_torsions` is on; check torsion sampling |
-| Wild parameter changes | `parameter_differences_mol<n>.png` | Add regularisation to bonds/angles, or relax type specificity |
-| Sparse torsion coverage | `torsion_sampling_mol<n>.png` | Bump `n_conformers`; verify metadynamics is enabled |
-| One atom dominates force error | `force_error_by_atom_index_mol<n>.png` | Inspect valence environment; may need a different `max_extend_distance` |
+| Dramatic rise in validation loss | `loss.png` | Likely connectivity changes/ poor equilibrium value MSM initialisation. Try disabling MLP minimisations by switching to mm_md_metadynamics sampling protocol and disabling MSM initialisation (`parameterisation_settings.msm_settings: null`). If this doesn't help, possibly add stronger regularisation. |
+| Large outliers in correlation plot | `correlation_mol<n>.png` | Often non-bonded clashes in MLP configurations; no easy fix without modifying non-bonded terms |
+| Wild parameter changes | `parameter_differences_mol<n>.png` | May also be caused by connectivity changes/ poor MSM initialisation. Try disabling MLP minimisations by switching to `mm_md_metadynamics` sampling protocol and disabling MSM initialisation. If this doesn't help, possibly add stronger regularisation. |
+| Sparse torsion coverage | `torsion_sampling_mol<n>.png` | Make metadynamics more aggressive, increase sampling time |
+| A few pairs of atoms dominate force error | `force_error_by_atom_index_mol<n>.png` | Likely close atom contacts with overly repulsive MM non-bonded interactions, no easy fix without training nonbonded parameters |
+
+When any of these look off, inspect the sample PDB files e.g. (`training_iteration_<n>/trajectory_mol<n>.pdb`) to see the configurations that went into training — this often helps reveal the root cause (e.g. connectivity changes, steric clashes, or poor conformer diversity).
 
 For more failure modes and their fixes, see **[Reference → Troubleshooting](../reference/troubleshooting.md)**.

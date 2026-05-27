@@ -1,14 +1,14 @@
 # Method overview
 
-The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. `presto` aims to generate accurate molecular mechanics force field parameters specifically for your molecule(s) of interest. This is done by fitting parameters to energies and forces from a machine learning potential (MLP) for molecular dynamics configurations for your molecule(s). The MLP loses little accuracy compared to the QM method it was trained on, but is orders of magnitude faster:
+The accuracy of transferable molecular mechanics force fields is often limited by their lack of transferability, rather than their functional form. `presto` aims to generate accurate molecular mechanics force field parameters specifically for your molecule(s) of interest. This is done by fitting parameters to energies and forces from a machine learning potential (MLP) for molecular dynamics configurations for your molecule(s). MLPs often lose little accuracy compared to the QM method they were as trained on (for molecules similar to the training set), but are orders of magnitude faster:
 
 ![Workflow summary](../images/workflow-summary.png)
 
-If you are unfamiliar with SMIRNOFF force fields or with MLPs as reference potentials, read **[Bespoke SMIRNOFF in 5 minutes](bespoke-smirnoff-primer.md)** first.
+If you are unfamiliar with SMIRNOFF force fields, read **[Bespoke SMIRNOFF in 5 minutes](bespoke-smirnoff-primer.md)** first.
 
 ## Initial force field
 
-The fit can be started from any standard OpenFF force field. Only the valence parameters (bonds, angles, proper torsions, and improper torsions) are trained, while the Lennard-Jones terms and charges are left unaltered. The functional form of the valence terms are:
+The fit can be started from any SMIRNOFF force field. Only the valence parameters (bonds, angles, proper torsions, and improper torsions) are trained, while the Lennard-Jones terms and charges are left unaltered. The functional form of the valence terms are:
 
 - Bonds and angles are defined by a harmonic function,
 $u(x;k,x_0)=\frac{k}{2}\left(x-x_0\right)^2$,
@@ -21,10 +21,10 @@ By default, we use the [modified Seminario method (MSM)](https://pubs.acs.org/do
 
 ## Bespoke parameter generation
 
-The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest. See **[Type generation and SMIRKS specificity](type-generation.md)** for the knobs that control this.
+The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds, angles, etc. using "SMIRKS" (really tagged SMARTS) patterns which are generally very non-specific. By default, we generate extremely specific "SMIRKS" patterns which specify the entire molecule of interest. See **[Type generation and SMIRKS specificity](type-generation.md)** for the options that control this.
 
 !!! info "Stereochemistry handling"
-    Bespoke types include no stereochemical information
+    `presto` bespoke types include no stereochemical information
 
     This avoids toolkit disagreements between the OpenEye and RDKit toolkits (see [this issue](https://github.com/openforcefield/openff-toolkit/issues/146)) that can otherwise cause type generation failures. The resulting types will match alternative stereoisomers, which should not be an issue for enantiomers unless you are training torsion phase shift (which is not done by default). This may introduce some errors for diastereomers.
 
@@ -38,7 +38,7 @@ Snapshots are saved from the molecular dynamics and the energies and forces of e
 
 ## Training
 
-The molecular mechanics force field parameters are optimised to reproduce the energies and forces from the machine learning potential. A regularisation penalty is also applied for deviations of the improper and proper torsion parameters from their starting point, as we found this was important to avoid a number of torsion-barrier outliers. By default, the Adam optimiser is used. A technicality of training is that we linearise the harmonic potentials (bonds and angles) to stabilise fitting — see the footnote.
+The molecular mechanics force field parameters are optimised to reproduce the energies and forces from the machine learning potential. A regularisation penalty is also applied for deviations of the improper and proper torsion parameters from their starting point. By default, the Adam optimiser is used. A technicality of training is that we linearise the harmonic potentials (bonds and angles) to stabilise fitting — see the footnote.
 
 ## Iterations
 
@@ -46,7 +46,7 @@ Optionally, the user can perform iterative fitting, where the molecular mechanic
 
 ## Final force field
 
-The bespoke parameters are added on to the end of the input force field and this is saved (see `bespoke_ff.offxml` in the relevant output directory). Because parameters lower down the `.offxml` file are given higher priority, these parameters are used instead of the original non-specific parameters from the input force field when you parameterise your molecule of interest. See **[Output directory layout](output-layout.md)** for the full file tree.
+The bespoke parameters are added on to the end of the input force field and this is saved (see `bespoke_ff.offxml` in the relevant output directory, e.g. `training_iteration_2`). Because parameters lower down the `.offxml` file are given higher priority, these parameters are used instead of the original non-specific parameters from the input force field when you parameterise your molecule of interest. See **[Output directory layout](output-layout.md)** for the full file tree.
 
 ## Congeneric series fitting
 

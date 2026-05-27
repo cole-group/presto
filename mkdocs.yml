@@ -14,6 +14,7 @@ validation:
 
 exclude_docs: |
   examples/README.md
+  how-to/use-precomputed-dataset.md
 
 extra:
   version:
@@ -32,10 +33,9 @@ nav:
   - Fit a single molecule: how-to/fit-single-molecule.md
   - Fit a congeneric series: how-to/fit-congeneric-series.md
   - Use SDF inputs: how-to/use-sdf-inputs.md
+  - Clean and rerun a fit: how-to/clean-rerun.md
   - Choose an MLP: how-to/choose-an-mlp.md
   - Use an ASE calculator: how-to/use-ase-calculator.md
-  - Use a pre-computed dataset: how-to/use-precomputed-dataset.md
-  - Resume, iterate, and clean a run: how-to/resume-iterate-clean.md
   - Inspect outputs and plots: how-to/inspect-outputs.md
   - Run from Python: how-to/run-from-python.md
 - Concepts:
@@ -48,9 +48,7 @@ nav:
   - Output directory layout: concepts/output-layout.md
 - Reference:
   - reference/index.md
-  - CLI: reference/cli.md
-  - Settings (YAML / Python): reference/settings-reference.md
-  - Troubleshooting and FAQ: reference/troubleshooting.md
+  - Troubleshooting: reference/troubleshooting.md
   - Glossary: reference/glossary.md
   - API: reference/api/
 - Development:

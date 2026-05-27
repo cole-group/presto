@@ -302,6 +302,7 @@ type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --st
 "docs-build" = { cmd = "mkdocs build" }
 "docs-serve" = { cmd = "mkdocs serve" }
 "docs-deploy" = { cmd = "mike deploy --push --update-aliases $VERSION" }
+"rerun-notebooks" = { cmd = "jupyter nbconvert --to notebook --execute --inplace examples/*.ipynb" }
 
 [tool.pytest.ini_options]
 markers = [

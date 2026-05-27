@@ -16,13 +16,12 @@ For the conceptual treatment, see **[Concepts → Type generation and SMIRKS spe
 
 - `-1` (default) — no limit; SMIRKS specifies the whole molecule.
 - `2` — typically a reasonable starting point for a congeneric series. Shared substructures up to 2 bonds out collapse onto the same parameter.
-- `1` — very loose; parameters share aggressively. May hurt single-molecule loss.
 
-We've found `2` minimally affects training and test loss for typical congeneric series, while letting shared parameters average over the combined dataset (which reduces noise from per-molecule sampling variance).
+We've found `2` minimally affects training and test loss for TYK2 ligands, while letting shared parameters average over the combined dataset (which is intended to reduce noise from per-molecule finite MD sampling variance). Values larger than 2 will very likely be required in some cases.
 
 ## Full YAML example
 
-To share parameters between two TYK2 ligands, generate a default YAML and modify the marked fields:
+To share parameters between two TYK2 ligands, generate a default YAML and modify the `max_extend_distance` parameters for all valence types:
 
 ```bash
 presto write-default-yaml congeneric_fit.yaml
@@ -34,16 +33,7 @@ parameterisation_settings:
     molecules:
         - CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2
         - CCC(=O)Nc1cc(NC(=O)c2c(Cl)cccc2Cl)ccn1
-    initial_force_field: openff_unconstrained-2.3.0.offxml
-    expand_torsions: true
-    linearise_harmonics: true
-    msm_settings:
-        mlp_settings:
-            ml_potential: aceff-2.0
-        finite_step: 0.0005291772 nm
-        tolerance: 0.005291772 kcal * mol**-1 * A**-1
-        vib_scaling: 0.958
-        n_conformers: 1
+    ...
     type_generation_settings:
         Bonds:
             max_extend_distance: 2
@@ -64,6 +54,7 @@ parameterisation_settings:
             max_extend_distance: 2
             include: []
             exclude: []
+    ...
 ```
 
 ## Run it
@@ -75,7 +66,3 @@ presto train-from-yaml congeneric_fit.yaml
 ## SDF inputs
 
 The same applies when you provide multiple unique molecules in a single SDF file. Set `molecule_input_type: sdf` and list `.sdf` paths in `molecules` — see **[Use SDF inputs](use-sdf-inputs.md)**.
-
-## Inspect shared parameters
-
-After the fit, look at `plots/parameter_values_mol<n>.png` for each molecule. Shared parameters will have identical values across molecules; molecule-specific parameters differ. If a parameter you expected to share is showing per-molecule values, your `max_extend_distance` may still be too high — try a smaller value.

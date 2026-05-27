@@ -12,7 +12,7 @@ Instead of running MD sampling inside `presto`, you can supply a dataset of ener
 
 The dataset must be in `descent.train`-compatible format, which is HuggingFace `datasets.save_to_disk` output. Each row holds energies, forces, and coordinates for one snapshot.
 
-The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved `energy_and_force_data_mol<n>` directory from `training_iteration_<n>/`.
+The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved dataset directory from a previous run — for example, `training_iteration_1/energy_and_force_data_mol0`.
 
 ## Set `sampling_protocol: pre_computed`
 
@@ -22,7 +22,7 @@ In YAML:
 training_sampling_settings:
     sampling_protocol: pre_computed
     dataset_paths:
-        - path/to/training_dataset.hf
+        - path/to/training_dataset
 ```
 
 Programmatically:
@@ -34,7 +34,7 @@ from presto.settings import PreComputedDatasetSettings, WorkflowSettings
 settings = WorkflowSettings(
     parameterisation_settings=...,
     training_sampling_settings=PreComputedDatasetSettings(
-        dataset_paths=[Path("path/to/training_dataset.hf")],
+        dataset_paths=[Path("path/to/training_dataset")],
     ),
 )
 ```

@@ -27,7 +27,7 @@ One-line definitions for terms used throughout these docs.
 : OpenFF's force field format. Parameters are organised into handlers (Bonds, Angles, …) and matched to atoms via SMIRKS.
 
 **SMIRKS**
-: A SMARTS pattern with numerical atom-index tags. `presto` generates one bespoke SMIRKS per bond/angle/torsion in your molecule.
+: Often used to mean a SMARTS pattern with numerical atom-index tags. `presto` generates one bespoke SMIRKS per bond/angle/torsion in your molecule.
 
 **Type generation**
 : The process of building bespoke SMIRKS patterns for a molecule's valence terms. Controlled by `parameterisation_settings.type_generation_settings`.

@@ -1,6 +1,6 @@
 # Type generation and SMIRKS specificity
 
-OpenFF parameters are matched to atoms by SMIRKS patterns. Whether a given parameter is shared across an entire family of molecules or is specific to one ring depends on how tightly the SMIRKS is written. `presto` generates bespoke SMIRKS for your molecules — this page is about the knobs that control how specific they are.
+OpenFF parameters are matched to atoms by SMIRKS patterns. Whether a given parameter is shared across an entire family of molecules or is specific to one ring depends on how much detail about the local environment the SMIRKS pattern contains. `presto` generates bespoke SMIRKS for your molecules — this page is about the options that control how specific they are.
 
 For the recipe-level treatment, see **[How-to → Fit a congeneric series](../how-to/fit-congeneric-series.md)**.
 
@@ -8,10 +8,10 @@ For the recipe-level treatment, see **[How-to → Fit a congeneric series](../ho
 
 Compare two SMIRKS for a C–C bond:
 
-- Transferable: `[#6X4:1]-[#6X4:2]` — any tetrahedral-carbon to tetrahedral-carbon bond.
-- Bespoke (specific): `[#6X4H3:1]-[#6X4H2;$(*-[#7])]` — methyl carbon bonded to a methylene that's bonded to a nitrogen.
+- General: `[#6X4:1]-[#6X4:2]` — any tetrahedral-carbon to tetrahedral-carbon bond.
+- Very sppecific: `[#6X4H3:1]-[#6X4H3:1]` -- the carbon-carbon bond in ethane.
 
-OpenFF's standard force fields use transferable SMIRKS, which sacrifices accuracy for chemical generality. `presto` flips this trade-off: bespoke SMIRKS are derived from the actual atoms in your molecule, sacrificing generality for fit-time accuracy.
+OpenFF's standard force fields use mostly very general SMIRKS, which sacrifices accuracy for chemical generality. `presto` flips this trade-off: bespoke SMIRKS are derived from the actual atoms in your molecule, sacrificing generality for accuracy.
 
 ## `max_extend_distance` explained
 
@@ -49,15 +49,13 @@ The default `ProperTorsions.exclude` list contains three SMARTS:
 [*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]   # cumulated double bonds
 ```
 
-These are torsions across linear (sp-hybridised or cumulated) systems where the dihedral is geometrically ill-defined. Trying to fit a torsion force constant to them leads to runaway values that destabilise sampling.
-
-These exclusions are kept in sync with the equivalent exclusions in the OpenFF 2.2.x default force field — see `presto/settings.py` for the source.
+These are torsions across linear (sp-hybridised or cumulated) systems where the dihedral is geometrically ill-defined. Fitting these results in small but non-zero force constants which can produce instabilities during MD.
 
 ## Sharing parameters across a congeneric series
 
-For a series of related molecules, set `max_extend_distance: 2` (or smaller) for each valence type. SMIRKS for substructures shared up to that depth will collapse onto a single parameter, which is then fitted against the combined dataset.
+For a series of related molecules, set `max_extend_distance` to a finite value for each valence type. We've found that 2 is a reasonable default which allows us to get very similar validation losses for TYK2 ligands compared to completely bespoke types. However, longer ranged patterns will very likely be required for some systems. SMIRKS for substructures shared up to that depth will collapse onto a single parameter, which is then fitted against the combined dataset.
 
-This reduces noise: chemically equivalent parameters in different molecules can have different fitted values due to per-molecule sampling variance, and sharing forces them to a single consensus value.
+This is intended to reduce noise: chemically equivalent parameters in different molecules can have different fitted values due to per-molecule sampling variance from finite time MD, and sharing forces them to a single consensus value.
 
 For the concrete YAML recipe, see **[Fit a congeneric series](../how-to/fit-congeneric-series.md)**.
 

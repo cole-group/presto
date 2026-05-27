@@ -1,6 +1,6 @@
 # Quickstart
 
-Five minutes from a SMILES to a bespoke force field. Assumes you've finished **[Installation](installation.md)**.
+Go from a SMILES to a bespoke force field. Assumes you've finished **[Installation](installation.md)**.
 
 ## Train a force field from one SMILES
 
@@ -8,7 +8,7 @@ Five minutes from a SMILES to a bespoke force field. Assumes you've finished **[
 presto train --parameterisation-settings.molecules "CCO"
 ```
 
-That's it. By default this runs two iterations of sampling + training using the AIMNet2 reference potential. On a single A4500 GPU, a ~50-atom molecule takes around 15 minutes.
+By default this runs two iterations of sampling + training using the AIMNet2 reference potential. On a single A4500 GPU, a 50-atom molecule takes around 15 minutes.
 
 ## Inspect the output
 
@@ -42,7 +42,7 @@ presto write-default-yaml workflow_settings.yaml
 presto train-from-yaml workflow_settings.yaml
 ```
 
-See **[Settings reference](../reference/settings-reference.md)** for what every field does.
+See the **[API reference](../reference/api/settings.md)** for what every field does.
 
 ## Common next steps
 

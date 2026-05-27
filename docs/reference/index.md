@@ -2,14 +2,9 @@
 
 Look things up.
 
-## Looking up an option?
+## Looking up an option or Python class?
 
-- **[Settings reference](settings-reference.md)** — the YAML / `WorkflowSettings` shape, top-down.
-- **[CLI](cli.md)** — every subcommand and flag, captured from `--help`.
-
-## Looking up a Python class or function?
-
-- **[API reference](api/index.md)** — auto-generated from the source.
+- **[API reference](api/index.md)** — auto-generated from the source, including all settings classes and fields.
 
 ## Stuck?
 

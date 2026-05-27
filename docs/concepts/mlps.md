@@ -4,9 +4,7 @@
 
 ## What an MLP is in this context
 
-An MLP here is a neural network trained on QM energies and forces, exposed through OpenMM-ML's `MLPotential` API. From `presto`'s perspective, the MLP is a black box that takes coordinates and returns energies and forces. It is never modified.
-
-The MLP's accuracy ceiling is the QM method it was trained on. The fitted bespoke force field cannot be more accurate (on the systems used) than the MLP it's fitted to.
+An MLP here is a machine learning potential trained on QM energies and forces, exposed through OpenMM-ML's `MLPotential` API. From `presto`'s perspective, the MLP is a black box that takes coordinates and returns energies and forces. It is never modified. The MLP's accuracy ceiling is the QM method it was trained on.
 
 ## Reference vs sampling potential
 
@@ -20,14 +18,14 @@ Both roles are configured via `MLPSettings`. The MSM step (modified Seminario fo
 
 ## What changes when you swap MLPs
 
-- **Cost.** AIMNet2 is fast; Orb-v3 OMOL is roughly 2× slower at similar molecule size. MACE-OFF and AceFF-2.0 are slower still but more accurate on some chemistries.
+- **Cost.** AIMNet2 is fast; Orb-v3 OMol fits are roughly 2× slower at similar molecule size.
 - **Charge handling.** Most OpenMM-ML MLPs accept molecular charge via `MLPotential.createSystem(...)`. `presto` propagates this automatically — **except** for `ml_potential="ase"`, which doesn't expose a charge interface. See **[Use an ASE calculator → Charge handling caveat](../how-to/use-ase-calculator.md#charge-handling-caveat)**.
 - **Licence.** Most defaults are MIT or Apache-2.0. MACE-OFF is Academic Software License — not for commercial use. See the table in **[Installation → MLP licensing notes](../get-started/installation.md#mlp-licensing-notes)**.
-- **Accuracy on charged species.** MLPs that included charged molecules in their training set (AIMNet2, AceFF-2.0, Orb-v3 OMOL, Egret-1) handle them well. Others may not.
+- **Accuracy on charged species.** MLPs that included charged molecules in their training set (AIMNet2, AceFF-2.0, Orb-v3 OMOL) should handle them better than MLPs which did not.
 
 ## Why AIMNet2 is the current default
 
-The historical default was AceFF-2.0, but [an upstream OpenMM-ML issue](https://github.com/openmm/openmm-ml/issues/137) currently breaks it. AIMNet2 was promoted to default because it's fast, MIT-licensed, robust on small molecules, and trained on a dataset that includes charged species.
+AIMNet2 is default because it's fast, MIT-licensed, fairly robust on small molecules, and trained on a dataset that includes charged species.
 
 ## Why ASE is special
 
@@ -40,7 +38,7 @@ Cost: the ASE bridge doesn't accept molecular charge automatically, and the calc
 
 ## Benchmarking
 
-For an independent comparison of MLPs against QM, see [the MLP benchmark paper](https://arxiv.org/abs/2601.16331).
+For an independent comparison of MLPs, see [this paper](https://arxiv.org/abs/2601.16331).
 
 ## API reference
 

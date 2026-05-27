@@ -1,30 +1,16 @@
-# Troubleshooting and FAQ
+# Troubleshooting
 
 First-stop for known failure modes. If your symptom isn't listed here, check the [GitHub issue tracker](https://github.com/cole-group/presto/issues).
 
-## CUDA / OpenMM 8.5 PythonForce mismatch
+## Unstable Fit
 
-**Symptom**: `presto train` fails to start with a CUDA initialisation error, or crashes inside OpenMM.
+**Symptom**: `plots/loss.png` does not flatten; losses blow up; MD is unstable and fit does not finish; parameters change massively.
 
-**Cause**: Your NVIDIA driver doesn't support CUDA 12.9. OpenMM 8.5 requires CUDA 12.9 for the `PythonForce` class that `presto` uses to attach the MLP.
+**Likely causes and fixes**:
 
-**Fix**: Update your NVIDIA driver. Verify with `nvidia-smi` that the driver supports CUDA 12.9+. See **[Installation → Prerequisites](../get-started/installation.md#prerequisites)**.
+- Change in connectivity caused by e.g. protons hopping during the MLP minimisation stages. Inspect the output pdbs to see what samples went into training. Fix by avoiding MLP minimisations by switching to the `mm_md_metadynamics` sampling protocol (and deleting the parameters associated with the minimisation stages). Often occurs for phosphates.
+- Poor initial equilibrium values for bonds and angles from MSM initialisation. The [modified Seminario method](../concepts/method-overview.md#initial-force-field) initialises bond and angle equilibrium values directly from MLP-minimised geometries, ignoring the effect of non-bonded interactions on equilibrium geometry. This can introduce instabilities due to, for example, overly short N–C bonds in sulfonamides. If you see large initial bond/angle deviations, try disabling MSM so that bond and angle parameters start from the parent force field values instead. Initial losses will typically be higher but generall converge to similar values as with MSM. Disable MSM by setting **`parameterisation_settings.msm_settings`** to `None` (Python) or `null` (YAML).
 
-## AceFF 2.0 fails to import or produces nonsense energies
-
-**Symptom**: Errors from openmm-ml when `ml_potential: aceff-2.0` is selected, or implausible energies in `correlation_*.png`.
-
-**Cause**: [Open upstream issue in openmm-ml](https://github.com/openmm/openmm-ml/issues/137).
-
-**Fix**: Switch to `aimnet2` (the current `presto` default). See **[How-to → Choose an MLP](../how-to/choose-an-mlp.md)**.
-
-## MACE-OFF licence
-
-**Symptom**: not an error, but a deployment block.
-
-**Cause**: MACE-OFF is released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md), which does not permit commercial use.
-
-**Fix**: Use AIMNet2, Egret-1, AceFF-2.0 (when fixed), or Orb-v3 OMOL — all permit commercial use.
 
 ## ASE charge handling silently wrong
 
@@ -68,16 +54,6 @@ settings = WorkflowSettings.from_yaml(
 )
 ```
 
-## Loss diverges or oscillates
-
-**Symptom**: `plots/loss.png` does not flatten; training loss grows or oscillates over epochs.
-
-**Likely causes and fixes**:
-
-- **Learning rate too high.** Halve `training_settings.learning_rate` (default `0.01`).
-- **Too few conformers.** Bump `training_sampling_settings.n_conformers` (default `10`).
-- **Types too specific for a congeneric series.** Set `type_generation_settings.<type>.max_extend_distance: 2` — see **[Fit a congeneric series](../how-to/fit-congeneric-series.md)**.
-
 ## Too few conformations after outlier filtering
 
 **Symptom**:
@@ -86,21 +62,8 @@ settings = WorkflowSettings.from_yaml(
 Filtering would remove too many conformations: ... below min_conformations=...
 ```
 
-**Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences.
+**Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
 
-**Fix**: Raise `outlier_filter_settings.energy_outlier_threshold` and/or `force_outlier_threshold`, or set either to `None` to disable that filter. Lowering `min_conformations` is a last resort — a high outlier rate usually signals genuinely bad sampling.
-
-## Duplicate molecules in input
-
-**Symptom**:
-
-```
-ValueError: Duplicate inputs found: ['CCO']
-```
-
-**Cause**: `ParameterisationSettings.molecules` contains the same SMILES (or SDF path) more than once. Caught by `ParameterisationSettings.normalize_input`.
-
-**Fix**: Deduplicate the list. If you genuinely want to weight one molecule more than another in a congeneric fit, that's not yet supported — open an issue.
 
 ## Version mismatch warning on YAML load
 
@@ -113,29 +76,3 @@ WARNING: Version mismatch: settings version 0.6.0 may not be compatible with cur
 **Cause**: `version` in the YAML disagrees with the installed `presto` version at the major or minor level.
 
 **Fix**: Usually benign for patch-level differences. For major/minor differences, regenerate the YAML with `presto write-default-yaml` and re-apply your customisations, especially if the changelog flags a breaking change.
-
-## `linearise_harmonics` inconsistent with `parameter_configs`
-
-**Symptom**:
-
-```
-InvalidSettingsError: ParameterisationSettings.linearise_harmonics is True, but
-TrainingSettings.parameter_configs contains valence types that are inconsistent
-with this setting: ('Bonds', 'Angles').
-```
-
-**Cause**: `parameter_configs` has both linear and non-linear forms of bonds/angles, or has the wrong one given `linearise_harmonics`.
-
-**Fix**: Either keep `linearise_harmonics: true` and remove `Bonds`/`Angles` keys from `parameter_configs` (leaving `LinearBonds`/`LinearAngles`), or set `linearise_harmonics: false` and remove `LinearBonds`/`LinearAngles`. See `WorkflowSettings.validate_parameterisation_training_consistency` in [`presto.settings`](../reference/api/settings.md).
-
-## Torsion sampling plot looks sparse
-
-**Symptom**: `plots/torsion_sampling_mol<n>.png` shows torsions stuck in one well.
-
-**Cause**: Insufficient sampling or metadynamics not picking up that torsion.
-
-**Fix**:
-
-- Bump `training_sampling_settings.n_conformers` so different starting conformers cover different regions.
-- Lengthen `production_sampling_time_per_conformer`.
-- Check `torsions_to_include_smarts` — your torsion of interest may not match the default SMARTS list.
