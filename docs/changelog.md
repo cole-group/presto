@@ -10,7 +10,7 @@
 
 ### Breaking changes
 
-- Rename `ParameterisationSettings` to `ParamSettings` and the `parameterisation_settings` field to `param_settings` throughout. This avoids confusion between British/American spellings. YAML configs must update the key from `parameterisation_settings:` to `param_settings:`.
+- Rename `ParameterisationSettings` to `ParamSettings` and the `parameterisation_settings` field to `param_settings` throughout. This avoids confusion between British/American spellings. YAML configs must update the key from `parameterisation_settings:` to `param_settings:`. In [#62](https://github.com/cole-group/presto/pull/62).
 
 - Replace flat ML potential settings with nested `mlp_settings` in sampling and MSM settings in [#58](https://github.com/cole-group/presto/issues/58). Legacy flat fields such as `ml_potential` and `ml_potential_kwargs` are no longer accepted.
 - Remove `AvailableModels` and `validate_model_charge_compatibility`. `presto` now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in [#58](https://github.com/cole-group/presto/issues/58).
