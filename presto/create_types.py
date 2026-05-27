@@ -211,7 +211,8 @@ def _remove_stereochemical_information(
                 "https://github.com/openforcefield/openff-toolkit/issues/146) that "
                 "can otherwise cause type generation failures. The resulting types "
                 "will match alternative stereoisomers, which should not be an issue "
-                "unless torsion phase shifts are being trained."
+                "for enantiomers unless torsion phase shifts are being trained. This "
+                "may introduce some errors for diastereomers."
             ),
             UserWarning,
             stacklevel=2,

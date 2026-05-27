@@ -9,10 +9,13 @@ OpenMM-ML supports an `ase` adapter that wraps any [ASE Calculator](https://wiki
 
 ## Pass a calculator from Python
 
+The MLP is used in three places — MSM initialisation, training sampling, and testing sampling — so all three must be updated:
+
 ```python
 from presto.settings import (
     MLMDSamplingSettings,
     MLPSettings,
+    MSMSettings,
     ParameterisationSettings,
     WorkflowSettings,
 )
@@ -21,18 +24,20 @@ from presto.workflow import get_bespoke_force_field
 # Replace with your own ASE calculator instance
 calculator = ...
 
+ase_mlp = MLPSettings(
+    ml_potential="ase",
+    ml_system_kwargs={"calculator": calculator},
+)
+
 settings = WorkflowSettings(
     parameterisation_settings=ParameterisationSettings(
         molecule_input_type="smiles",
         molecules="CCO",
+        msm_settings=MSMSettings(mlp_settings=ase_mlp),
     ),
     device_type="cuda",
-    training_sampling_settings=MLMDSamplingSettings(
-        mlp_settings=MLPSettings(
-            ml_potential="ase",
-            ml_system_kwargs={"calculator": calculator},
-        ),
-    ),
+    training_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
+    testing_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
 )
 
 bespoke_ff = get_bespoke_force_field(settings)
@@ -58,12 +63,16 @@ InvalidSettingsError: ml_system_kwargs contains runtime-only placeholder values 
 Inject the calculator on load:
 
 ```python
+ase_kwargs = {"ml_system_kwargs": {"calculator": calculator}}
+
 loaded = WorkflowSettings.from_yaml(
     "workflow_settings.yaml",
     overwrite={
-        "training_sampling_settings": {
-            "mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}
-        }
+        "parameterisation_settings": {
+            "msm_settings": {"mlp_settings": ase_kwargs}
+        },
+        "training_sampling_settings": {"mlp_settings": ase_kwargs},
+        "testing_sampling_settings": {"mlp_settings": ase_kwargs},
     },
 )
 ```

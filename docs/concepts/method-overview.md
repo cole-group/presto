@@ -26,7 +26,7 @@ The parameters in an OpenFF SMIRNOFF force field are assigned to specific bonds,
 !!! info "Stereochemistry handling"
     Bespoke types include no stereochemical information
 
-    This avoids toolkit disagreements between the OpenEye and RDKit toolkits (see [this issue](https://github.com/openforcefield/openff-toolkit/issues/146)) that can otherwise cause type generation failures. The resulting types will match alternative stereoisomers, which should not be an issue unless you are training torsion phase shift (which is not done by default).
+    This avoids toolkit disagreements between the OpenEye and RDKit toolkits (see [this issue](https://github.com/openforcefield/openff-toolkit/issues/146)) that can otherwise cause type generation failures. The resulting types will match alternative stereoisomers, which should not be an issue for enantiomers unless you are training torsion phase shift (which is not done by default). This may introduce some errors for diastereomers.
 
 ## Sampling
 

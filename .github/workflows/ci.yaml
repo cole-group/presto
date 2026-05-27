@@ -15,7 +15,7 @@ on:
 
 jobs:
   test:
-    name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
+    name: Test on ubuntu-latest, ${{ matrix.pixi-environment }}
     # Run on 22.04 rather than latest to match my machine (as we install using --locked). This avoids issues
     # with e.g. different gcc versions when building dm-tree from source for Python 3.13.
     runs-on: ubuntu-22.04
@@ -25,8 +25,12 @@ jobs:
         include:
           - python-version: "3.12"
             pixi-environment: "cpu-py312"
+          - python-version: "3.12"
+            pixi-environment: "base-cpu-py312"
           - python-version: "3.13"
             pixi-environment: "cpu-py313"
+          - python-version: "3.13"
+            pixi-environment: "base-cpu-py313"
 
     steps:
       - uses: actions/checkout@v6

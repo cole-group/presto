@@ -1,11 +1,30 @@
 """Shared test fixtures used across the test suite."""
 
+import importlib
 from pathlib import Path
 
 import pytest
 import smee
 from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
+
+MODEL_REQUIRED_PACKAGE = {
+    "aceff-2.0": "torchmdnet",
+    "mace-off23-small": "mace",
+    "mace-off23-medium": "mace",
+    "mace-off23-large": "mace",
+    "mace-omol-0-extra-large": "mace",
+    "egret-1": "mace",
+    "aimnet2": "aimnet",
+    "orb-v3-conservative-omol": "orb_models",
+}
+
+
+def skip_if_model_unavailable(model_name: str) -> None:
+    """Skip the current test if the package required by model_name is not installed."""
+    pkg = MODEL_REQUIRED_PACKAGE.get(model_name)
+    if pkg is not None and importlib.util.find_spec(pkg) is None:
+        pytest.skip(f"{pkg} not installed")
 
 
 # From Simon Boothroyd

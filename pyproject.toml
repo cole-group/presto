@@ -44,6 +44,9 @@ omit = ["**/tests/*", "**/_version.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
+# Required because newer mypy versions (in base env) complain about the use of
+# # type: ignore[comparison-overlap] but older versions (in dev env) require it.
+disable_error_code = ["unused-ignore"] # Required because ne
 exclude = [
   "presto/_version.py",
   "presto/tests/",
@@ -85,12 +88,18 @@ channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
 # Default is equivalent to gpu-py313-cuda129. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312", "cuda129"]}
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"]}
 # CPU
-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312"] }
-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313"] }
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313"] }
+
+# Base (no MLPs). These mimic the conda-forge environments.
+base-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "typing", "py312", "cuda129"] }
+base-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "typing", "py313", "cuda129"] }
+base-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "typing", "py312"] }
+base-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "typing", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
@@ -145,9 +154,6 @@ rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
 openmm = ">=8.5.0"
-# Warp-lang >= 1.12 incompatible with nvalchemi-toolkit-ops,
-# which is a dep of AIMNet2 and Orb models.
-warp-lang = "==1.11.1"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
@@ -194,6 +200,12 @@ __unix = "*"
 [tool.pixi.feature.aceff.dependencies]
 # 3.0.3 has 3x speedup
 torchmd-net = ">=3.0.3"
+# Warp-lang >= 1.12 incompatible with nvalchemi-toolkit-ops
+warp-lang = "==1.11.1"
+
+[tool.pixi.feature.aimnet.dependencies]
+# Warp-lang >= 1.12 incompatible with nvalchemi-toolkit-ops
+warp-lang = "==1.11.1"
 
 [tool.pixi.feature.aimnet.pypi-dependencies]
 aimnet = ">=0.1.0"
@@ -202,6 +214,9 @@ nvalchemi-toolkit-ops = "==0.2.0"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"
+
+[tool.pixi.feature.ase.dependencies]
+ase = "*"
 
 [tool.pixi.feature.orb.pypi-dependencies]
 orb-models = ">=0.5.5"
