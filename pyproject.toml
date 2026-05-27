@@ -94,7 +94,10 @@ gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs"
 # CPU
 cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312"] }
 cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313"] }
-# Base (no MLPs) — suitable for conda-forge and environments without MLP packages
+
+# Base (no MLPs). These mimic the conda-forge environments.
+base-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "typing", "py312", "cuda129"] }
+base-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "typing", "py313", "cuda129"] }
 base-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "typing", "py312"] }
 base-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "typing", "py313"] }
 

@@ -15,6 +15,7 @@ from openmmml import MLPotential
 
 from presto.mlp import KnownModels, _cache, get_ml_omm_system, get_mlp
 from presto.settings import MLPSettings
+from presto.tests.conftest import skip_if_model_unavailable
 
 EXPECTED_MODEL_ENERGIES = {
     # Note that AceFF is currently wrong in OpenMM-ML https://github.com/openmm/openmm-ml/issues/137, but
@@ -29,24 +30,6 @@ EXPECTED_MODEL_ENERGIES = {
     "orb-v3-conservative-omol": -200671.118723808293,
 }
 
-_MODEL_REQUIRED_PACKAGE = {
-    "aceff-2.0": "torchmdnet",
-    "mace-off23-small": "mace",
-    "mace-off23-medium": "mace",
-    "mace-off23-large": "mace",
-    "mace-omol-0-extra-large": "mace",
-    "egret-1": "mace",
-    "aimnet2": "aimnet",
-    "orb-v3-conservative-omol": "orb_models",
-}
-
-
-def _skip_if_model_unavailable(model_name: str) -> None:
-    """Skip the current test if the package required by model_name is not installed."""
-    pkg = _MODEL_REQUIRED_PACKAGE.get(model_name)
-    if pkg is not None and importlib.util.find_spec(pkg) is None:
-        pytest.skip(f"{pkg} not installed")
-
 
 class TestGetMlp:
     """Tests for get_mlp function."""
@@ -57,7 +40,7 @@ class TestGetMlp:
     )
     def test_all_known_models_can_create_systems(self, model_name):
         """Test that known models can be loaded and create OpenMM systems."""
-        _skip_if_model_unavailable(model_name)
+        skip_if_model_unavailable(model_name)
         _cache.clear()
         mol = Molecule.from_smiles("O")  # Water
         topology = mol.to_topology().to_openmm()
@@ -77,7 +60,7 @@ class TestGetMlp:
     @pytest.mark.slow
     def test_all_known_models_can_calculate_energy(self, model_name):
         """Test that known models can calculate an energy for water."""
-        _skip_if_model_unavailable(model_name)
+        skip_if_model_unavailable(model_name)
         import openmm
 
         _cache.clear()
@@ -115,7 +98,7 @@ class TestGetMlp:
 
     def test_get_mlp_caches_results(self):
         """Test that repeated calls with the same arguments return the same object."""
-        _skip_if_model_unavailable("aimnet2")
+        skip_if_model_unavailable("aimnet2")
         result1 = get_mlp("aimnet2")
         result2 = get_mlp("aimnet2")
         assert result1 is result2

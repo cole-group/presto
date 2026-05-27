@@ -25,6 +25,8 @@ jobs:
         include:
           - python-version: "3.12"
             pixi-environment: "cpu-py312"
+          - python-version: "3.12"
+            pixi-environment: "base-cpu-py312"
           - python-version: "3.13"
             pixi-environment: "cpu-py313"
           - python-version: "3.13"
