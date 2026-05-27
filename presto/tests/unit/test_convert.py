@@ -21,7 +21,8 @@ from presto.convert import (
     linearise_harmonics_topology,
     parameterise,
 )
-from presto.settings import MSMSettings, ParameterisationSettings
+from presto.settings import MLPSettings, MSMSettings, ParameterisationSettings
+from presto.tests.conftest import skip_if_model_unavailable
 
 
 @pytest.mark.parametrize(
@@ -230,11 +231,12 @@ def test_linearise_harmonics_topology():
 
 def test_parameterise(tmp_path):
     """Parameterise."""
+    skip_if_model_unavailable("aimnet2")
     settings = ParameterisationSettings(
         molecule_input_type="smiles",
         molecules="CC",
         initial_force_field="openff-2.1.0.offxml",
-        msm_settings=MSMSettings(ml_potential="aimnet2"),
+        msm_settings=MSMSettings(mlp_settings=MLPSettings(ml_potential="aimnet2")),
     )
 
     # We can use small molecules and real FF for a fast enough test
@@ -254,6 +256,7 @@ def test_parameterise_linear(tmp_path):
         molecules="C",
         initial_force_field="openff-2.1.0.offxml",
         linearise_harmonics=True,
+        msm_settings=None,
     )
     _mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
     assert "LinearBonds" in tensor_ff.potentials_by_type
@@ -661,6 +664,7 @@ class TestParameteriseExtended:
             molecules="CCCC",
             initial_force_field="openff_unconstrained-2.3.0.offxml",
             expand_torsions=True,
+            msm_settings=None,
         )
 
         _mols, bespoke_ff, _tensor_tops, _tensor_ff = parameterise(
@@ -686,6 +690,7 @@ class TestParameteriseExtended:
             molecule_input_type="smiles",
             molecules=["C", "CC"],
             initial_force_field="openff_unconstrained-2.3.0.offxml",
+            msm_settings=None,
         )
 
         mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")

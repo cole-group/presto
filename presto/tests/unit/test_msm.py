@@ -34,7 +34,7 @@ from presto.msm import (
     unit_vector_along_bond,
     unit_vector_normal_to_plane,
 )
-from presto.settings import MSMSettings
+from presto.settings import MLPSettings, MSMSettings
 
 # Unit constants for testing (kcal/mol is the standard energy unit throughout)
 _BOND_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.nanometer**2
@@ -134,7 +134,10 @@ def base_forcefield():
 @pytest.fixture(scope="module")
 def msm_settings():
     """Default MSM settings for testing with minimal conformer count."""
-    return MSMSettings(n_conformers=1, ml_potential="aimnet2")
+    return MSMSettings(
+        n_conformers=1,
+        mlp_settings=MLPSettings(ml_potential="aimnet2"),
+    )
 
 
 # --- Unit Vector Tests ---
@@ -817,7 +820,10 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         # Test with 3 conformers
-        settings_multi = MSMSettings(n_conformers=2, ml_potential="aimnet2")
+        settings_multi = MSMSettings(
+            n_conformers=2,
+            mlp_settings=MLPSettings(ml_potential="aimnet2"),
+        )
 
         bond_params_multi, angle_params_multi = apply_msm_to_molecule(
             mol, bond_indices, angle_indices, settings_multi, device=torch.device("cpu")

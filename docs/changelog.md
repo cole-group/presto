@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+### Breaking changes
+
+- Replace flat ML potential settings with nested `mlp_settings` in sampling and MSM settings in [#58](https://github.com/cole-group/presto/issues/58). Legacy flat fields such as `ml_potential` and `ml_potential_kwargs` are no longer accepted.
+- Remove `AvailableModels` and `validate_model_charge_compatibility`. `presto` now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in [#58](https://github.com/cole-group/presto/issues/58).
+- Add runtime-object placeholder handling for `mlp_settings.ml_system_kwargs`: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with `InvalidSettingsError` until placeholders are replaced (for example with `from_yaml(..., overwrite=...)`) before validation. Again, in [#58](https://github.com/cole-group/presto/issues/58).
+
+### Documentation
+
+- Add Python API examples for running fitting via `get_bespoke_force_field(...)`, including optional OpenMM-ML ASE calculator usage through `ml_system_kwargs`.
+- Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for `ml_potential="ase"` charge must be passed explicitly in `ml_system_kwargs`.
+
 ## 0.7.0
 
 ## Fixes

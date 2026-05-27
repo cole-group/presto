@@ -15,18 +15,16 @@ on:
 
 jobs:
   test:
-    name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
-    # Run on 22.04 rather than latest to match my machine (as we install using --locked). This avoids issues
-    # with e.g. different gcc versions when building dm-tree from source for Python 3.13.
+    # Run on 22.04 rather than latest to match my machine (as we install using --locked).
+    # This avoids issues # with e.g. different gcc versions when building dm-tree from source
+    # for Python 3.13.
+    name: Test on ubuntu-22.04, py${{ matrix.python-version }}, ${{ matrix.env-type }}
     runs-on: ubuntu-22.04
+
     strategy:
       matrix:
-        python-version: ["3.12", "3.13"]
-        include:
-          - python-version: "3.12"
-            pixi-environment: "cpu-py312"
-          - python-version: "3.13"
-            pixi-environment: "cpu-py313"
+        python-version: ["312", "313"]
+        env-type: ["cpu", "base-cpu"]
 
     steps:
       - uses: actions/checkout@v6
@@ -42,19 +40,19 @@ jobs:
         with:
           pixi-version: v0.67.2
           cache: true
-          environments: ${{ matrix.pixi-environment }}
+          environments: ${{ matrix.env-type }}-py${{ matrix.python-version }}
 
       - name: Lint
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} lint
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} lint
 
       - name: Type check
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} type-check
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} type-check
 
       - name: Run tests
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} test
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v6

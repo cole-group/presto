@@ -17,12 +17,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
 from pydantic_units import OpenMMQuantity
 
-from . import __version__, mlp
+from . import __version__
 from ._exceptions import InvalidSettingsError
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
@@ -30,6 +31,7 @@ from .find_torsions import (
 )
 from .load_molecules import MOLECULE_LOADERS, MoleculeInputType
 from .outputs import OutputType, WorkflowPathManager
+from .utils.dicts import deep_update
 from .utils.typing import (
     AllowedAttributeType,
     NonLinearValenceType,
@@ -40,6 +42,32 @@ from .utils.typing import (
 )
 
 _DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
+_RUNTIME_OBJECT_PLACEHOLDER = "__PRESTO_RUNTIME_OBJECT_PLACEHOLDER__"
+
+
+def _replace_non_serializable(obj: dict[str, Any]) -> dict[str, Any]:
+    """Recursively replace non-JSON-serializable values with the runtime placeholder."""
+    return {k: _replace_value(v) for k, v in obj.items()}
+
+
+def _replace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _replace_non_serializable(value)
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return _RUNTIME_OBJECT_PLACEHOLDER
+
+
+def _find_placeholder_paths(obj: Any, prefix: str = "") -> list[str]:
+    """Return bracket-notation paths of all placeholder values in a (possibly nested) dict."""
+    paths: list[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            paths.extend(_find_placeholder_paths(v, f"{prefix}[{k}]"))
+    elif obj == _RUNTIME_OBJECT_PLACEHOLDER:
+        paths.append(prefix)
+    return paths
+
 
 _DEFAULT_MODEL_CONFIG = ConfigDict(
     extra="forbid",
@@ -54,7 +82,7 @@ def _model_to_yaml(
     """Save the settings to a YAML file."""
     data = model.model_dump(mode="json")
     if overwrite:
-        data.update(overwrite)
+        data = deep_update(data, overwrite)
     with open(yaml_path, "w") as file:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
 
@@ -62,10 +90,14 @@ def _model_to_yaml(
 _T = TypeVar("_T", bound=BaseModel)
 
 
-def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
+def _model_from_yaml(
+    cls: type[_T], yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+) -> _T:
     """Load settings from a YAML file."""
     with open(yaml_path) as file:
-        settings_data = yaml.safe_load(file)
+        settings_data = yaml.safe_load(file) or {}
+    if overwrite:
+        settings_data = deep_update(settings_data, overwrite)
     return cls(**settings_data)
 
 
@@ -81,9 +113,11 @@ class _DefaultSettings(BaseModel, ABC):
         _model_to_yaml(self, yaml_path, overwrite=overwrite)
 
     @classmethod
-    def from_yaml(cls, yaml_path: PathLike) -> Self:
+    def from_yaml(
+        cls, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+    ) -> Self:
         """Load settings from a YAML file."""
-        return _model_from_yaml(cls, yaml_path)
+        return _model_from_yaml(cls, yaml_path, overwrite=overwrite)
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -93,16 +127,46 @@ class _DefaultSettings(BaseModel, ABC):
         """
         return set()
 
-    # @property
-    # def output_types(self) -> set[OutputType]:
-    #     """Return a set of expected output types for this settings object
-    #     and all _DefaultSettings it contains."""
-    #     outputs = set(self._output_types)
-    #     for name, field in self.model_fields.items():
-    #         if issubclass(field.annotation, _DefaultSettings):
-    #             nested_settings = getattr(self, name)
-    #             outputs.update(nested_settings.output_types)
-    #     return outputs
+
+class MLPSettings(_DefaultSettings):
+    """Settings for selecting and configuring the reference ML potential."""
+
+    ml_potential: str = Field(
+        "aimnet2",
+        description="The OpenMM-ML potential identifier (for example `aimnet2`, "
+        "`aceff-2.0`, or `ase`). Any model supported by your OpenMM-ML installation "
+        "can be used.",
+    )
+
+    ml_potential_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments passed to openmmml.MLPotential(...) when "
+        "creating the reference potential.",
+    )
+
+    ml_system_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to MLPotential.createSystem(...). "
+        "For ASE-backed runs, this can include keys such as `calculator`, `aseAtoms`, "
+        "and `info`.",
+    )
+
+    @field_serializer("ml_system_kwargs")
+    def serialize_ml_system_kwargs(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Replace non-serializable runtime objects (e.g. ASE calculators) with placeholders."""
+        return _replace_non_serializable(value)
+
+    @model_validator(mode="after")
+    def validate_no_runtime_placeholders(self) -> Self:
+        """Raise if ml_system_kwargs contains runtime placeholder values (i.e. was loaded from YAML without overwrite)."""
+        placeholder_paths = _find_placeholder_paths(self.ml_system_kwargs)
+        if placeholder_paths:
+            raise InvalidSettingsError(
+                f"ml_system_kwargs contains runtime-only placeholder values at keys: "
+                f"{placeholder_paths}. Supply the actual objects via from_yaml(..., overwrite=...) "
+                "before validation."
+            )
+        return self
 
 
 class _SamplingSettingsBase(_DefaultSettings, ABC):
@@ -115,10 +179,10 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         "loading from YAML.",
     )
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aimnet2",
-        description="The machine learning potential to use for calculating energies and forces of "
-        " the snapshots. Note that this is not generally the potential used for sampling.",
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "energy and force calculations.",
     )
 
     timestep: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
@@ -201,7 +265,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
         # Additionally check that production sampling time divides by snapshot interval
         time = self.production_sampling_time_per_conformer / self.snapshot_interval
-        if not n_steps.is_integer():
+        if not time.is_integer():
             raise InvalidSettingsError(
                 f"production_sampling_time_per_conformer ({time}) must be divisible by the snapshot_interval ({self.snapshot_interval})."
             )
@@ -607,9 +671,10 @@ class TypeGenerationSettings(_DefaultSettings):
 class MSMSettings(_DefaultSettings):
     """Settings for the modified Seminario method."""
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aimnet2",
-        description="The machine learning potential to use for calculating the Hessian matrix",
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "Hessian calculations.",
     )
 
     finite_step: OpenMMQuantity[unit.nanometers] = Field(  # type: ignore[type-arg]

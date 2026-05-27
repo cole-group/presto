@@ -11,7 +11,6 @@ import torch
 from openff.toolkit import ForceField, Molecule, Topology
 from openmm import unit as omm_unit
 
-from presto._exceptions import InvalidSettingsError
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
 from presto.find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
@@ -26,7 +25,6 @@ from presto.sample import (
     _create_simulation,
     _find_available_force_group,
     _get_integrator,
-    _get_ml_omm_system,
     _get_molecule_from_dataset,
     _get_torsion_bias_forces,
     _remove_torsion_restraint_forces,
@@ -42,23 +40,11 @@ from presto.sample import (
 )
 from presto.settings import (
     MLMDSamplingSettings,
+    MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
     PreComputedDatasetSettings,
-)
-
-# Check if NNPOps is available (required for EGRET-1 and MACE models)
-try:
-    import NNPOps  # noqa: F401
-
-    NNPOPS_AVAILABLE = True
-except ImportError:
-    NNPOPS_AVAILABLE = False
-
-requires_nnpops = pytest.mark.skipif(
-    not NNPOPS_AVAILABLE,
-    reason="NNPOps not available (required for EGRET-1 and MACE models)",
 )
 
 
@@ -259,143 +245,6 @@ class TestLoadPrecomputedDataset:
             )
 
 
-class TestGetMlOmmSystem:
-    """Tests for _get_ml_omm_system function."""
-
-    @pytest.fixture(autouse=True)
-    def mock_get_mlp(self):
-        """Mock get_mlp to avoid loading real models and pass isinstance checks."""
-        from unittest.mock import MagicMock, patch
-
-        import openmm
-
-        with patch("presto.sample.mlp.get_mlp") as mock:
-            mock_potential = MagicMock()
-
-            def create_mock_system(topology, **kwargs):
-                system = openmm.System()
-                for _ in range(topology.getNumAtoms()):
-                    system.addParticle(1.0)
-                return system
-
-            mock_potential.createSystem.side_effect = create_mock_system
-            mock.return_value = mock_potential
-            yield mock
-
-    @requires_nnpops
-    def test_neutral_molecule_with_egret(self):
-        """Test creating system for neutral molecule with EGRET-1."""
-        mol = Molecule.from_smiles("CCO")
-        mol.generate_conformers(n_conformers=1)
-
-        system = _get_ml_omm_system(mol, "egret-1", torch.device("cpu"))
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_neutral_molecule_with_aceff(self):
-        """Test creating system for neutral molecule with ACEFF-2.0."""
-        mol = Molecule.from_smiles("C")
-        mol.generate_conformers(n_conformers=1)
-
-        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_aceff(self):
-        """Test creating system for charged molecule with ACEFF-2.0."""
-        mol = Molecule.from_smiles("[NH4+]")
-        mol.generate_conformers(n_conformers=1)
-
-        # Should not raise
-        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_aimnet2(self):
-        """Test creating system for charged molecule with AIMNet2."""
-        mol = Molecule.from_smiles("[Cl-]")
-        mol.generate_conformers(n_conformers=1)
-
-        # Should not raise
-        system = _get_ml_omm_system(mol, "aimnet2", torch.device("cpu"))
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_unsupported_model_raises(self):
-        """Test that charged molecule with unsupported model raises error."""
-        mol = Molecule.from_smiles("[NH4+]")
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, "egret-1", torch.device("cpu"))
-
-    def test_charged_molecule_with_mace_raises(self):
-        """Test that charged molecule with MACE raises error."""
-        mol = Molecule.from_smiles("[Cl-]")
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, "mace-off23-small", torch.device("cpu"))
-
-    @pytest.mark.parametrize(
-        "smiles",
-        ["C", "CCO", "c1ccccc1", "CC(C)C"],
-    )
-    def test_various_neutral_molecules(self, smiles):
-        """Test various neutral molecules work with ACEFF-2.0."""
-        mol = Molecule.from_smiles(smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        # Test with ACEFF-2.0 (doesn't require NNPOps)
-        system = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
-        assert isinstance(system, openmm.System)
-
-    @pytest.mark.parametrize(
-        "charged_smiles",
-        ["[NH4+]", "[Cl-]", "[Na+]", "[Ca+2]"],
-    )
-    def test_various_charged_molecules_with_compatible_models(self, charged_smiles):
-        """Test various charged molecules work with compatible models."""
-        mol = Molecule.from_smiles(charged_smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        # Should work with charge-supporting models
-        system1 = _get_ml_omm_system(mol, "aceff-2.0", torch.device("cpu"))
-        system2 = _get_ml_omm_system(mol, "aimnet2", torch.device("cpu"))
-
-        assert isinstance(system1, openmm.System)
-        assert isinstance(system2, openmm.System)
-
-    @pytest.mark.parametrize(
-        "charged_smiles,unsupported_model",
-        [
-            ("[NH4+]", "egret-1"),
-            ("[Cl-]", "mace-off23-small"),
-            ("[Na+]", "mace-off23-medium"),
-            ("[Ca+2]", "mace-off23-large"),
-        ],
-    )
-    def test_various_charged_molecules_with_incompatible_models_raise(
-        self, charged_smiles, unsupported_model
-    ):
-        """Test that various charged molecules fail with incompatible models."""
-        mol = Molecule.from_smiles(charged_smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, unsupported_model, torch.device("cpu"))
-
-
 @pytest.fixture
 def mock_molecule():
     """Ethanol molecule for testing."""
@@ -481,11 +330,11 @@ def test_build_ml_simulation_creates_system_and_simulation(mock_molecule):
     for _ in range(mock_molecule.n_atoms):
         fake_system.addParticle(12.0)
 
-    with patch("presto.sample._get_ml_omm_system", return_value=fake_system):
+    with patch("presto.sample.mlp.get_ml_omm_system", return_value=fake_system):
         simulation, integrator = _build_ml_simulation(
             mock_molecule,
             topology,
-            "aceff-2.0",
+            MLPSettings(ml_potential="aceff-2.0"),
             temp,
             dt,
             device,
@@ -606,7 +455,7 @@ def test_sample_mmmd_metadynamics_no_rotatable_bonds(tmp_path):
     with (
         patch("presto.sample.openff.interchange.Interchange.from_smirnoff"),
         patch("presto.sample._run_md") as mock_run,
-        patch("presto.sample._get_ml_omm_system"),
+        patch("presto.sample.mlp.get_ml_omm_system"),
         patch("presto.sample.Simulation"),
         patch("presto.sample.recalculate_energies_and_forces") as mock_recalc,
         patch("presto.sample.cleanup_simulation"),
@@ -1315,7 +1164,7 @@ class TestSampleMmmdIntegration:
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
         # Mock ML potential creation to avoid needing actual ML models
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             # Create a mock system that returns a real OpenMM system
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
@@ -1364,7 +1213,7 @@ class TestSampleMmmdIntegration:
         pdb_base = tmp_path / "trajectory.pdb"
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1412,7 +1261,7 @@ class TestSampleMlmdIntegration:
         pdb_dir.mkdir()
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1456,7 +1305,7 @@ class TestSampleMlmdIntegration:
         pdb_base = tmp_path / "trajectory.pdb"
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1509,7 +1358,7 @@ class TestSampleMmmdMetadynamicsIntegration:
             OutputType.METADYNAMICS_BIAS: bias_dir,
         }
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1561,7 +1410,7 @@ class TestSampleMmmdMetadynamicsIntegration:
             OutputType.METADYNAMICS_BIAS: bias_dir,
         }
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1620,7 +1469,7 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
         (tmp_path / "ml_min").mkdir()
         (tmp_path / "mm_min").mkdir()
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
 
             def create_mock_system(*args, **kwargs):
                 mock_system = openmm.System()
@@ -1679,7 +1528,7 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
         (tmp_path / "ml_min").mkdir()
         (tmp_path / "mm_min").mkdir()
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
