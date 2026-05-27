@@ -36,21 +36,35 @@ def setup_logging_for_cli(log_level: str = "INFO") -> None:
 
 
 class Version(BaseModel):
-    """Print the version of presto and exit."""
+    """Print the version of presto and exit.
+
+    Example: ``presto version``
+    """
 
     def cli_cmd(self) -> None:
         print(f"presto {__version__}")
 
 
 class TrainFromCli(WorkflowSettings):
-    """Run the training process with command line arguments."""
+    """Run the training process with command line arguments.
+
+    Example: ``presto train --parameterisation-settings.molecules "CCO"``
+
+    All ``WorkflowSettings`` fields can be set with dotted overrides like
+    ``--training-sampling-settings.mlp-settings.ml-potential aimnet2``.
+    """
 
     def cli_cmd(self) -> None:
         get_bespoke_force_field(self, write_settings=True)
 
 
 class TrainFromYAML(BaseModel):
-    """Run the training process with arguments read from a YAML file."""
+    """Run the training process with arguments read from a YAML file.
+
+    Example: ``presto train-from-yaml workflow_settings.yaml``
+
+    Generate a starting YAML with ``presto write-default-yaml``.
+    """
 
     settings_yaml: CliPositionalArg[Path] = Field(
         _DEFAULT_WORKFLOW_SETTINGS_PATH,
@@ -65,7 +79,13 @@ class TrainFromYAML(BaseModel):
 
 
 class WriteDefaultYAML(BaseModel):
-    """Write a default YAML file for the training settings."""
+    """Write a default YAML file for the training settings.
+
+    Example: ``presto write-default-yaml workflow_settings.yaml``
+
+    The written file contains the placeholder ``CHANGEME`` under
+    ``parameterisation_settings.molecules`` — edit it before running ``train-from-yaml``.
+    """
 
     file_name: CliPositionalArg[Path] = Field(
         _DEFAULT_WORKFLOW_SETTINGS_PATH,
@@ -88,7 +108,13 @@ class WriteDefaultYAML(BaseModel):
 
 
 class Clean(BaseModel):
-    """Clean the output directory by removing generated files."""
+    """Clean the output directory by removing generated files.
+
+    Example: ``presto clean workflow_settings.yaml``
+
+    Removes everything that ``train`` / ``train-from-yaml`` would generate, but
+    keeps the settings YAML itself.
+    """
 
     settings_yaml: CliPositionalArg[Path] = Field(
         _DEFAULT_WORKFLOW_SETTINGS_PATH,
@@ -104,7 +130,13 @@ class Clean(BaseModel):
 
 
 class Analyse(BaseModel):
-    """Analyse the training data and results."""
+    """Analyse the training data and results.
+
+    Example: ``presto analyse workflow_settings.yaml``
+
+    Regenerates the diagnostic plots under ``<output_dir>/plots/`` from existing
+    training output without re-running sampling or training.
+    """
 
     settings_yaml: CliPositionalArg[Path] = Field(
         _DEFAULT_WORKFLOW_SETTINGS_PATH,
