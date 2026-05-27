@@ -23,7 +23,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["312", "313"]
         env-type: ["cpu", "base-cpu"]
 
     steps:
