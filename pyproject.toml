@@ -85,12 +85,12 @@ channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
 # Default is equivalent to gpu-py313-cuda129. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
-gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312", "cuda129"]}
+default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"], solve-group = "gpu-py313-cuda129" }
+gpu-py312-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"]}
 # CPU
-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py312"] }
-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "mace", "orb", "py313"] }
+cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312"] }
+cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
@@ -202,6 +202,9 @@ nvalchemi-toolkit-ops = "==0.2.0"
 
 [tool.pixi.feature.mace.pypi-dependencies]
 mace-torch = "*"
+
+[tool.pixi.feature.ase.dependencies]
+ase = "*"
 
 [tool.pixi.feature.orb.pypi-dependencies]
 orb-models = ">=0.5.5"

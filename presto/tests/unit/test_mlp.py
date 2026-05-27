@@ -183,3 +183,59 @@ class TestGetMlOmmSystem:
                 ),
                 torch.device("cpu"),
             )
+
+
+class TestAseIntegration:
+    """End-to-end tests using a real ASE calculator through OpenMM-ML."""
+
+    @pytest.fixture
+    def lj_calculator(self):
+        """Return a simple Lennard-Jones calculator for testing ASE integration."""
+        from ase.calculators.lj import LennardJones
+
+        return LennardJones()
+
+    def test_ase_creates_system_with_correct_particles(self, lj_calculator):
+        """Test that an ASE-backed system has the right number of particles."""
+        _cache.clear()
+        mol = Molecule.from_smiles("O")
+        mol.generate_conformers(n_conformers=1)
+
+        system = get_ml_omm_system(
+            mol,
+            MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"calculator": lj_calculator},
+            ),
+            torch.device("cpu"),
+        )
+        assert system.getNumParticles() == 3
+
+    def test_ase_produces_finite_energy(self, lj_calculator):
+        """Test that an ASE-backed system produces a finite energy."""
+        _cache.clear()
+        mol = Molecule.from_smiles("O")
+        mol.generate_conformers(n_conformers=1)
+
+        system = get_ml_omm_system(
+            mol,
+            MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"calculator": lj_calculator},
+            ),
+            torch.device("cpu"),
+        )
+
+        integrator = openmm.VerletIntegrator(1.0 * openmm.unit.femtoseconds)
+        context = openmm.Context(system, integrator)
+        context.setPositions(mol.conformers[0].to_openmm())
+
+        state = context.getState(getEnergy=True, getForces=True)
+        energy = state.getPotentialEnergy().value_in_unit(
+            openmm.unit.kilojoule_per_mole
+        )
+        forces = state.getForces(asNumpy=True)
+
+        assert math.isfinite(energy)
+        assert forces.shape == (3, 3)
+        assert np.all(np.isfinite(forces))
