@@ -1297,6 +1297,8 @@
       
         
       
+        
+      
     
     
     
@@ -1349,6 +1351,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/utils/dicts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dicts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -1636,6 +1666,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#080" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.8.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.8.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Breaking changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#070" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1898,7 +1967,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
+  <a href="#documentation_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -1959,6 +2028,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#080" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.8.0
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.8.0">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Breaking changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#070" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2221,7 +2329,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
+  <a href="#documentation_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -2268,6 +2376,18 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">#</a></h1>
+<h2 id="080">0.8.0<a class="headerlink" href="#080" title="Permanent link">#</a></h2>
+<h3 id="breaking-changes">Breaking changes<a class="headerlink" href="#breaking-changes" title="Permanent link">#</a></h3>
+<ul>
+<li>Replace flat ML potential settings with nested <code>mlp_settings</code> in sampling and MSM settings in <a href="https://github.com/cole-group/presto/issues/58">#58</a>. Legacy flat fields such as <code>ml_potential</code> and <code>ml_potential_kwargs</code> are no longer accepted.</li>
+<li>Remove <code>AvailableModels</code> and <code>validate_model_charge_compatibility</code>. <code>presto</code> now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
+<li>Add runtime-object placeholder handling for <code>mlp_settings.ml_system_kwargs</code>: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with <code>InvalidSettingsError</code> until placeholders are replaced (for example with <code>from_yaml(..., overwrite=...)</code>) before validation. Again, in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
+<ul>
+<li>Add Python API examples for running fitting via <code>get_bespoke_force_field(...)</code>, including optional OpenMM-ML ASE calculator usage through <code>ml_system_kwargs</code>.</li>
+<li>Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for <code>ml_potential="ase"</code> charge must be passed explicitly in <code>ml_system_kwargs</code>.</li>
+</ul>
 <h2 id="070">0.7.0<a class="headerlink" href="#070" title="Permanent link">#</a></h2>
 <h2 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h2>
 <ul>
@@ -2376,7 +2496,7 @@
 <li>Remove bespoke toolkit wrapper</li>
 </ul>
 <h2 id="011">0.1.1<a class="headerlink" href="#011" title="Permanent link">#</a></h2>
-<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
+<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Added example notebook</li>
 </ul>

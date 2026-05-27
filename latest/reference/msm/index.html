@@ -1646,6 +1646,8 @@
       
         
       
+        
+      
     
     
     
@@ -1698,6 +1700,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/dicts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dicts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -4474,7 +4504,7 @@ parameters are calculated for each conformer and averaged.</p>
 </span><span id="__span-0-705"><a id="__codelineno-0-705" name="__codelineno-0-705"></a>    <span class="n">simulation</span><span class="p">,</span> <span class="n">integrator</span> <span class="o">=</span> <span class="n">_build_ml_simulation</span><span class="p">(</span>
 </span><span id="__span-0-706"><a id="__codelineno-0-706" name="__codelineno-0-706"></a>        <span class="n">mol_with_conformers</span><span class="p">,</span>
 </span><span id="__span-0-707"><a id="__codelineno-0-707" name="__codelineno-0-707"></a>        <span class="n">mol_with_conformers</span><span class="o">.</span><span class="n">to_topology</span><span class="p">()</span><span class="o">.</span><span class="n">to_openmm</span><span class="p">(),</span>
-</span><span id="__span-0-708"><a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="n">settings</span><span class="o">.</span><span class="n">ml_potential</span><span class="p">,</span>
+</span><span id="__span-0-708"><a id="__codelineno-0-708" name="__codelineno-0-708"></a>        <span class="n">settings</span><span class="o">.</span><span class="n">mlp_settings</span><span class="p">,</span>
 </span><span id="__span-0-709"><a id="__codelineno-0-709" name="__codelineno-0-709"></a>        <span class="mi">300</span> <span class="o">*</span> <span class="n">_OMM_KELVIN</span><span class="p">,</span>
 </span><span id="__span-0-710"><a id="__codelineno-0-710" name="__codelineno-0-710"></a>        <span class="mf">1.0</span> <span class="o">*</span> <span class="n">_OMM_FEMTOSECOND</span><span class="p">,</span>
 </span><span id="__span-0-711"><a id="__codelineno-0-711" name="__codelineno-0-711"></a>        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
