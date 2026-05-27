@@ -72,7 +72,7 @@ Each row holds energies and forces for one snapshot, plus the coordinates.
 
 | Symptom | Look at | Likely fix |
 |---|---|---|
-| Dramatic rise in validation loss | `loss.png` | Likely connectivity changes/ poor equilibrium value MSM initialisation. Try disabling MLP minimisations by switching to mm_md_metadynamics sampling protocol and disabling MSM initialisation (`parameterisation_settings.msm_settings: null`). If this doesn't help, possibly add stronger regularisation. |
+| Dramatic rise in validation loss | `loss.png` | Likely connectivity changes/ poor equilibrium value MSM initialisation. Try disabling MLP minimisations by switching to mm_md_metadynamics sampling protocol and disabling MSM initialisation (`param_settings.msm_settings: null`). If this doesn't help, possibly add stronger regularisation. |
 | Large outliers in correlation plot | `correlation_mol<n>.png` | Often non-bonded clashes in MLP configurations; no easy fix without modifying non-bonded terms |
 | Wild parameter changes | `parameter_differences_mol<n>.png` | May also be caused by connectivity changes/ poor MSM initialisation. Try disabling MLP minimisations by switching to `mm_md_metadynamics` sampling protocol and disabling MSM initialisation. If this doesn't help, possibly add stronger regularisation. |
 | Sparse torsion coverage | `torsion_sampling_mol<n>.png` | Make metadynamics more aggressive, increase sampling time |

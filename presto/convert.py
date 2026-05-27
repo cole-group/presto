@@ -19,7 +19,7 @@ from .create_types import (
     add_types_to_forcefield,
 )
 from .msm import apply_msm_to_molecules
-from .settings import ParameterisationSettings
+from .settings import ParamSettings
 from .utils.typing import TorchDevice
 
 logger = loguru.logger
@@ -183,7 +183,7 @@ def convert_to_smirnoff(
 
 
 def parameterise(
-    settings: ParameterisationSettings,
+    settings: ParamSettings,
     device: TorchDevice = "cuda",
 ) -> tuple[
     list[openff.toolkit.Molecule],
@@ -197,7 +197,7 @@ def parameterise(
 
     Parameters
     ----------
-    settings: ParameterisationSettings
+    settings: ParamSettings
         The settings for the parameterisation.
 
     device: TorchDevice, default "cuda"

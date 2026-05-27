@@ -57,7 +57,7 @@ Aggregated diagnostic plots across all iterations.
 
 ## Per-molecule outputs
 
-Outputs marked `_mol<n>` are produced once per input molecule. For a single-molecule fit, `<n>` is always `0`. For congeneric series, you get one file per molecule, indexed by position in `parameterisation_settings.molecules`.
+Outputs marked `_mol<n>` are produced once per input molecule. For a single-molecule fit, `<n>` is always `0`. For congeneric series, you get one file per molecule, indexed by position in `param_settings.molecules`.
 
 The full set of per-molecule output types is defined in `presto.outputs.PER_MOLECULE_OUTPUT_TYPES`.
 

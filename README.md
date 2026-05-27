@@ -46,7 +46,7 @@ For more information on activating pixi environments, see [the documentation](ht
 
 Run with command line arguments:
 ```bash
-presto train --parameterisation-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
+presto train --param-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
 then see the bespoke force field at `training_iteration_2/bespoke_ff.offxml`.
 
@@ -64,7 +64,7 @@ presto train-from-yaml default.yaml
 
 For SDF inputs, set `molecule_input_type: sdf` and list one or more `.sdf` files under `molecules`. Each SDF may contain one or more molecules. For example, with the CLI:
 ```bash
-presto train --parameterisation-settings.molecule-input-type sdf --parameterisation-settings.molecules input_molecule.sdf
+presto train --param-settings.molecule-input-type sdf --param-settings.molecules input_molecule.sdf
 ```
 
 For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).

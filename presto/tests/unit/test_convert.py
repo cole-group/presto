@@ -21,7 +21,7 @@ from presto.convert import (
     linearise_harmonics_topology,
     parameterise,
 )
-from presto.settings import MLPSettings, MSMSettings, ParameterisationSettings
+from presto.settings import MLPSettings, MSMSettings, ParamSettings
 from presto.tests.conftest import skip_if_model_unavailable
 
 
@@ -232,7 +232,7 @@ def test_linearise_harmonics_topology():
 def test_parameterise(tmp_path):
     """Parameterise."""
     skip_if_model_unavailable("aimnet2")
-    settings = ParameterisationSettings(
+    settings = ParamSettings(
         molecule_input_type="smiles",
         molecules="CC",
         initial_force_field="openff-2.1.0.offxml",
@@ -251,7 +251,7 @@ def test_parameterise(tmp_path):
 
 def test_parameterise_linear(tmp_path):
     """Parameterise linear."""
-    settings = ParameterisationSettings(
+    settings = ParamSettings(
         molecule_input_type="smiles",
         molecules="C",
         initial_force_field="openff-2.1.0.offxml",
@@ -659,7 +659,7 @@ class TestParameteriseExtended:
 
     def test_parameterise_with_expand_torsions(self):
         """Test parameterise with expand_torsions enabled."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules="CCCC",
             initial_force_field="openff_unconstrained-2.3.0.offxml",
@@ -686,7 +686,7 @@ class TestParameteriseExtended:
 
     def test_parameterise_multiple_molecules(self):
         """Test parameterise with multiple molecules."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["C", "CC"],
             initial_force_field="openff_unconstrained-2.3.0.offxml",

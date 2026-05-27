@@ -716,7 +716,7 @@ class MSMSettings(_DefaultSettings):
     )
 
 
-class ParameterisationSettings(_DefaultSettings):
+class ParamSettings(_DefaultSettings):
     """Settings for the starting parameterisation."""
 
     molecule_input_type: MoleculeInputType = Field(
@@ -855,7 +855,7 @@ class WorkflowSettings(_DefaultSettings):
         "increases peak GPU memory usage with each iteration.",
     )
 
-    parameterisation_settings: ParameterisationSettings = Field(
+    param_settings: ParamSettings = Field(
         description="Settings for the starting parameterisation",
     )
 
@@ -928,7 +928,7 @@ class WorkflowSettings(_DefaultSettings):
     @model_validator(mode="after")
     def validate_parameterisation_training_consistency(self) -> Self:
         """Validate that linearise_harmonics in parameterisation settings is consistent with the valence types in the training settings."""
-        harmonics_linearised = self.parameterisation_settings.linearise_harmonics
+        harmonics_linearised = self.param_settings.linearise_harmonics
         excluded_valence_types = (
             ("Bonds", "Angles")
             if harmonics_linearised
@@ -939,7 +939,7 @@ class WorkflowSettings(_DefaultSettings):
             for valence_type in excluded_valence_types
         ):
             raise InvalidSettingsError(
-                f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
+                f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
 
@@ -953,7 +953,7 @@ class WorkflowSettings(_DefaultSettings):
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
         # Get the number of molecules from the validated molecule list
-        n_mols = len(self.parameterisation_settings.openff_molecules)
+        n_mols = len(self.param_settings.openff_molecules)
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,

@@ -5,11 +5,11 @@ The CLI is an easy way to run `presto` for one-off fits, but the Python API give
 ## Build a `WorkflowSettings` object
 
 ```python
-from presto.settings import ParameterisationSettings, WorkflowSettings
+from presto.settings import ParamSettings, WorkflowSettings
 from presto.workflow import get_bespoke_force_field
 
 settings = WorkflowSettings(
-    parameterisation_settings=ParameterisationSettings(
+    param_settings=ParamSettings(
         molecule_input_type="smiles",
         molecules="CCO",
     ),

@@ -28,7 +28,7 @@ presto write-default-yaml congeneric_fit.yaml
 ```
 
 ```yaml
-parameterisation_settings:
+param_settings:
     molecule_input_type: smiles
     molecules:
         - CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2

@@ -10,6 +10,8 @@
 
 ### Breaking changes
 
+- Rename `ParameterisationSettings` to `ParamSettings` and the `parameterisation_settings` field to `param_settings` throughout. This avoids confusion between British/American spellings. YAML configs must update the key from `parameterisation_settings:` to `param_settings:`.
+
 - Replace flat ML potential settings with nested `mlp_settings` in sampling and MSM settings in [#58](https://github.com/cole-group/presto/issues/58). Legacy flat fields such as `ml_potential` and `ml_potential_kwargs` are no longer accepted.
 - Remove `AvailableModels` and `validate_model_charge_compatibility`. `presto` now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in [#58](https://github.com/cole-group/presto/issues/58).
 - Add runtime-object placeholder handling for `mlp_settings.ml_system_kwargs`: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with `InvalidSettingsError` until placeholders are replaced (for example with `from_yaml(..., overwrite=...)`) before validation. Again, in [#58](https://github.com/cole-group/presto/issues/58).
@@ -29,7 +31,7 @@
 
 ### Improvements
 
-- Make molecule loading more modular and accept SDFs in [#55](https://github.com/cole-group/presto/pull/55). Note this is a breaking change -- the old parameterisation_settings.smiles field must now be replaced by parameterisation_settings.molecules.
+- Make molecule loading more modular and accept SDFs in [#55](https://github.com/cole-group/presto/pull/55). Note this is a breaking change -- the old param_settings.smiles field must now be replaced by param_settings.molecules.
 - Add CLI sub-command which shows version in [#54](https://github.com/cole-group/presto/pull/54).
 - Add Orb-v3 OMOL model in [#49](https://github.com/cole-group/presto/pull/49).
 

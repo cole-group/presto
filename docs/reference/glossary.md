@@ -30,7 +30,7 @@ One-line definitions for terms used throughout these docs.
 : Often used to mean a SMARTS pattern with numerical atom-index tags. `presto` generates one bespoke SMIRKS per bond/angle/torsion in your molecule.
 
 **Type generation**
-: The process of building bespoke SMIRKS patterns for a molecule's valence terms. Controlled by `parameterisation_settings.type_generation_settings`.
+: The process of building bespoke SMIRKS patterns for a molecule's valence terms. Controlled by `param_settings.type_generation_settings`.
 
 **Valence parameter**
 : A force-field parameter governing bonded interactions: bonds, angles, proper torsions, or improper torsions. `presto` only fits valence parameters.

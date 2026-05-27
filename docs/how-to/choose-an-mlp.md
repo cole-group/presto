@@ -26,7 +26,7 @@ Other models which are installed in the default pixi environment when installing
 By default each sampling-settings object instantiates its own `MLPSettings`. To use the same MLP for training-sampling, testing-sampling, and MSM, set it in three places:
 
 ```yaml
-parameterisation_settings:
+param_settings:
     msm_settings:
         mlp_settings:
             ml_potential: aimnet2
@@ -45,7 +45,7 @@ from presto.settings import MLPSettings, ...
 
 mlp = MLPSettings(ml_potential="aimnet2")
 settings = WorkflowSettings(
-    parameterisation_settings=ParameterisationSettings(
+    param_settings=ParamSettings(
         molecules="CCO",
         msm_settings=MSMSettings(mlp_settings=mlp),
     ),

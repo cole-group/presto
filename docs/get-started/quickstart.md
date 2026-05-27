@@ -5,7 +5,7 @@ Go from a SMILES to a bespoke force field. Assumes you've finished **[Installati
 ## Train a force field from one SMILES
 
 ```bash
-presto train --parameterisation-settings.molecules "CCO"
+presto train --param-settings.molecules "CCO"
 ```
 
 By default this runs two iterations of sampling + training using the AIMNet2 reference potential. On a single A4500 GPU, a 50-atom molecule takes around 15 minutes.
@@ -38,7 +38,7 @@ For reproducible runs, edit a settings file:
 
 ```bash
 presto write-default-yaml workflow_settings.yaml
-# edit the `parameterisation_settings.molecules` field
+# edit the `param_settings.molecules` field
 presto train-from-yaml workflow_settings.yaml
 ```
 
