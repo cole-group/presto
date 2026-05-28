@@ -7,7 +7,7 @@ from openff.toolkit import ForceField, Molecule
 from presto.convert import parameterise
 from presto.create_types import add_types_to_forcefield
 from presto.settings import (
-    ParameterisationSettings,
+    ParamSettings,
     TypeGenerationSettings,
 )
 
@@ -17,7 +17,7 @@ class TestMultiMoleculeParameterisation:
 
     def test_single_molecule_compatibility(self):
         """Test that single molecule works as a list of one."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CCO"],
             linearise_harmonics=False,
@@ -33,7 +33,7 @@ class TestMultiMoleculeParameterisation:
 
     def test_multiple_molecules_parameterisation(self):
         """Test parameterisation with multiple molecules."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CC", "CCO", "CCCC"],
             linearise_harmonics=False,
@@ -84,7 +84,7 @@ class TestMultiMoleculeParameterisation:
     def test_invalid_smiles_validation(self):
         """Test that invalid SMILES in list raises error."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
-            ParameterisationSettings(
+            ParamSettings(
                 molecule_input_type="smiles",
                 molecules=["CCO", "invalid_smiles_123", "CC"],
             )
@@ -92,12 +92,12 @@ class TestMultiMoleculeParameterisation:
     def test_empty_smiles_list(self):
         """Test that empty SMILES list is handled."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            ParameterisationSettings(molecule_input_type="smiles", molecules=[])
+            ParamSettings(molecule_input_type="smiles", molecules=[])
 
     def test_single_invalid_smiles(self):
         """Test that one invalid SMILES in list fails."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
-            ParameterisationSettings(
+            ParamSettings(
                 molecule_input_type="smiles",
                 molecules=["CCO", "INVALID", "CCC"],
             )
@@ -105,7 +105,7 @@ class TestMultiMoleculeParameterisation:
     def test_duplicate_smiles(self):
         """Test that duplicate SMILES are rejected."""
         with pytest.raises(ValueError, match="Duplicate inputs found"):
-            ParameterisationSettings(
+            ParamSettings(
                 molecule_input_type="smiles",
                 molecules=["CC", "CCO", "CC", "CCC"],
             )
@@ -184,14 +184,14 @@ class TestMultiMoleculeWorkflowSettings:
         )
 
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
+            param_settings=ParamSettings(
                 molecule_input_type="smiles", molecules=["CCO", "CC", "CCC"]
             ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.molecules) == 3
+        assert len(settings.param_settings.molecules) == 3
 
     def test_backward_compatibility_single_molecule(self):
         """Test that single molecule still works."""
@@ -201,14 +201,14 @@ class TestMultiMoleculeWorkflowSettings:
         )
 
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
+            param_settings=ParamSettings(
                 molecule_input_type="smiles", molecules=["CCO"]
             ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.molecules) == 1
+        assert len(settings.param_settings.molecules) == 1
 
 
 class TestMultiMoleculeEnergyCalculations:
@@ -217,7 +217,7 @@ class TestMultiMoleculeEnergyCalculations:
     @pytest.mark.parametrize("linearise_harmonics", [True, False])
     def test_energy_calculation_single_molecule(self, linearise_harmonics: bool):
         """Test energy calculation with single molecule."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CCO"],
             linearise_harmonics=linearise_harmonics,
@@ -242,7 +242,7 @@ class TestMultiMoleculeEnergyCalculations:
     @pytest.mark.parametrize("linearise_harmonics", [True, False])
     def test_energy_calculation_multiple_molecules(self, linearise_harmonics: bool):
         """Test that parameterisation works for multiple molecules."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CC", "CCO"],
             linearise_harmonics=linearise_harmonics,
@@ -267,7 +267,7 @@ class TestMultiMoleculeParameterSharing:
 
     def test_same_force_field_for_all_molecules(self):
         """Test that all molecules use the same force field."""
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CC", "CCC", "CCCC"],
             linearise_harmonics=False,
@@ -287,7 +287,7 @@ class TestMultiMoleculeParameterSharing:
         """Test that updating parameters affects all molecules."""
         from descent.train import ParameterConfig, Trainable
 
-        settings = ParameterisationSettings(
+        settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["CC", "CCC"],
             linearise_harmonics=False,

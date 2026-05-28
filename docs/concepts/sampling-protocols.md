@@ -51,7 +51,7 @@ Skip MD entirely and load a saved dataset from disk. Useful when:
 - You have an existing reference dataset (e.g. from QM or a different MLP) you want to fit against.
 - You want to repeat a fit with different training settings without re-sampling.
 
-The dataset must be in `descent.train`-compatible format (HuggingFace `datasets.save_to_disk`). For multi-molecule fits, the order of `dataset_paths` must match the order of `parameterisation_settings.molecules`.
+The dataset must be in `descent.train`-compatible format (HuggingFace `datasets.save_to_disk`). For multi-molecule fits, the order of `dataset_paths` must match the order of `param_settings.molecules`.
 
 See **[How-to → Use a pre-computed dataset](../how-to/use-precomputed-dataset.md)** for the recipe.
 

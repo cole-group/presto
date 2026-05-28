@@ -32,7 +32,7 @@ from pathlib import Path
 from presto.settings import PreComputedDatasetSettings, WorkflowSettings
 
 settings = WorkflowSettings(
-    parameterisation_settings=...,
+    param_settings=...,
     training_sampling_settings=PreComputedDatasetSettings(
         dataset_paths=[Path("path/to/training_dataset")],
     ),
@@ -43,10 +43,10 @@ You can use `pre_computed` for `training_sampling_settings`, `testing_sampling_s
 
 ## Multi-molecule fits
 
-For congeneric series, `dataset_paths` is a list — one path per molecule, in the same order as `parameterisation_settings.molecules`:
+For congeneric series, `dataset_paths` is a list — one path per molecule, in the same order as `param_settings.molecules`:
 
 ```yaml
-parameterisation_settings:
+param_settings:
     molecules:
         - CCO
         - CCC

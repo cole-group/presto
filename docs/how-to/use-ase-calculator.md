@@ -16,7 +16,7 @@ from presto.settings import (
     MLMDSamplingSettings,
     MLPSettings,
     MSMSettings,
-    ParameterisationSettings,
+    ParamSettings,
     WorkflowSettings,
 )
 from presto.workflow import get_bespoke_force_field
@@ -30,7 +30,7 @@ ase_mlp = MLPSettings(
 )
 
 settings = WorkflowSettings(
-    parameterisation_settings=ParameterisationSettings(
+    param_settings=ParamSettings(
         molecule_input_type="smiles",
         molecules="CCO",
         msm_settings=MSMSettings(mlp_settings=ase_mlp),
@@ -68,7 +68,7 @@ ase_kwargs = {"ml_system_kwargs": {"calculator": calculator}}
 loaded = WorkflowSettings.from_yaml(
     "workflow_settings.yaml",
     overwrite={
-        "parameterisation_settings": {
+        "param_settings": {
             "msm_settings": {"mlp_settings": ase_kwargs}
         },
         "training_sampling_settings": {"mlp_settings": ase_kwargs},

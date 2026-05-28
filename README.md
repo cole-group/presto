@@ -26,9 +26,7 @@ Train bespoke SMIRNOFF force fields quickly using a machine learning potential (
 
 ***Warning**: ⚠️ This code is under active development and the API may change without notice.*
 
-***Warning**:  ⚠️ There are currently [issues with AceFF 2.0](https://github.com/openmm/openmm-ml/issues/137) so AIMNet2 (`aimnet2` in the settings yaml) has been set as the default MLP for the moment.*
-
-Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AIMNet-2 model (as well as Egret-1, AceFF-2.0, and Orb-v3 OMOL) does.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AIMNet-2 model (as well as Egret-1, Orb-v3 OMOL, and others) does.
 
 ## Installation
 
@@ -46,7 +44,7 @@ For more information on activating pixi environments, see [the documentation](ht
 
 Run with command line arguments:
 ```bash
-presto train --parameterisation-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
+presto train --param-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
 then see the bespoke force field at `training_iteration_2/bespoke_ff.offxml`.
 
@@ -64,7 +62,7 @@ presto train-from-yaml default.yaml
 
 For SDF inputs, set `molecule_input_type: sdf` and list one or more `.sdf` files under `molecules`. Each SDF may contain one or more molecules. For example, with the CLI:
 ```bash
-presto train --parameterisation-settings.molecule-input-type sdf --parameterisation-settings.molecules input_molecule.sdf
+presto train --param-settings.molecule-input-type sdf --param-settings.molecules input_molecule.sdf
 ```
 
 For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
