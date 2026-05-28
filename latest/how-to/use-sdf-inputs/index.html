@@ -2579,15 +2579,15 @@
 
 
 <h1 id="use-sdf-inputs">Use SDF inputs<a class="headerlink" href="#use-sdf-inputs" title="Permanent link">#</a></h1>
-<p>By default <code>presto</code> reads SMILES strings under <code>parameterisation_settings.molecules</code>. To use one or more SDF files instead, set <code>molecule_input_type: sdf</code>.</p>
+<p>By default <code>presto</code> reads SMILES strings under <code>param_settings.molecules</code>. To use one or more SDF files instead, set <code>molecule_input_type: sdf</code>.</p>
 <h2 id="cli-form">CLI form<a class="headerlink" href="#cli-form" title="Permanent link">#</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>presto<span class="w"> </span>train<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--parameterisation-settings.molecule-input-type<span class="w"> </span>sdf<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--parameterisation-settings.molecules<span class="w"> </span>input_molecule.sdf
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--param-settings.molecule-input-type<span class="w"> </span>sdf<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--param-settings.molecules<span class="w"> </span>input_molecule.sdf
 </span></code></pre></div>
-<p>For multiple SDF files, repeat the <code>--parameterisation-settings.molecules</code> flag, or use the YAML form.</p>
+<p>For multiple SDF files, repeat the <code>--param-settings.molecules</code> flag, or use the YAML form.</p>
 <h2 id="yaml-form">YAML form<a class="headerlink" href="#yaml-form" title="Permanent link">#</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">parameterisation_settings</span><span class="p">:</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">param_settings</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="nt">molecule_input_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sdf</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">molecules</span><span class="p">:</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ligand_a.sdf</span>

@@ -3235,7 +3235,12 @@
 <h2 id="080">0.8.0<a class="headerlink" href="#080" title="Permanent link">#</a></h2>
 <h3 id="breaking-changes">Breaking changes<a class="headerlink" href="#breaking-changes" title="Permanent link">#</a></h3>
 <ul>
-<li>Replace flat ML potential settings with nested <code>mlp_settings</code> in sampling and MSM settings in <a href="https://github.com/cole-group/presto/issues/58">#58</a>. Legacy flat fields such as <code>ml_potential</code> and <code>ml_potential_kwargs</code> are no longer accepted.</li>
+<li>
+<p>Rename <code>ParameterisationSettings</code> to <code>ParamSettings</code> and the <code>parameterisation_settings</code> field to <code>param_settings</code> throughout. This avoids confusion between British/American spellings. YAML configs must update the key from <code>parameterisation_settings:</code> to <code>param_settings:</code>. In <a href="https://github.com/cole-group/presto/pull/62">#62</a>.</p>
+</li>
+<li>
+<p>Replace flat ML potential settings with nested <code>mlp_settings</code> in sampling and MSM settings in <a href="https://github.com/cole-group/presto/issues/58">#58</a>. Legacy flat fields such as <code>ml_potential</code> and <code>ml_potential_kwargs</code> are no longer accepted.</p>
+</li>
 <li>Remove <code>AvailableModels</code> and <code>validate_model_charge_compatibility</code>. <code>presto</code> now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
 <li>Add runtime-object placeholder handling for <code>mlp_settings.ml_system_kwargs</code>: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with <code>InvalidSettingsError</code> until placeholders are replaced (for example with <code>from_yaml(..., overwrite=...)</code>) before validation. Again, in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
 </ul>
@@ -3253,7 +3258,7 @@
 </ul>
 <h3 id="improvements">Improvements<a class="headerlink" href="#improvements" title="Permanent link">#</a></h3>
 <ul>
-<li>Make molecule loading more modular and accept SDFs in <a href="https://github.com/cole-group/presto/pull/55">#55</a>. Note this is a breaking change -- the old parameterisation_settings.smiles field must now be replaced by parameterisation_settings.molecules.</li>
+<li>Make molecule loading more modular and accept SDFs in <a href="https://github.com/cole-group/presto/pull/55">#55</a>. Note this is a breaking change -- the old param_settings.smiles field must now be replaced by param_settings.molecules.</li>
 <li>Add CLI sub-command which shows version in <a href="https://github.com/cole-group/presto/pull/54">#54</a>.</li>
 <li>Add Orb-v3 OMOL model in <a href="https://github.com/cole-group/presto/pull/49">#49</a>.</li>
 </ul>

@@ -2636,8 +2636,7 @@
 <hr />
 <p>Train bespoke SMIRNOFF force fields quickly using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the <a href="https://cole-group.github.io/presto/latest/"><strong>documentation</strong></a>.</p>
 <p><em><strong>Warning</strong>: ⚠️ This code is under active development and the API may change without notice.</em></p>
-<p><em><strong>Warning</strong>:  ⚠️ There are currently <a href="https://github.com/openmm/openmm-ml/issues/137">issues with AceFF 2.0</a> so AIMNet2 (<code>aimnet2</code> in the settings yaml) has been set as the default MLP for the moment.</em></p>
-<p>Please note that the MACE-OFF models are released under the <a href="https://github.com/gabor1/ASL/blob/main/ASL.md">Academic Software License</a> which <strong>does not permit commercial use</strong>. However, the default AIMNet-2 model (as well as Egret-1, AceFF-2.0, and Orb-v3 OMOL) does.</p>
+<p>Please note that the MACE-OFF models are released under the <a href="https://github.com/gabor1/ASL/blob/main/ASL.md">Academic Software License</a> which <strong>does not permit commercial use</strong>. However, the default AIMNet-2 model (as well as Egret-1, Orb-v3 OMOL, and others) does.</p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
 <p>Ensuring that you have pixi installed, install and start a shell with the current environment with:
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/cole-group/presto.git
@@ -2648,7 +2647,7 @@ This will create an environment with CUDA 12.9. <strong>You'll need to update to
 <p>For more information on activating pixi environments, see <a href="https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation">the documentation</a>.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">#</a></h2>
 <p>Run with command line arguments:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--parameterisation-settings.molecules<span class="w"> </span><span class="s2">&quot;CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--param-settings.molecules<span class="w"> </span><span class="s2">&quot;CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2&quot;</span>
 </span></code></pre></div>
 then see the bespoke force field at <code>training_iteration_2/bespoke_ff.offxml</code>.</p>
 <p>Sensible defaults have been set, but all available options can be viewed with:
@@ -2660,7 +2659,7 @@ then see the bespoke force field at <code>training_iteration_2/bespoke_ff.offxml
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>presto<span class="w"> </span>train-from-yaml<span class="w"> </span>default.yaml
 </span></code></pre></div></p>
 <p>For SDF inputs, set <code>molecule_input_type: sdf</code> and list one or more <code>.sdf</code> files under <code>molecules</code>. Each SDF may contain one or more molecules. For example, with the CLI:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--parameterisation-settings.molecule-input-type<span class="w"> </span>sdf<span class="w"> </span>--parameterisation-settings.molecules<span class="w"> </span>input_molecule.sdf
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--param-settings.molecule-input-type<span class="w"> </span>sdf<span class="w"> </span>--param-settings.molecules<span class="w"> </span>input_molecule.sdf
 </span></code></pre></div></p>
 <p>For more details on the theory and implementation, please see the <a href="https://cole-group.github.io/presto/latest/">documentation</a>.</p>
 <h2 id="copyright">Copyright<a class="headerlink" href="#copyright" title="Permanent link">#</a></h2>

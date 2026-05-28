@@ -2714,7 +2714,7 @@
 <li><code>torsion_sampling_mol&lt;n&gt;.png</code> — dihedral coverage during training trajectories.</li>
 </ul>
 <h2 id="per-molecule-outputs">Per-molecule outputs<a class="headerlink" href="#per-molecule-outputs" title="Permanent link">#</a></h2>
-<p>Outputs marked <code>_mol&lt;n&gt;</code> are produced once per input molecule. For a single-molecule fit, <code>&lt;n&gt;</code> is always <code>0</code>. For congeneric series, you get one file per molecule, indexed by position in <code>parameterisation_settings.molecules</code>.</p>
+<p>Outputs marked <code>_mol&lt;n&gt;</code> are produced once per input molecule. For a single-molecule fit, <code>&lt;n&gt;</code> is always <code>0</code>. For congeneric series, you get one file per molecule, indexed by position in <code>param_settings.molecules</code>.</p>
 <p>The full set of per-molecule output types is defined in <code>presto.outputs.PER_MOLECULE_OUTPUT_TYPES</code>.</p>
 <h2 id="workflow-settings-snapshot">Workflow settings snapshot<a class="headerlink" href="#workflow-settings-snapshot" title="Permanent link">#</a></h2>
 <p><code>workflow_settings.yaml</code> is written by <code>get_bespoke_force_field</code> when called via <code>presto train</code> or via the Python API with <code>write_settings=True</code>. It records the exact settings used for the run, including any defaults that were filled in automatically. You can re-run the same fit with <code>presto train-from-yaml workflow_settings.yaml</code>.</p>

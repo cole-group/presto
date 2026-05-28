@@ -2677,7 +2677,7 @@
 <li>For <code>ml_md</code>, both sampling and reference are the MLP.</li>
 <li>For <code>pre_computed</code>, there is no sampling; the reference is implicit in the saved dataset.</li>
 </ul>
-<p>Both roles are configured via <code>MLPSettings</code>. The MSM step (modified Seminario for initial bond/angle parameters) uses its own <code>MLPSettings</code> under <code>parameterisation_settings.msm_settings</code>. By default, each <code>MLPSettings</code> instance is constructed independently — see <strong><a href="../../how-to/choose-an-mlp/#pin-the-same-mlp-across-stages">Choose an MLP → Pin the same MLP across stages</a></strong> if you want consistency.</p>
+<p>Both roles are configured via <code>MLPSettings</code>. The MSM step (modified Seminario for initial bond/angle parameters) uses its own <code>MLPSettings</code> under <code>param_settings.msm_settings</code>. By default, each <code>MLPSettings</code> instance is constructed independently — see <strong><a href="../../how-to/choose-an-mlp/#pin-the-same-mlp-across-stages">Choose an MLP → Pin the same MLP across stages</a></strong> if you want consistency.</p>
 <h2 id="what-changes-when-you-swap-mlps">What changes when you swap MLPs<a class="headerlink" href="#what-changes-when-you-swap-mlps" title="Permanent link">#</a></h2>
 <ul>
 <li><strong>Cost.</strong> AIMNet2 is fast; Orb-v3 OMol fits are roughly 2× slower at similar molecule size.</li>

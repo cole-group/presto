@@ -2647,7 +2647,7 @@
 <h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">#</a></h1>
 <p>Go from a SMILES to a bespoke force field. Assumes you've finished <strong><a href="../installation/">Installation</a></strong>.</p>
 <h2 id="train-a-force-field-from-one-smiles">Train a force field from one SMILES<a class="headerlink" href="#train-a-force-field-from-one-smiles" title="Permanent link">#</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--parameterisation-settings.molecules<span class="w"> </span><span class="s2">&quot;CCO&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>presto<span class="w"> </span>train<span class="w"> </span>--param-settings.molecules<span class="w"> </span><span class="s2">&quot;CCO&quot;</span>
 </span></code></pre></div>
 <p>By default this runs two iterations of sampling + training using the AIMNet2 reference potential. On a single A4500 GPU, a 50-atom molecule takes around 15 minutes.</p>
 <h2 id="inspect-the-output">Inspect the output<a class="headerlink" href="#inspect-the-output" title="Permanent link">#</a></h2>
@@ -2666,7 +2666,7 @@
 <h2 id="run-from-a-yaml-file-instead">Run from a YAML file instead<a class="headerlink" href="#run-from-a-yaml-file-instead" title="Permanent link">#</a></h2>
 <p>For reproducible runs, edit a settings file:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>presto<span class="w"> </span>write-default-yaml<span class="w"> </span>workflow_settings.yaml
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># edit the `parameterisation_settings.molecules` field</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># edit the `param_settings.molecules` field</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>presto<span class="w"> </span>train-from-yaml<span class="w"> </span>workflow_settings.yaml
 </span></code></pre></div>
 <p>See the <strong><a href="../../reference/api/settings/">API reference</a></strong> for what every field does.</p>

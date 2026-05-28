@@ -3454,13 +3454,13 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-1">
@@ -3473,11 +3473,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">presto.settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParameterisationSettings</span><span class="p">,</span> <span class="n">WorkflowSettings</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">presto.settings</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParamSettings</span><span class="p">,</span> <span class="n">WorkflowSettings</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">presto.workflow</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_bespoke_force_field</span>
 
 <span class="n">settings</span> <span class="o">=</span> <span class="n">WorkflowSettings</span><span class="p">(</span>
-    <span class="n">parameterisation_settings</span><span class="o">=</span><span class="n">ParameterisationSettings</span><span class="p">(</span>
+    <span class="n">param_settings</span><span class="o">=</span><span class="n">ParamSettings</span><span class="p">(</span>
         <span class="n">molecule_input_type</span><span class="o">=</span><span class="s2">"smiles"</span><span class="p">,</span>
         <span class="n">molecules</span><span class="o">=</span><span class="s2">"CCO"</span><span class="p">,</span>
     <span class="p">),</span>
@@ -3486,11 +3486,11 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <span class="p">)</span>
 <span class="n">settings</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">from presto.settings import ParameterisationSettings, WorkflowSettings
+<div class="clipboard-copy-txt" id="cell-1">from presto.settings import ParamSettings, WorkflowSettings
 from presto.workflow import get_bespoke_force_field
 
 settings = WorkflowSettings(
-    parameterisation_settings=ParameterisationSettings(
+    param_settings=ParamSettings(
         molecule_input_type="smiles",
         molecules="CCO",
     ),
@@ -3498,18 +3498,6 @@ settings = WorkflowSettings(
     n_iterations=2,
 )
 settings</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>WorkflowSettings(version='0.7.1.dev16+gb27d5656f.d20260527', output_dir=PosixPath('.'), device_type='cuda', n_iterations=2, memory=False, parameterisation_settings=ParameterisationSettings(molecule_input_type='smiles', molecules=['CCO'], initial_force_field='openff_unconstrained-2.3.0.offxml', expand_torsions=True, linearise_harmonics=True, msm_settings=MSMSettings(mlp_settings=MLPSettings(ml_potential='aimnet2', ml_potential_kwargs={}, ml_system_kwargs={}), finite_step=0.0005291772 nm, tolerance=0.005291772 kcal/(A mol), vib_scaling=1.0, n_conformers=1), type_generation_settings={'Bonds': TypeGenerationSettings(max_extend_distance=-1, include=[], exclude=[]), 'Angles': TypeGenerationSettings(max_extend_distance=-1, include=[], exclude=[]), 'ProperTorsions': TypeGenerationSettings(max_extend_distance=-1, include=[], exclude=['[*:1]-[*:2]#[*:3]-[*:4]', '[*:1]~[*:2]-[*:3]#[*:4]', '[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]']), 'ImproperTorsions': TypeGenerationSettings(max_extend_distance=-1, include=[], exclude=[])}), training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(sampling_protocol='mm_md_metadynamics_torsion_minimisation', mlp_settings=MLPSettings(ml_potential='aimnet2', ml_potential_kwargs={}, ml_system_kwargs={}), timestep=1 fs, temperature=500 K, snapshot_interval=0.5 ps, n_conformers=10, equilibration_sampling_time_per_conformer=0.0 ps, production_sampling_time_per_conformer=100 ps, loss_energy_weight=1000.0, loss_force_weight=0.1, bias_width=0.3141592653589793, bias_factor=20.0, bias_height=1.0 kJ/mol, bias_frequency=0.1 ps, bias_save_frequency=10 ps, torsions_to_include_smarts=['[!#1:1]~[!$(*#*)&amp;!D1:2]-!@[!$(*#*)&amp;!D1:3]~[!#1:4]', '[!#1:1]~[!$(*#*)&amp;!D1&amp;r5&amp;!a:2]-@[!$(*#*)&amp;!D1&amp;r5&amp;!a:3]~[!#1:4]', '[!#1:1]~[!$(*#*)&amp;!D1&amp;r6&amp;!a:2]-@[!$(*#*)&amp;!D1&amp;r6&amp;!a:3]~[!#1:4]', '[!#1:1]~[!$(*#*)&amp;!D1&amp;r7&amp;!a:2]-@[!$(*#*)&amp;!D1&amp;r7&amp;!a:3]~[!#1:4]'], torsions_to_exclude_smarts=[], ml_minimisation_steps=10, mm_minimisation_steps=10, torsion_restraint_force_constant=0.0 kJ/(mol rad**2), map_ml_coords_energy_to_mm_coords_energy=False, loss_energy_weight_mm_torsion_min=1000.0, loss_force_weight_mm_torsion_min=0.1, loss_energy_weight_ml_torsion_min=1000.0, loss_force_weight_ml_torsion_min=0.1), testing_sampling_settings=MLMDSamplingSettings(sampling_protocol='ml_md', mlp_settings=MLPSettings(ml_potential='aimnet2', ml_potential_kwargs={}, ml_system_kwargs={}), timestep=1 fs, temperature=298 K, snapshot_interval=20 fs, n_conformers=10, equilibration_sampling_time_per_conformer=0.0 ps, production_sampling_time_per_conformer=2 ps, loss_energy_weight=1000.0, loss_force_weight=0.1), training_settings=TrainingSettings(optimiser='adam', parameter_configs={'LinearBonds': ParameterConfig(cols=['k1', 'k2'], scales={'k1': 0.0028, 'k2': 0.0028}, limits={'k1': (1e-08, None), 'k2': (1e-08, None)}, regularize={}, include=None, exclude=None), 'LinearAngles': ParameterConfig(cols=['k1', 'k2'], scales={'k1': 0.012, 'k2': 0.011}, limits={'k1': (1e-08, None), 'k2': (1e-08, None)}, regularize={}, include=None, exclude=None), 'ProperTorsions': ParameterConfig(cols=['k'], scales={'k': 1.3}, limits={'k': (None, None)}, regularize={'k': 1.0}, include=None, exclude=[_PotentialKey(id='[*:1]-[*:2]#[*:3]-[*:4]', mult=0, associated_handler='ProperTorsions', bond_order=None), _PotentialKey(id='[*:1]~[*:2]-[*:3]#[*:4]', mult=0, associated_handler='ProperTorsions', bond_order=None), _PotentialKey(id='[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]', mult=0, associated_handler='ProperTorsions', bond_order=None)]), 'ImproperTorsions': ParameterConfig(cols=['k'], scales={'k': 0.12}, limits={'k': (0.0, None)}, regularize={'k': 1.0}, include=None, exclude=None)}, attribute_configs={}, n_epochs=1000, learning_rate=0.01, learning_rate_decay=1.0, learning_rate_decay_step=10, regularisation_target='initial'), outlier_filter_settings=OutlierFilterSettings(energy_outlier_threshold=2.0, force_outlier_threshold=500.0, min_conformations=1))</pre>
 </div>
 </div>
 </div>
@@ -3825,7 +3813,7 @@ Image("plots/loss.png")</div>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-6">
@@ -3844,7 +3832,7 @@ Image("plots/loss.png")</div>
     <span class="n">MLMDSamplingSettings</span><span class="p">,</span>
     <span class="n">MLPSettings</span><span class="p">,</span>
     <span class="n">MSMSettings</span><span class="p">,</span>
-    <span class="n">ParameterisationSettings</span><span class="p">,</span>
+    <span class="n">ParamSettings</span><span class="p">,</span>
     <span class="n">WorkflowSettings</span><span class="p">,</span>
 <span class="p">)</span>
 
@@ -3862,7 +3850,7 @@ Image("plots/loss.png")</div>
 <span class="p">)</span>
 
 <span class="n">ase_settings</span> <span class="o">=</span> <span class="n">WorkflowSettings</span><span class="p">(</span>
-    <span class="n">parameterisation_settings</span><span class="o">=</span><span class="n">ParameterisationSettings</span><span class="p">(</span>
+    <span class="n">param_settings</span><span class="o">=</span><span class="n">ParamSettings</span><span class="p">(</span>
         <span class="n">molecule_input_type</span><span class="o">=</span><span class="s2">"smiles"</span><span class="p">,</span>
         <span class="n">molecules</span><span class="o">=</span><span class="s2">"CCO"</span><span class="p">,</span>
         <span class="n">msm_settings</span><span class="o">=</span><span class="n">MSMSettings</span><span class="p">(</span><span class="n">mlp_settings</span><span class="o">=</span><span class="n">ase_mlp</span><span class="p">),</span>
@@ -3878,7 +3866,7 @@ from presto.settings import (
     MLMDSamplingSettings,
     MLPSettings,
     MSMSettings,
-    ParameterisationSettings,
+    ParamSettings,
     WorkflowSettings,
 )
 
@@ -3896,7 +3884,7 @@ ase_mlp = MLPSettings(
 )
 
 ase_settings = WorkflowSettings(
-    parameterisation_settings=ParameterisationSettings(
+    param_settings=ParamSettings(
         molecule_input_type="smiles",
         molecules="CCO",
         msm_settings=MSMSettings(mlp_settings=ase_mlp),
@@ -3927,7 +3915,7 @@ ase_settings = WorkflowSettings(
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [7]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="CodeMirror cm-s-jupyter">
 <div class="zeroclipboard-container">
 <clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-7">
@@ -3947,7 +3935,7 @@ ase_settings = WorkflowSettings(
 <span class="n">loaded</span> <span class="o">=</span> <span class="n">WorkflowSettings</span><span class="o">.</span><span class="n">from_yaml</span><span class="p">(</span>
     <span class="s2">"ase_workflow_settings.yaml"</span><span class="p">,</span>
     <span class="n">overwrite</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">"parameterisation_settings"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s2">"param_settings"</span><span class="p">:</span> <span class="p">{</span>
             <span class="s2">"msm_settings"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"mlp_settings"</span><span class="p">:</span> <span class="n">ase_kwargs</span><span class="p">}</span>
         <span class="p">},</span>
         <span class="s2">"training_sampling_settings"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"mlp_settings"</span><span class="p">:</span> <span class="n">ase_kwargs</span><span class="p">},</span>
@@ -3962,7 +3950,7 @@ ase_kwargs = {"ml_system_kwargs": {"calculator": ase_calculator}}
 loaded = WorkflowSettings.from_yaml(
     "ase_workflow_settings.yaml",
     overwrite={
-        "parameterisation_settings": {
+        "param_settings": {
             "msm_settings": {"mlp_settings": ase_kwargs}
         },
         "training_sampling_settings": {"mlp_settings": ase_kwargs},
