@@ -22,6 +22,10 @@
 - Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary. Add Python API walk-through notebook.  - Polish Pydantic Field descriptions in settings to improve auto-generated API reference. Add example invocations to CLI subcommand docstrings. Add Python API examples for running fitting via `get_bespoke_force_field(...)`, including optional OpenMM-ML ASE calculator usage through `ml_system_kwargs`. In [#61](https://github.com/cole-group/presto/pull/61).
 - Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for `ml_potential="ase"` charge must be passed explicitly in `ml_system_kwargs`.
 
+### Maintenance
+
+- Update the default env to use Python 3.12 to avoid dm-tree (an Orb dep) build issues. In [#60](https://github.com/cole-group/presto/pull/60).
+
 ## 0.7.0
 
 ### Fixes

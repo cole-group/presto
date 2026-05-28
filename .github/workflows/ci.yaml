@@ -15,16 +15,21 @@ on:
 
 jobs:
   test:
-    # Run on 22.04 rather than latest to match my machine (as we install using --locked).
-    # This avoids issues # with e.g. different gcc versions when building dm-tree from source
+    # Avoid running on latest with the non-base py313 env which includes the Orb feature, as
+    # this avoids issues # with e.g. different gcc versions when building dm-tree from source
     # for Python 3.13.
-    name: Test on ubuntu-22.04, py${{ matrix.python-version }}, ${{ matrix.env-type }}
-    runs-on: ubuntu-22.04
+    name: Test on ${{ matrix.runs-on }}, py${{ matrix.python-version }}, ${{ matrix.env-type }}
+    runs-on: ${{ matrix.runs-on }}
 
     strategy:
       matrix:
+        runs-on: ["ubuntu-22.04", "ubuntu-latest"]
         python-version: ["312", "313"]
         env-type: ["cpu", "base-cpu"]
+        exclude:
+          - runs-on: "ubuntu-latest"
+            python-version: "313"
+            env-type: "cpu"
 
     steps:
       - uses: actions/checkout@v6
@@ -55,6 +60,8 @@ jobs:
           pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} test
 
       - name: Upload coverage reports to Codecov
+        # Only do this for one of the runs. Avoid the base envs as they skip a few MLP tests.
+        if: matrix.runs-on == 'ubuntu-22.04' && matrix.env-type == 'cpu' && matrix.python-version == '313'
         uses: codecov/codecov-action@v6
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
