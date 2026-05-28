@@ -3,7 +3,7 @@ output_dir: .
 device_type: cpu
 n_iterations: 2
 memory: false
-parameterisation_settings:
+param_settings:
     molecule_input_type: smiles
     molecules: "N#CCC(=O)C"
     initial_force_field: openff_unconstrained-2.3.0.offxml
@@ -31,7 +31,8 @@ parameterisation_settings:
             exclude: []
 training_sampling_settings:
     sampling_protocol: mm_md_metadynamics_torsion_minimisation
-    ml_potential: egret-1
+    mlp_settings:
+        ml_potential: egret-1
     timestep: 1 fs
     temperature: 500 K
     snapshot_interval: 400 fs
@@ -55,7 +56,8 @@ training_sampling_settings:
     loss_force_weight_ml_torsion_min: 0.1
 testing_sampling_settings:
     sampling_protocol: ml_md
-    ml_potential: egret-1
+    mlp_settings:
+        ml_potential: egret-1
     timestep: 1 fs
     temperature: 500 K
     snapshot_interval: 40 fs

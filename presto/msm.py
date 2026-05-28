@@ -705,7 +705,7 @@ def apply_msm_to_molecule(
     simulation, integrator = _build_ml_simulation(
         mol_with_conformers,
         mol_with_conformers.to_topology().to_openmm(),
-        settings.ml_potential,
+        settings.mlp_settings,
         300 * _OMM_KELVIN,
         1.0 * _OMM_FEMTOSECOND,
         device=device,

@@ -1,15 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+
+
+## 0.8.0
+
+### Breaking changes
+
+- Rename `ParameterisationSettings` to `ParamSettings` and the `parameterisation_settings` field to `param_settings` throughout. This avoids confusion between British/American spellings. YAML configs must update the key from `parameterisation_settings:` to `param_settings:`. In [#62](https://github.com/cole-group/presto/pull/62).
+
+- Replace flat ML potential settings with nested `mlp_settings` in sampling and MSM settings in [#58](https://github.com/cole-group/presto/issues/58). Legacy flat fields such as `ml_potential` and `ml_potential_kwargs` are no longer accepted.
+- Remove `AvailableModels` and `validate_model_charge_compatibility`. `presto` now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in [#58](https://github.com/cole-group/presto/issues/58).
+- Add runtime-object placeholder handling for `mlp_settings.ml_system_kwargs`: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with `InvalidSettingsError` until placeholders are replaced (for example with `from_yaml(..., overwrite=...)`) before validation. Again, in [#58](https://github.com/cole-group/presto/issues/58).
+
+### Documentation
+
+- Rewrite documentation with Diátaxis structure: Get started, How-to, Concepts, and Reference sections.
+- Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary. Add Python API walk-through notebook.  - Polish Pydantic Field descriptions in settings to improve auto-generated API reference. Add example invocations to CLI subcommand docstrings. Add Python API examples for running fitting via `get_bespoke_force_field(...)`, including optional OpenMM-ML ASE calculator usage through `ml_system_kwargs`. In [#61](https://github.com/cole-group/presto/pull/61).
+- Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for `ml_potential="ase"` charge must be passed explicitly in `ml_system_kwargs`.
+
 ## 0.7.0
 
-## Fixes
+### Fixes
 
 - Guard against lack of any constaints in the input force field in [#56](https://github.com/cole-group/presto/pull/56). This allows use of the unconstrained version of Parsely.
 - Set default model to AIMNet2 in light of current AceFF 2.0 OpenMM-ML issues in [#49](https://github.com/cole-group/presto/pull/49). Also add README warning about AceFF 2.0.
 
-## Improvements
+### Improvements
 
-- Make molecule loading more modular and accept SDFs in [#55](https://github.com/cole-group/presto/pull/55). Note this is a breaking change -- the old parameterisation_settings.smiles field must now be replaced by parameterisation_settings.molecules.
+- Make molecule loading more modular and accept SDFs in [#55](https://github.com/cole-group/presto/pull/55). Note this is a breaking change -- the old param_settings.smiles field must now be replaced by param_settings.molecules.
 - Add CLI sub-command which shows version in [#54](https://github.com/cole-group/presto/pull/54).
 - Add Orb-v3 OMOL model in [#49](https://github.com/cole-group/presto/pull/49).
 

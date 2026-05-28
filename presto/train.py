@@ -85,32 +85,30 @@ def train_levenberg_marquardt(
 
     Parameters
     ----------
-        trainable_parameters: torch.Tensor
-            The parameters to be optimized.
-        initial_parameters: torch.Tensor
-            The initial parameters before training.
-        trainable: descent.train.Trainable
-            The trainable object containing the parameters.
-        topologies: list[smee.TensorTopology]
-            The topologies of the systems.
-        datasets: list[datasets.Dataset]
-            The datasets to be used for training.
-        datasets_test: list[datasets.Dataset]
-            The datasets to be used for testing.
-        settings: TrainingSettings
-            The settings object containing training parameters.
-        output_paths: dict[OutputType, PathLike]
-            A mapping of output types to filesystem paths. The following keys are
-            expected:
-                - OutputType.TENSORBOARD
-                - OutputType.TRAINING_METRICS
-        device: torch.device
-            The device to perform training on.
+    trainable_parameters : torch.Tensor
+        The parameters to be optimized.
+    initial_parameters : torch.Tensor
+        The initial parameters before training.
+    trainable : descent.train.Trainable
+        The trainable object containing the parameters.
+    topologies : list[smee.TensorTopology]
+        The topologies of the systems.
+    datasets : list[datasets.Dataset]
+        The datasets to be used for training.
+    datasets_test : list[datasets.Dataset]
+        The datasets to be used for testing.
+    settings : TrainingSettings
+        The settings object containing training parameters.
+    output_paths : dict[OutputType, PathLike]
+        A mapping of output types to filesystem paths. The following keys are
+        expected: ``OutputType.TENSORBOARD`` and ``OutputType.TRAINING_METRICS``.
+    device : torch.device
+        The device to perform training on.
 
     Returns:
     -------
-        tuple[torch.Tensor, descent.train.Trainable]
-            The updated parameters and the trainable object.
+    tuple[torch.Tensor, descent.train.Trainable]
+        The updated parameters and the trainable object.
     """
     # Warn the user that LM needs more testing
     logger.warning(
@@ -177,32 +175,30 @@ def train_adam(
 
     Parameters
     ----------
-        trainable_parameters: torch.Tensor
-            The parameters to be optimized.
-        initial_parameters: torch.Tensor
-            The initial parameters before training.
-        trainable: descent.train.Trainable
-            The trainable object containing the parameters.
-        topologies: list[smee.TensorTopology]
-            The topologies of the systems.
-        datasets: list[datasets.Dataset]
-            The datasets to be used for training.
-        datasets_test: list[datasets.Dataset]
-            The datasets to be used for testing.
-        settings: TrainingSettings
-            The settings object containing training parameters.
-        output_paths: dict[OutputType, PathLike]
-            A mapping of output types to filesystem paths. The following keys are
-            expected:
-                - OutputType.TENSORBOARD
-                - OutputType.TRAINING_METRICS
-        device: torch.device
-            The device to perform training on.
+    trainable_parameters : torch.Tensor
+        The parameters to be optimized.
+    initial_parameters : torch.Tensor
+        The initial parameters before training.
+    trainable : descent.train.Trainable
+        The trainable object containing the parameters.
+    topologies : list[smee.TensorTopology]
+        The topologies of the systems.
+    datasets : list[datasets.Dataset]
+        The datasets to be used for training.
+    datasets_test : list[datasets.Dataset]
+        The datasets to be used for testing.
+    settings : TrainingSettings
+        The settings object containing training parameters.
+    output_paths : dict[OutputType, PathLike]
+        A mapping of output types to filesystem paths. The following keys are
+        expected: ``OutputType.TENSORBOARD`` and ``OutputType.TRAINING_METRICS``.
+    device : torch.device
+        The device to perform training on.
 
     Returns:
     -------
-        tuple[torch.Tensor, descent.train.Trainable]
-            The updated parameters and the trainable object.
+    tuple[torch.Tensor, descent.train.Trainable]
+        The updated parameters and the trainable object.
     """
     # Make sure we have all the required output paths and no others
     if set(output_paths.keys()) != settings.output_types:

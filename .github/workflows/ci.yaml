@@ -15,25 +15,20 @@ on:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }}, Python ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+    # Avoid running on latest with the non-base py313 env which includes the Orb feature, as
+    # this avoids issues # with e.g. different gcc versions when building dm-tree from source
+    # for Python 3.13.
+    name: Test on ${{ matrix.runs-on }}, py${{ matrix.python-version }}, ${{ matrix.env-type }}
+
     strategy:
       matrix:
-        os: ["ubuntu-22.04", "ubuntu-latest"]
-        python-version: ["3.12", "3.13"]
-        include:
-          - os: "ubuntu-22.04"
-            python-version: "3.12"
-            pixi-environment: "cpu-py312"
-          - os: "ubuntu-22.04"
-            python-version: "3.13"
-            pixi-environment: "cpu-py313"
-          - os: "ubuntu-latest"
-            python-version: "3.12"
-            pixi-environment: "cpu-py312"
+        runs-on: ["ubuntu-22.04", "ubuntu-latest"]
+        python-version: ["312", "313"]
+        env-type: ["cpu", "base-cpu"]
         exclude:
-          - os: "ubuntu-latest"
-            python-version: "3.13"
+          - runs-on: "ubuntu-latest"
+            python-version: "313"
+            env-type: "cpu"
 
     steps:
       - uses: actions/checkout@v6
@@ -49,19 +44,19 @@ jobs:
         with:
           pixi-version: v0.67.2
           cache: true
-          environments: ${{ matrix.pixi-environment }}
+          environments: ${{ matrix.env-type }}-py${{ matrix.python-version }}
 
       - name: Lint
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} lint
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} lint
 
       - name: Type check
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} type-check
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} type-check
 
       - name: Run tests
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} test
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} test
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v6

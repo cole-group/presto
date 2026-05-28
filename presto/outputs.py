@@ -11,7 +11,19 @@ if TYPE_CHECKING:
 
 
 class OutputType(Enum):
-    """An enumeration of the different types of outputs produced by bespoke fitting functions."""
+    """An enumeration of the different types of outputs produced by bespoke fitting functions.
+
+    Every run lays out files in the following stages under ``output_dir``:
+
+    - ``workflow_settings.yaml`` at the top, recording the inputs.
+    - ``test_data/`` containing the validation dataset.
+    - ``initial_statistics/`` with the offxml and scatter data for the starting force field.
+    - ``training_iteration_<n>/`` for each iteration, containing the bespoke offxml,
+      sampled trajectories, energies/forces, and TensorBoard metrics.
+    - ``plots/`` aggregating loss and parameter diagnostic plots across iterations.
+
+    The string value of each member is the filename or directory name on disk.
+    """
 
     WORKFLOW_SETTINGS = "workflow_settings.yaml"
     """The settings yaml file which is written if the user runs using `presto train`

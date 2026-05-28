@@ -12,21 +12,50 @@ validation:
   absolute_links: warn
   unrecognized_links: warn
 
+exclude_docs: |
+  examples/README.md
+  how-to/use-precomputed-dataset.md
+
 extra:
   version:
     provider: mike
 
 nav:
-- Home:
-  - Overview: index.md
-- Method overview : method_overview.md
-- Settings guide : settings_guide.md
-- Output guide: output_guide.md
-- Examples:
-  - examples/README.md
-  - examples/basic-walk-through-cli.ipynb
-- API reference: reference/
-- Development: development.md
+- Home: index.md
+- Get started:
+  - get-started/index.md
+  - Installation: get-started/installation.md
+  - Quickstart: get-started/quickstart.md
+  - Walk-through (CLI): examples/basic-walk-through-cli.ipynb
+  - Walk-through (Python API): examples/basic-walk-through-python-api.ipynb
+- How-to:
+  - how-to/index.md
+  - Fit a single molecule: how-to/fit-single-molecule.md
+  - Fit a congeneric series: how-to/fit-congeneric-series.md
+  - Use SDF inputs: how-to/use-sdf-inputs.md
+  - Clean and rerun a fit: how-to/clean-rerun.md
+  - Choose an MLP: how-to/choose-an-mlp.md
+  - Use an ASE calculator: how-to/use-ase-calculator.md
+  - Inspect outputs and plots: how-to/inspect-outputs.md
+  - Run from Python: how-to/run-from-python.md
+- Concepts:
+  - concepts/index.md
+  - Bespoke SMIRNOFF in 5 minutes: concepts/bespoke-smirnoff-primer.md
+  - Method overview: concepts/method-overview.md
+  - Sampling protocols: concepts/sampling-protocols.md
+  - Type generation and SMIRKS specificity: concepts/type-generation.md
+  - MLPs in presto: concepts/mlps.md
+  - Output directory layout: concepts/output-layout.md
+- Reference:
+  - reference/index.md
+  - Troubleshooting: reference/troubleshooting.md
+  - Glossary: reference/glossary.md
+  - API: reference/api/
+- Development:
+  - development/index.md
+  - Contributing: development/contributing.md
+  - Building the docs: development/docs.md
+  - Releasing: development/releasing.md
 - Changelog: changelog.md
 
 theme:

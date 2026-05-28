@@ -16,13 +16,15 @@ from rdkit import Chem
 from presto import __version__
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
+    _RUNTIME_OBJECT_PLACEHOLDER,
     MLMDSamplingSettings,
+    MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
     MSMSettings,
     OutlierFilterSettings,
-    ParameterisationSettings,
+    ParamSettings,
     TrainingSettings,
     TypeGenerationSettings,
     WorkflowSettings,
@@ -39,7 +41,7 @@ class TestSamplingSettingsBase:
 
     def test_default_values(self, valid_mm_md_settings):
         """Test that default values are set correctly."""
-        assert valid_mm_md_settings.ml_potential == "aimnet2"
+        assert valid_mm_md_settings.mlp_settings.ml_potential == "aimnet2"
         assert valid_mm_md_settings.timestep.value_in_unit(omm_unit.femtoseconds) == 1.0
         assert valid_mm_md_settings.temperature.value_in_unit(omm_unit.kelvin) == 500.0
         assert valid_mm_md_settings.n_conformers == 10
@@ -91,6 +93,80 @@ class TestSamplingSettingsBase:
         from presto.outputs import OutputType
 
         assert OutputType.PDB_TRAJECTORY in valid_mm_md_settings.output_types
+
+    def test_ase_does_not_require_special_fields(self):
+        """Test ASE settings can be configured only through ml_system_kwargs."""
+        settings = MLMDSamplingSettings(mlp_settings=MLPSettings(ml_potential="ase"))
+        assert settings.mlp_settings.ml_potential == "ase"
+
+    def test_runtime_object_yaml_placeholder_round_trip(self, tmp_path):
+        """Test runtime objects are written as placeholders and must be overridden on load."""
+        yaml_path = tmp_path / "ase_settings.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"calculator": object()},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        assert _RUNTIME_OBJECT_PLACEHOLDER in yaml_path.read_text()
+
+        with pytest.raises(ValidationError, match="runtime-only placeholder values"):
+            MLMDSamplingSettings.from_yaml(yaml_path)
+
+        loaded = MLMDSamplingSettings.from_yaml(
+            yaml_path,
+            overwrite={"mlp_settings": {"ml_system_kwargs": {"calculator": object()}}},
+        )
+        assert loaded.mlp_settings.ml_potential == "ase"
+
+    def test_runtime_placeholder_supports_nested_ml_system_kwargs(self, tmp_path):
+        """Test nested ml_system_kwargs values are preserved unless runtime-only."""
+        yaml_path = tmp_path / "runtime_placeholder_nested.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"info": {"charge": 1, "calculator_obj": object()}},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        text = yaml_path.read_text()
+        assert _RUNTIME_OBJECT_PLACEHOLDER in text
+
+        with pytest.raises(ValidationError, match=r"\[info\]\[calculator_obj\]"):
+            MLMDSamplingSettings.from_yaml(yaml_path)
+
+        loaded = MLMDSamplingSettings.from_yaml(
+            yaml_path,
+            overwrite={
+                "mlp_settings": {
+                    "ml_system_kwargs": {
+                        "info": {"charge": 1, "calculator_obj": object()}
+                    },
+                }
+            },
+        )
+        assert loaded.mlp_settings.ml_system_kwargs["info"]["charge"] == 1
+
+    def test_yaml_round_trip_keeps_serializable_nested_ml_system_kwargs(self, tmp_path):
+        """Test serializable nested ml_system_kwargs values survive YAML round-trip."""
+        yaml_path = tmp_path / "runtime_placeholder_serializable.yaml"
+        settings = MLMDSamplingSettings(
+            mlp_settings=MLPSettings(
+                ml_potential="ase",
+                ml_system_kwargs={"info": {"charge": 1, "foo": "bar"}},
+            )
+        )
+        settings.to_yaml(yaml_path)
+
+        assert _RUNTIME_OBJECT_PLACEHOLDER not in yaml_path.read_text()
+        loaded = MLMDSamplingSettings.from_yaml(yaml_path)
+        assert loaded.mlp_settings.ml_system_kwargs["info"] == {
+            "charge": 1,
+            "foo": "bar",
+        }
 
 
 class TestMMMDSamplingSettings:
@@ -319,7 +395,7 @@ class TestMSMSettings:
         """Test default MSM settings."""
         settings = MSMSettings()
         assert settings.vib_scaling == 1.0
-        assert settings.ml_potential == "aimnet2"
+        assert settings.mlp_settings.ml_potential == "aimnet2"
 
     def test_custom_vib_scaling(self):
         """Test custom vibrational scaling."""
@@ -328,8 +404,10 @@ class TestMSMSettings:
 
     def test_custom_ml_potential(self):
         """Test custom ML potential."""
-        settings = MSMSettings(ml_potential="mace-off23-medium")
-        assert settings.ml_potential == "mace-off23-medium"
+        settings = MSMSettings(
+            mlp_settings=MLPSettings(ml_potential="mace-off23-medium")
+        )
+        assert settings.mlp_settings.ml_potential == "mace-off23-medium"
 
 
 class TestTrainingSettings:
@@ -480,14 +558,12 @@ class TestTypeGenerationSettings:
         assert loaded.exclude == ["[*:1]-[*:2]#[*:3]-[*:4]"]
 
 
-class TestParameterisationSettings:
+class TestParamSettings:
     """Tests for parameterisation settings."""
 
     def test_valid_smiles_input(self):
         """Test that valid SMILES input is accepted and converted to list."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules="CCO"
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
         assert settings.molecules == ["CCO"]
         assert len(settings.openff_molecules) == 1
         assert settings.openff_molecules[0].n_atoms == 9
@@ -495,14 +571,12 @@ class TestParameterisationSettings:
     def test_invalid_smiles_raises_error(self):
         """Test that invalid SMILES raise error."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
-            ParameterisationSettings(
-                molecule_input_type="smiles", molecules="invalid_smiles_123"
-            )
+            ParamSettings(molecule_input_type="smiles", molecules="invalid_smiles_123")
 
     def test_placeholder_input_raises_error(self):
         """Test that placeholder input raises error for smiles mode."""
         with pytest.raises(ValidationError, match="Invalid SMILES"):
-            ParameterisationSettings(
+            ParamSettings(
                 molecule_input_type="smiles", molecules=_DEFAULT_INPUT_PLACEHOLDER
             )
 
@@ -511,9 +585,7 @@ class TestParameterisationSettings:
         sdf = tmp_path / "ethanol.sdf"
         Molecule.from_smiles("CCO").to_file(str(sdf), "SDF")
 
-        settings = ParameterisationSettings(
-            molecule_input_type="sdf", molecules=str(sdf)
-        )
+        settings = ParamSettings(molecule_input_type="sdf", molecules=str(sdf))
 
         assert settings.molecules == [str(sdf)]
         assert len(settings.openff_molecules) == 1
@@ -523,9 +595,7 @@ class TestParameterisationSettings:
         """Test that missing SDF file raises error."""
         missing_path = tmp_path / "missing.sdf"
         with pytest.raises(ValidationError, match="SDF file does not exist"):
-            ParameterisationSettings(
-                molecule_input_type="sdf", molecules=str(missing_path)
-            )
+            ParamSettings(molecule_input_type="sdf", molecules=str(missing_path))
 
     def test_multi_molecule_sdf_accepts_unique_molecules(self, tmp_path):
         """Test that SDF with multiple distinct molecules is accepted."""
@@ -534,9 +604,7 @@ class TestParameterisationSettings:
             writer.write(Chem.MolFromSmiles("CC"))
             writer.write(Chem.MolFromSmiles("CCC"))
 
-        settings = ParameterisationSettings(
-            molecule_input_type="sdf", molecules=str(sdf)
-        )
+        settings = ParamSettings(molecule_input_type="sdf", molecules=str(sdf))
 
         assert len(settings.openff_molecules) == 2
         assert (
@@ -545,9 +613,7 @@ class TestParameterisationSettings:
 
     def test_append_to_molecules_changes_openff_molecules(self, tmp_path):
         """Test that appending to molecules updates openff_molecules."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules=["CC", "CCC"]
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules=["CC", "CCC"])
         assert len(settings.openff_molecules) == 2
 
         # Append another molecule
@@ -563,37 +629,31 @@ class TestParameterisationSettings:
             writer.write(Chem.MolFromSmiles("CC"))
 
         with pytest.raises(ValidationError, match="duplicate molecule entries"):
-            ParameterisationSettings(molecule_input_type="sdf", molecules=str(sdf))
+            ParamSettings(molecule_input_type="sdf", molecules=str(sdf))
 
     def test_unsupported_input_type_raises_error(self):
         """Test that unsupported input_type is rejected."""
         with pytest.raises(ValidationError):
-            ParameterisationSettings(molecule_input_type="unsupported", molecules="CCO")
+            ParamSettings(molecule_input_type="unsupported", molecules="CCO")
 
     def test_empty_input_list_raises_error(self):
         """Test that empty input list raises error."""
         with pytest.raises(ValidationError, match="input list cannot be empty"):
-            ParameterisationSettings(molecule_input_type="smiles", molecules=[])
+            ParamSettings(molecule_input_type="smiles", molecules=[])
 
     def test_duplicate_inputs_raise_error(self):
         """Test that duplicate inputs are rejected."""
         with pytest.raises(ValidationError, match="Duplicate inputs found"):
-            ParameterisationSettings(
-                molecule_input_type="smiles", molecules=["CC", "CC"]
-            )
+            ParamSettings(molecule_input_type="smiles", molecules=["CC", "CC"])
 
     def test_default_initial_force_field(self):
         """Test default initial force field."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules="CCO"
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
         assert settings.initial_force_field == "openff_unconstrained-2.3.0.offxml"
 
     def test_default_type_generation_settings(self):
         """Test that default type generation settings are set."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules="CCO"
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
         assert "ProperTorsions" in settings.type_generation_settings
         assert len(settings.type_generation_settings["ProperTorsions"].exclude) == 3
         assert (
@@ -603,25 +663,19 @@ class TestParameterisationSettings:
 
     def test_linearise_harmonics(self):
         """Test linear harmonics setting."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules="CCO"
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
         assert settings.linearise_harmonics is True
 
     def test_expand_torsions_default(self):
         """Test that expand torsions is True by default."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules="CCO"
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
         assert settings.expand_torsions is True
 
     @given(smiles=st.sampled_from(["CCO", "CC", "C", "CCCC", "c1ccccc1"]))
     @hypothesis_settings(max_examples=5)
     def test_valid_simple_smiles(self, smiles):
         """Test that simple valid SMILES are accepted and converted to list."""
-        settings = ParameterisationSettings(
-            molecule_input_type="smiles", molecules=smiles
-        )
+        settings = ParamSettings(molecule_input_type="smiles", molecules=smiles)
         assert settings.molecules == [smiles]
 
 
@@ -632,9 +686,7 @@ class TestWorkflowSettings:
     def valid_workflow_settings(self):
         """Test that default values are set correctly."""
         return WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             device_type="cpu",
         )
 
@@ -650,18 +702,14 @@ class TestWorkflowSettings:
         # Should accept same major.minor version
         settings = WorkflowSettings(
             version=__version__,
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
         )
         assert settings.version == __version__
 
     def test_device_type_cpu(self):
         """Test that CPU device type is accepted."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             device_type="cpu",
         )
         assert settings.device_type == "cpu"
@@ -670,9 +718,7 @@ class TestWorkflowSettings:
     def test_device_type_cuda(self):
         """Test that CUDA device type is accepted when available."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             device_type="cuda",
         )
         assert settings.device_type == "cuda"
@@ -683,7 +729,7 @@ class TestWorkflowSettings:
 
         with pytest.raises(ValueError, match="CUDA is not available"):
             WorkflowSettings(
-                parameterisation_settings=ParameterisationSettings(
+                param_settings=ParamSettings(
                     molecule_input_type="smiles", molecules="CCO"
                 ),
                 device_type="cuda",
@@ -710,35 +756,57 @@ class TestWorkflowSettings:
         assert loaded.n_iterations == valid_workflow_settings.n_iterations
         assert loaded.memory == valid_workflow_settings.memory
         assert (
-            loaded.parameterisation_settings.molecules
-            == valid_workflow_settings.parameterisation_settings.molecules
+            loaded.param_settings.molecules
+            == valid_workflow_settings.param_settings.molecules
         )
+
+    def test_workflow_yaml_with_runtime_object_requires_override(self, tmp_path):
+        """Test workflow YAML with runtime placeholders requires overwrite before load."""
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+            device_type="cpu",
+            training_sampling_settings=MLMDSamplingSettings(
+                mlp_settings=MLPSettings(
+                    ml_potential="ase",
+                    ml_system_kwargs={"calculator": object()},
+                ),
+            ),
+        )
+        yaml_path = tmp_path / "workflow_settings_ase.yaml"
+        settings.to_yaml(yaml_path)
+
+        with pytest.raises(ValidationError, match="runtime-only placeholder values"):
+            WorkflowSettings.from_yaml(yaml_path)
+
+        loaded = WorkflowSettings.from_yaml(
+            yaml_path,
+            overwrite={
+                "training_sampling_settings": {
+                    "mlp_settings": {"ml_system_kwargs": {"calculator": object()}}
+                }
+            },
+        )
+        assert loaded.training_sampling_settings.mlp_settings.ml_potential == "ase"
 
     def test_discriminated_union_for_sampling_settings(self):
         """Test that discriminated union works for sampling settings."""
         # MM MD
         settings_mm = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MMMDSamplingSettings(),
         )
         assert settings_mm.training_sampling_settings.sampling_protocol == "mm_md"
 
         # ML MD
         settings_ml = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MLMDSamplingSettings(),
         )
         assert settings_ml.training_sampling_settings.sampling_protocol == "ml_md"
 
         # Metadynamics
         settings_metad = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MMMDMetadynamicsSamplingSettings(),
         )
         assert (
@@ -748,9 +816,7 @@ class TestWorkflowSettings:
 
         # Metadynamics with torsion minimisation
         settings_metad_torsion = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         )
         assert (
@@ -762,7 +828,7 @@ class TestWorkflowSettings:
         """Test that extra fields are not allowed."""
         with pytest.raises(ValidationError):
             WorkflowSettings(
-                parameterisation_settings=ParameterisationSettings(
+                param_settings=ParamSettings(
                     molecule_input_type="smiles", molecules="CCO"
                 ),
                 invalid_field="should_fail",
@@ -776,9 +842,7 @@ class TestWorkflowSettings:
     def test_workflow_configuration_property(self, n_iterations, memory):
         """Test that workflow configuration can be set."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             n_iterations=n_iterations,
             memory=memory,
         )
@@ -800,9 +864,7 @@ class TestWorkflowSettings:
     def test_outlier_filter_settings_can_be_set(self):
         """Test that outlier_filter_settings can be configured."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=5.0,  # kcal/mol/atom
@@ -816,9 +878,7 @@ class TestWorkflowSettings:
     def test_outlier_filter_settings_yaml_round_trip(self, tmp_path):
         """Test that outlier_filter_settings survives YAML round-trip."""
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             device_type="cpu",
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=7.5,  # kcal/mol/atom

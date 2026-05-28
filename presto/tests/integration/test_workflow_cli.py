@@ -3,10 +3,13 @@
 import subprocess
 
 from ...settings import WorkflowSettings
+from ...tests.conftest import skip_if_model_unavailable
 
 
 def test_workflow_cli(tmp_cwd) -> None:
     """Test running presto via CLI with ethanol, and analysing."""
+    skip_if_model_unavailable("aimnet2")
+
     # Run the command
     args = [
         "presto",
@@ -15,9 +18,9 @@ def test_workflow_cli(tmp_cwd) -> None:
         "cpu",  # So we can run on GH actions
         "--n-iterations",
         "1",  # Super short run for testing
-        "--parameterisation-settings.molecule-input-type",
+        "--param-settings.molecule-input-type",
         "smiles",
-        "--parameterisation-settings.molecules",
+        "--param-settings.molecules",
         "CCCO",  # Propanol - 1 heavy-atom dihedral to plot
         "--training-settings.n-epochs",
         "10",

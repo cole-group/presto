@@ -17,12 +17,13 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
 from pydantic_units import OpenMMQuantity
 
-from . import __version__, mlp
+from . import __version__
 from ._exceptions import InvalidSettingsError
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
@@ -30,6 +31,7 @@ from .find_torsions import (
 )
 from .load_molecules import MOLECULE_LOADERS, MoleculeInputType
 from .outputs import OutputType, WorkflowPathManager
+from .utils.dicts import deep_update
 from .utils.typing import (
     AllowedAttributeType,
     NonLinearValenceType,
@@ -40,6 +42,32 @@ from .utils.typing import (
 )
 
 _DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
+_RUNTIME_OBJECT_PLACEHOLDER = "__PRESTO_RUNTIME_OBJECT_PLACEHOLDER__"
+
+
+def _replace_non_serializable(obj: dict[str, Any]) -> dict[str, Any]:
+    """Recursively replace non-JSON-serializable values with the runtime placeholder."""
+    return {k: _replace_value(v) for k, v in obj.items()}
+
+
+def _replace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _replace_non_serializable(value)
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return _RUNTIME_OBJECT_PLACEHOLDER
+
+
+def _find_placeholder_paths(obj: Any, prefix: str = "") -> list[str]:
+    """Return bracket-notation paths of all placeholder values in a (possibly nested) dict."""
+    paths: list[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            paths.extend(_find_placeholder_paths(v, f"{prefix}[{k}]"))
+    elif obj == _RUNTIME_OBJECT_PLACEHOLDER:
+        paths.append(prefix)
+    return paths
+
 
 _DEFAULT_MODEL_CONFIG = ConfigDict(
     extra="forbid",
@@ -54,7 +82,7 @@ def _model_to_yaml(
     """Save the settings to a YAML file."""
     data = model.model_dump(mode="json")
     if overwrite:
-        data.update(overwrite)
+        data = deep_update(data, overwrite)
     with open(yaml_path, "w") as file:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
 
@@ -62,10 +90,14 @@ def _model_to_yaml(
 _T = TypeVar("_T", bound=BaseModel)
 
 
-def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
+def _model_from_yaml(
+    cls: type[_T], yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+) -> _T:
     """Load settings from a YAML file."""
     with open(yaml_path) as file:
-        settings_data = yaml.safe_load(file)
+        settings_data = yaml.safe_load(file) or {}
+    if overwrite:
+        settings_data = deep_update(settings_data, overwrite)
     return cls(**settings_data)
 
 
@@ -81,9 +113,11 @@ class _DefaultSettings(BaseModel, ABC):
         _model_to_yaml(self, yaml_path, overwrite=overwrite)
 
     @classmethod
-    def from_yaml(cls, yaml_path: PathLike) -> Self:
+    def from_yaml(
+        cls, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+    ) -> Self:
         """Load settings from a YAML file."""
-        return _model_from_yaml(cls, yaml_path)
+        return _model_from_yaml(cls, yaml_path, overwrite=overwrite)
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -93,16 +127,46 @@ class _DefaultSettings(BaseModel, ABC):
         """
         return set()
 
-    # @property
-    # def output_types(self) -> set[OutputType]:
-    #     """Return a set of expected output types for this settings object
-    #     and all _DefaultSettings it contains."""
-    #     outputs = set(self._output_types)
-    #     for name, field in self.model_fields.items():
-    #         if issubclass(field.annotation, _DefaultSettings):
-    #             nested_settings = getattr(self, name)
-    #             outputs.update(nested_settings.output_types)
-    #     return outputs
+
+class MLPSettings(_DefaultSettings):
+    """Settings for selecting and configuring the reference ML potential."""
+
+    ml_potential: str = Field(
+        "aimnet2",
+        description="The OpenMM-ML potential identifier (for example `aimnet2`, "
+        "`aceff-2.0`, or `ase`). Any model supported by your OpenMM-ML installation "
+        "can be used.",
+    )
+
+    ml_potential_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments passed to openmmml.MLPotential(...) when "
+        "creating the reference potential.",
+    )
+
+    ml_system_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to MLPotential.createSystem(...). "
+        "For ASE-backed runs, this can include keys such as `calculator`, `aseAtoms`, "
+        "and `info`.",
+    )
+
+    @field_serializer("ml_system_kwargs")
+    def serialize_ml_system_kwargs(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Replace non-serializable runtime objects (e.g. ASE calculators) with placeholders."""
+        return _replace_non_serializable(value)
+
+    @model_validator(mode="after")
+    def validate_no_runtime_placeholders(self) -> Self:
+        """Raise if ml_system_kwargs contains runtime placeholder values (i.e. was loaded from YAML without overwrite)."""
+        placeholder_paths = _find_placeholder_paths(self.ml_system_kwargs)
+        if placeholder_paths:
+            raise InvalidSettingsError(
+                f"ml_system_kwargs contains runtime-only placeholder values at keys: "
+                f"{placeholder_paths}. Supply the actual objects via from_yaml(..., overwrite=...) "
+                "before validation."
+            )
+        return self
 
 
 class _SamplingSettingsBase(_DefaultSettings, ABC):
@@ -115,20 +179,22 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         "loading from YAML.",
     )
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aimnet2",
-        description="The machine learning potential to use for calculating energies and forces of "
-        " the snapshots. Note that this is not generally the potential used for sampling.",
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "energy and force calculations.",
     )
 
     timestep: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
         default=1 * unit.femtoseconds,
-        description="MD timestep",
+        description="MD timestep (femtoseconds). Must divide evenly into the "
+        "equilibration and production sampling times.",
     )
 
     temperature: OpenMMQuantity[unit.kelvin] = Field(  # type: ignore[type-arg]
         default=500 * unit.kelvin,
-        description="Temperature to run MD at",
+        description="Temperature to run MD at (kelvin). Defaults to 500 K to broaden "
+        "the sampled conformer distribution beyond room temperature.",
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
@@ -156,12 +222,15 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     loss_energy_weight: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for samples from this protocol.",
+        description="Scaling factor for the energy loss term (energies are in "
+        "kcal/mol). The default (1000) is much larger than `loss_force_weight` (0.1) "
+        "to balance the different units of energy and force contributions to the loss.",
     )
 
     loss_force_weight: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for samples from this protocol.",
+        description="Scaling factor for the force loss term (forces are in "
+        "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
     )
 
     @property
@@ -201,7 +270,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
         # Additionally check that production sampling time divides by snapshot interval
         time = self.production_sampling_time_per_conformer / self.snapshot_interval
-        if not n_steps.is_integer():
+        if not time.is_integer():
             raise InvalidSettingsError(
                 f"production_sampling_time_per_conformer ({time}) must be divisible by the snapshot_interval ({self.snapshot_interval})."
             )
@@ -253,17 +322,19 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
         1.0 * unit.kilojoules_per_mole,
-        description="Initial height of the bias",
+        description="Initial height of the Gaussian bias (kJ/mol). In well-tempered "
+        "metadynamics this is scaled down over time according to `bias_factor`.",
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         0.1 * unit.picoseconds,
-        description="Frequency at which to add bias",
+        description="How often to add a Gaussian to the bias (picoseconds). Must "
+        "divide evenly into the timestep.",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         10 * unit.picoseconds,
-        description="Frequency at which to save the bias",
+        description="How often to save the accumulated bias to disk (picoseconds).",
     )
 
     torsions_to_include_smarts: list[str] = Field(
@@ -521,7 +592,13 @@ class TrainingSettings(_DefaultSettings):
         "This allows 1-4 scaling for 'vdW' and 'Electrostatics' to be trained.",
     )
 
-    n_epochs: int = Field(1000, description="Number of epochs in the ML fit")
+    n_epochs: int = Field(
+        1000,
+        description="Number of training epochs. The default (1000) is comfortably "
+        "above the typical convergence point for the Adam optimiser on small "
+        "molecules; reduce for quick iteration and raise if the loss has not "
+        "flattened.",
+    )
     learning_rate: float = Field(0.01, description="Learning Rate in the ML fit")
     learning_rate_decay: float = Field(
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
@@ -605,11 +682,17 @@ class TypeGenerationSettings(_DefaultSettings):
 
 
 class MSMSettings(_DefaultSettings):
-    """Settings for the modified Seminario method."""
+    """Settings for the modified Seminario method (MSM).
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aimnet2",
-        description="The machine learning potential to use for calculating the Hessian matrix",
+    The MSM derives bond and angle force constants and equilibrium values from
+    the molecular Hessian — here computed using the reference MLP. See
+    https://doi.org/10.1021/acs.jctc.7b00785 for the algorithm.
+    """
+
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "Hessian calculations.",
     )
 
     finite_step: OpenMMQuantity[unit.nanometers] = Field(  # type: ignore[type-arg]
@@ -633,8 +716,8 @@ class MSMSettings(_DefaultSettings):
     )
 
 
-class ParameterisationSettings(_DefaultSettings):
-    """Settings for the starting parameterisation."""
+class ParamSettings(_DefaultSettings):
+    """Settings controlling the initial parameterisation."""
 
     molecule_input_type: MoleculeInputType = Field(
         "smiles",
@@ -751,22 +834,29 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     device_type: TorchDevice = Field(
-        "cuda", description="Device type for training, either 'cpu' or 'cuda'"
+        "cuda",
+        description="Device type for training and sampling, either 'cpu' or 'cuda'. "
+        "Using 'cuda' requires an NVIDIA driver compatible with CUDA >= 12.9 "
+        "(required by OpenMM 8.5's PythonForce). 'cpu' is supported but very slow.",
     )
 
     n_iterations: int = Field(
         2,
-        description="Number of iterations of sampling, then training the FF to run",
+        description="Number of (sample, train) iterations to run. Iteration 1 samples "
+        "with the initial force field; later iterations sample with the bespoke force "
+        "field produced by the previous iteration, which usually improves test loss.",
     )
 
     memory: bool = Field(
         False,
-        description="Whether to append new training data to training data from the previous iterations,"
-        " or overwrite it (False).",
+        description="If True, each iteration appends its newly sampled training data "
+        "to the data from previous iterations (growing dataset). If False (default), "
+        "each iteration replaces the previous training dataset. Enabling memory "
+        "increases peak GPU memory usage with each iteration.",
     )
 
-    parameterisation_settings: ParameterisationSettings = Field(
-        description="Settings for the starting parameterisation",
+    param_settings: ParamSettings = Field(
+        description="Settings controlling the initial parameterisation",
     )
 
     training_sampling_settings: SamplingSettings = Field(
@@ -838,7 +928,7 @@ class WorkflowSettings(_DefaultSettings):
     @model_validator(mode="after")
     def validate_parameterisation_training_consistency(self) -> Self:
         """Validate that linearise_harmonics in parameterisation settings is consistent with the valence types in the training settings."""
-        harmonics_linearised = self.parameterisation_settings.linearise_harmonics
+        harmonics_linearised = self.param_settings.linearise_harmonics
         excluded_valence_types = (
             ("Bonds", "Angles")
             if harmonics_linearised
@@ -849,7 +939,7 @@ class WorkflowSettings(_DefaultSettings):
             for valence_type in excluded_valence_types
         ):
             raise InvalidSettingsError(
-                f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
+                f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
 
@@ -863,7 +953,7 @@ class WorkflowSettings(_DefaultSettings):
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
         # Get the number of molecules from the validated molecule list
-        n_mols = len(self.parameterisation_settings.openff_molecules)
+        n_mols = len(self.param_settings.openff_molecules)
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,

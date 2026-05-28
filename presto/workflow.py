@@ -74,7 +74,7 @@ def get_bespoke_force_field(
 
     # Parameterise the base force field for all molecules
     off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
-        settings.parameterisation_settings, device=settings.device_type
+        settings.param_settings, device=settings.device_type
     )
 
     pruned_parameter_configs = {

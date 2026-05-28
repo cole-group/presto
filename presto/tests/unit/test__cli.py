@@ -13,7 +13,7 @@ from presto._cli import (
 )
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
-    ParameterisationSettings,
+    ParamSettings,
     WorkflowSettings,
 )
 
@@ -60,7 +60,7 @@ class TestWriteDefaultYAML:
 
         # Should be able to load now
         settings = WorkflowSettings.from_yaml(yaml_path)
-        assert settings.parameterisation_settings.molecules == ["CCO"]
+        assert settings.param_settings.molecules == ["CCO"]
 
 
 class TestTrainFromYAML:
@@ -89,7 +89,7 @@ class TestTrainFromCli:
         """Test that TrainFromCli calls get_bespoke_force_field with settings."""
         with patch("presto._cli.get_bespoke_force_field") as mock_get_ff:
             cmd = TrainFromCli(
-                parameterisation_settings=ParameterisationSettings(
+                param_settings=ParamSettings(
                     molecule_input_type="smiles", molecules="CCO"
                 ),
                 device_type="cpu",
@@ -119,9 +119,7 @@ class TestClean:
 
         # Create a settings file and some output
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                molecule_input_type="smiles", molecules="CCO"
-            ),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             output_dir=tmp_path,
             device_type="cpu",
         )

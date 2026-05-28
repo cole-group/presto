@@ -129,13 +129,17 @@ def _get_openmm_platform(device: torch.device) -> openmm.Platform:
 def _build_ml_simulation(
     mol: openff.toolkit.Molecule,
     topology: openmm.app.Topology,
-    ml_potential: mlp.AvailableModels,
+    mlp_settings: settings.MLPSettings,
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an ML potential system."""
-    ml_system = _get_ml_omm_system(mol, ml_potential, device)
+    ml_system = mlp.get_ml_omm_system(
+        mol,
+        mlp_settings,
+        device,
+    )
 
     # As a temporary hack to get around an OpeMM-ML issue, set the device to CPU for the ML simulation
     # This doesn't slow things down as the MLP is still loaded on the GPU when requested.
@@ -259,46 +263,6 @@ def _run_md(
     )
 
 
-def _get_ml_omm_system(
-    mol: openff.toolkit.Molecule, mlp_name: mlp.AvailableModels, device: torch.device
-) -> openmm.System:
-    """Get an OpenMM system for a molecule using a machine learning potential.
-
-    Parameters
-    ----------
-    mol : openff.toolkit.Molecule
-        The molecule for which to create the system.
-    mlp_name : mlp.AvailableModels
-        The name of the ML potential to use.
-    device : torch.device
-        The device to load the ML potential on.
-
-    Returns:
-    -------
-    openmm.System
-        The OpenMM system for the molecule.
-
-    Raises:
-    ------
-    InvalidSettingsError
-        If the molecule is charged and the ML potential does not support charges.
-    """
-    # Validate that charged molecules are only used with compatible models
-    mlp.validate_model_charge_compatibility(mlp_name, mol)
-
-    potential = mlp.get_mlp(mlp_name)
-    charge = mol.total_charge.m_as(off_unit.e)
-
-    # Always pass charge argument for consistency, even for neutral molecules
-    system = potential.createSystem(
-        mol.to_topology().to_openmm(),
-        charge=charge,
-        device=str(device),
-    )
-
-    return system
-
-
 def recalculate_energies_and_forces(
     dataset: datasets.Dataset, simulation: Simulation
 ) -> datasets.Dataset:
@@ -406,7 +370,7 @@ def sample_mmmd(
         ml_simulation, ml_integrator = _build_ml_simulation(
             mol_with_conformers,
             interchange.topology,
-            settings.ml_potential,
+            settings.mlp_settings,
             settings.temperature,
             settings.timestep,
             device,
@@ -473,7 +437,7 @@ def sample_mlmd(
         ml_simulation, integrator = _build_ml_simulation(
             mol_with_conformers,
             mol_with_conformers.to_topology().to_openmm(),
-            settings.ml_potential,
+            settings.mlp_settings,
             settings.temperature,
             settings.timestep,
             device,
@@ -692,7 +656,7 @@ def sample_mmmd_metadynamics(
         ml_simulation, ml_integrator = _build_ml_simulation(
             mol_with_conformers,
             interchange.topology.to_openmm(),
-            settings.ml_potential,
+            settings.mlp_settings,
             settings.temperature,
             settings.timestep,
             device,
@@ -1259,7 +1223,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             ml_simulation, ml_integrator = _build_ml_simulation(
                 mol_with_conformers,
                 interchange.topology.to_openmm(),
-                settings.ml_potential,
+                settings.mlp_settings,
                 settings.temperature,
                 settings.timestep,
                 device,
@@ -1342,7 +1306,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         ml_simulation, ml_integrator = _build_ml_simulation(
             mol_with_conformers,
             interchange.topology.to_openmm(),
-            settings.ml_potential,
+            settings.mlp_settings,
             settings.temperature,
             settings.timestep,
             device,
@@ -1376,7 +1340,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         ml_min_simulation, ml_min_integrator = _build_ml_simulation(
             mol_with_conformers,
             interchange.topology.to_openmm(),
-            settings.ml_potential,
+            settings.mlp_settings,
             settings.temperature,
             settings.timestep,
             device,
