@@ -2513,6 +2513,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2581,7 +2592,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance" class="md-nav__link">
+  <a href="#maintenance_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2759,7 +2770,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_1" class="md-nav__link">
+  <a href="#maintenance_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2909,6 +2920,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2977,7 +2999,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance" class="md-nav__link">
+  <a href="#maintenance_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -3155,7 +3177,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_1" class="md-nav__link">
+  <a href="#maintenance_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -3250,6 +3272,10 @@
 <li>Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary. Add Python API walk-through notebook.  - Polish Pydantic Field descriptions in settings to improve auto-generated API reference. Add example invocations to CLI subcommand docstrings. Add Python API examples for running fitting via <code>get_bespoke_force_field(...)</code>, including optional OpenMM-ML ASE calculator usage through <code>ml_system_kwargs</code>. In <a href="https://github.com/cole-group/presto/pull/61">#61</a>.</li>
 <li>Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for <code>ml_potential="ase"</code> charge must be passed explicitly in <code>ml_system_kwargs</code>.</li>
 </ul>
+<h3 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Permanent link">#</a></h3>
+<ul>
+<li>Update the default env to use Python 3.12 to avoid dm-tree (an Orb dep) build issues. In <a href="https://github.com/cole-group/presto/pull/60">#60</a>.</li>
+</ul>
 <h2 id="070">0.7.0<a class="headerlink" href="#070" title="Permanent link">#</a></h2>
 <h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
 <ul>
@@ -3268,7 +3294,7 @@
 <li>Raise an error if too few conformers survive filtering in <a href="https://github.com/cole-group/presto/pull/38">#38</a>. Fixes <a href="https://github.com/cole-group/presto/issues/30">#30</a>.</li>
 <li>Remove stereochemical information from generated types in <a href="https://github.com/cole-group/presto/pull/37">#36</a>. This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.</li>
 </ul>
-<h3 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Permanent link">#</a></h3>
+<h3 id="maintenance_1">Maintenance<a class="headerlink" href="#maintenance_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Update dependabot options in <a href="https://github.com/cole-group/presto/pull/40">#40</a></li>
 <li>Update Egret-1 model to the lastest version in <a href="https://github.com/cole-group/presto/pull/35">#35</a></li>
@@ -3353,7 +3379,7 @@
 <li>Fix path management for multiple molecules</li>
 <li>Improve handling of output paths for per-molecule outputs</li>
 </ul>
-<h3 id="maintenance_1">Maintenance<a class="headerlink" href="#maintenance_1" title="Permanent link">#</a></h3>
+<h3 id="maintenance_2">Maintenance<a class="headerlink" href="#maintenance_2" title="Permanent link">#</a></h3>
 <ul>
 <li>Remove bespoke toolkit wrapper</li>
 </ul>
