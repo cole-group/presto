@@ -2452,22 +2452,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#081" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.8.1
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.8.1">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
+  <a href="#maintenance" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Documentation
+        Maintenance
       
     </span>
   </a>
@@ -2503,7 +2503,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#documentation_1" class="md-nav__link">
+  <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -2514,7 +2514,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance" class="md-nav__link">
+  <a href="#maintenance_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2592,7 +2592,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_1" class="md-nav__link">
+  <a href="#maintenance_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2770,7 +2770,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_2" class="md-nav__link">
+  <a href="#maintenance_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2798,7 +2798,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation_2" class="md-nav__link">
+  <a href="#documentation_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -2859,22 +2859,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#081" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        0.8.1
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+    <nav class="md-nav" aria-label="0.8.1">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation" class="md-nav__link">
+  <a href="#maintenance" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Documentation
+        Maintenance
       
     </span>
   </a>
@@ -2910,7 +2910,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#documentation_1" class="md-nav__link">
+  <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -2921,7 +2921,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance" class="md-nav__link">
+  <a href="#maintenance_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -2999,7 +2999,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_1" class="md-nav__link">
+  <a href="#maintenance_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -3177,7 +3177,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#maintenance_2" class="md-nav__link">
+  <a href="#maintenance_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Maintenance
@@ -3205,7 +3205,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#documentation_2" class="md-nav__link">
+  <a href="#documentation_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Documentation
@@ -3252,8 +3252,11 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">#</a></h1>
-<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">#</a></h2>
-<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
+<h2 id="081">0.8.1<a class="headerlink" href="#081" title="Permanent link">#</a></h2>
+<h3 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Permanent link">#</a></h3>
+<ul>
+<li>Bundle full Egret license in <a href="https://github.com/cole-group/presto/pull/66">#66</a>.</li>
+</ul>
 <h2 id="080">0.8.0<a class="headerlink" href="#080" title="Permanent link">#</a></h2>
 <h3 id="breaking-changes">Breaking changes<a class="headerlink" href="#breaking-changes" title="Permanent link">#</a></h3>
 <ul>
@@ -3266,13 +3269,13 @@
 <li>Remove <code>AvailableModels</code> and <code>validate_model_charge_compatibility</code>. <code>presto</code> now accepts any OpenMM-ML model identifier supported by the local OpenMM-ML install and trusts the user to pick a model compatible with their system. Also in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
 <li>Add runtime-object placeholder handling for <code>mlp_settings.ml_system_kwargs</code>: non-serializable values (e.g ASE Calculator objects) are written as placeholders and loading fails with <code>InvalidSettingsError</code> until placeholders are replaced (for example with <code>from_yaml(..., overwrite=...)</code>) before validation. Again, in <a href="https://github.com/cole-group/presto/issues/58">#58</a>.</li>
 </ul>
-<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">#</a></h3>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
 <ul>
 <li>Rewrite documentation with Diátaxis structure: Get started, How-to, Concepts, and Reference sections.</li>
 <li>Add new pages: installation guide, quickstart, bespoke SMIRNOFF primer, sampling protocols, type generation, MLP guide, output layout, troubleshooting, and glossary. Add Python API walk-through notebook.  - Polish Pydantic Field descriptions in settings to improve auto-generated API reference. Add example invocations to CLI subcommand docstrings. Add Python API examples for running fitting via <code>get_bespoke_force_field(...)</code>, including optional OpenMM-ML ASE calculator usage through <code>ml_system_kwargs</code>. In <a href="https://github.com/cole-group/presto/pull/61">#61</a>.</li>
 <li>Clarify charge behavior: automatic molecular charge propagation applies to non-ASE MLPs; for <code>ml_potential="ase"</code> charge must be passed explicitly in <code>ml_system_kwargs</code>.</li>
 </ul>
-<h3 id="maintenance">Maintenance<a class="headerlink" href="#maintenance" title="Permanent link">#</a></h3>
+<h3 id="maintenance_1">Maintenance<a class="headerlink" href="#maintenance_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Switch to installing <code>smee-base</code> and <code>descent</code> from <code>conda-forge</code>, which unblocks the conda package. See <a href="https://github.com/cole-group/presto/pull/65">#65</a>.</li>
 <li>Update the default env to use Python 3.12 to avoid dm-tree (an Orb dep) build issues. In <a href="https://github.com/cole-group/presto/pull/60">#60</a>.</li>
@@ -3295,7 +3298,7 @@
 <li>Raise an error if too few conformers survive filtering in <a href="https://github.com/cole-group/presto/pull/38">#38</a>. Fixes <a href="https://github.com/cole-group/presto/issues/30">#30</a>.</li>
 <li>Remove stereochemical information from generated types in <a href="https://github.com/cole-group/presto/pull/37">#36</a>. This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.</li>
 </ul>
-<h3 id="maintenance_1">Maintenance<a class="headerlink" href="#maintenance_1" title="Permanent link">#</a></h3>
+<h3 id="maintenance_2">Maintenance<a class="headerlink" href="#maintenance_2" title="Permanent link">#</a></h3>
 <ul>
 <li>Update dependabot options in <a href="https://github.com/cole-group/presto/pull/40">#40</a></li>
 <li>Update Egret-1 model to the lastest version in <a href="https://github.com/cole-group/presto/pull/35">#35</a></li>
@@ -3380,12 +3383,12 @@
 <li>Fix path management for multiple molecules</li>
 <li>Improve handling of output paths for per-molecule outputs</li>
 </ul>
-<h3 id="maintenance_2">Maintenance<a class="headerlink" href="#maintenance_2" title="Permanent link">#</a></h3>
+<h3 id="maintenance_3">Maintenance<a class="headerlink" href="#maintenance_3" title="Permanent link">#</a></h3>
 <ul>
 <li>Remove bespoke toolkit wrapper</li>
 </ul>
 <h2 id="011">0.1.1<a class="headerlink" href="#011" title="Permanent link">#</a></h2>
-<h3 id="documentation_2">Documentation<a class="headerlink" href="#documentation_2" title="Permanent link">#</a></h3>
+<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Added example notebook</li>
 </ul>
