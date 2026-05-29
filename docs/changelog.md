@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Documentation
-
 ## 0.8.0
 
 ### Breaking changes
