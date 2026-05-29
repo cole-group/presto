@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+### Maintenance
+
+- Bundle full Egret license in [#66](https://github.com/cole-group/presto/pull/66).
+
 ## 0.8.0
 
 ### Breaking changes
