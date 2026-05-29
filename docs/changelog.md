@@ -4,8 +4,6 @@
 
 ### Documentation
 
-
-
 ## 0.8.0
 
 ### Breaking changes
@@ -24,6 +22,7 @@
 
 ### Maintenance
 
+- Switch to installing `smee-base` and `descent` from `conda-forge`, which unblocks the conda package. See [#65](https://github.com/cole-group/presto/pull/65).
 - Update the default env to use Python 3.12 to avoid dm-tree (an Orb dep) build issues. In [#60](https://github.com/cole-group/presto/pull/60).
 
 ## 0.7.0
