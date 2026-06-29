@@ -40,6 +40,8 @@ This will create an environment with CUDA 12.9. **You'll need to update to CUDA 
 
 For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
 
+`presto` is also available on `conda-forge` as `presto-fit`, but note that this comes without the MLP dependencies (install these separately, e.g. `pip install aimnet`). See the [installation docs](https://cole-group.github.io/presto/get-started/installation/) for details.
+
 ## Usage
 
 Run with command line arguments:
