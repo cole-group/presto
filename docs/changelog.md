@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Document installing `presto` from `conda-forge` as `presto-fit` (note this comes without the MLP dependencies, which must be installed separately) in [#70](https://github.com/cole-group/presto/pull/70).
+
 ## 0.8.1
 
 ### Maintenance
