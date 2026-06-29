@@ -607,10 +607,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-with-pixi" class="md-nav__link">
+  <a href="#install-from-github-with-pixi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install with pixi
+        Install from GitHub with pixi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-from-conda-forge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install from conda-forge
       
     </span>
   </a>
@@ -2570,10 +2581,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#install-with-pixi" class="md-nav__link">
+  <a href="#install-from-github-with-pixi" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install with pixi
+        Install from GitHub with pixi
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-from-conda-forge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install from conda-forge
       
     </span>
   </a>
@@ -2645,21 +2667,28 @@
 
 
 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h1>
-<p>The easiest way to install <code>presto</code> is from the GitHub repo using <a href="https://pixi.sh/">pixi</a>. There is no <code>conda-forge</code> release yet (as we have a mix of dependencies which are only available on either <code>conda-forge</code> or PyPI).</p>
+<p>The easiest way to install <code>presto</code> is from the GitHub repo using <a href="https://pixi.sh/">pixi</a>, which is the recommended approach. This creates environments containing dependencies for several MLPs. Alternatively, <code>presto</code> is available on <code>conda-forge</code> as <code>presto-fit</code> — see <a href="#install-from-conda-forge">Install from conda-forge</a> below, but comes without MLP dependencies.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">#</a></h2>
 <ul>
 <li><strong>pixi</strong> — see <a href="https://pixi.sh/latest/">pixi installation docs</a>.</li>
 <li><strong>NVIDIA driver compatible with CUDA 12.9 or newer</strong> for the GPU environment. Check with <code>nvidia-smi</code>. Older driver versions are not usable because <code>presto</code> requires OpenMM 8.5 (for <code>PythonForce</code>), and OpenMM 8.5 requires CUDA 12.9.</li>
 <li>A CPU-only environment is available for development and docs builds but is very slow for real fits.</li>
 </ul>
-<h2 id="install-with-pixi">Install with pixi<a class="headerlink" href="#install-with-pixi" title="Permanent link">#</a></h2>
+<h2 id="install-from-github-with-pixi">Install from GitHub with pixi<a class="headerlink" href="#install-from-github-with-pixi" title="Permanent link">#</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/cole-group/presto.git
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>presto
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>pixi<span class="w"> </span>shell
 </span></code></pre></div>
 <p>This creates the default GPU environment (<code>gpu-py313-cuda129</code>) and activates a shell in it. For more on activating pixi environments, see <a href="https://pixi.sh/latest/advanced/pixi_shell/">the pixi shell docs</a>.</p>
+<h2 id="install-from-conda-forge">Install from conda-forge<a class="headerlink" href="#install-from-conda-forge" title="Permanent link">#</a></h2>
+<p><code>presto</code> is published on <code>conda-forge</code> as <code>presto-fit</code>. This is an alternative to the recommended <code>pixi</code> install which may be useful for running <code>presto</code> in e.g. CI/ CD pipelines and including it as a dependency of other packages.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>presto<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>presto-fit<span class="w"> </span><span class="s2">&quot;cuda-version==12.9.*&quot;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>presto
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>pip<span class="w"> </span>install<span class="w"> </span>aimnet
+</span></code></pre></div>
+<p>The <code>conda-forge</code> <code>presto-fit</code> package comes <strong>without the MLP dependencies</strong>, so you must install the ones you need separately. The <code>pip install aimnet</code> step above adds the default AIMNet2 MLP; install other MLPs as required (see <a href="../../how-to/choose-an-mlp/">How-to → Choose an MLP</a>). Adjust the <code>cuda-version</code> virtual package pin as required for your driver.</p>
 <h2 id="verify-the-install">Verify the install<a class="headerlink" href="#verify-the-install" title="Permanent link">#</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>presto<span class="w"> </span>version
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>presto<span class="w"> </span>version
 </span></code></pre></div>
 <p>If <code>presto version</code> prints a version string, you're ready to move on to <strong><a href="../quickstart/">Quickstart</a></strong>.</p>
 <h2 id="optional-environments">Optional environments<a class="headerlink" href="#optional-environments" title="Permanent link">#</a></h2>
@@ -2691,7 +2720,7 @@
 </tbody>
 </table>
 <p>Activate a non-default environment with:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pixi<span class="w"> </span>shell<span class="w"> </span>-e<span class="w"> </span>cpu-py312
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pixi<span class="w"> </span>shell<span class="w"> </span>-e<span class="w"> </span>cpu-py312
 </span></code></pre></div>
 <h2 id="mlp-licensing-notes">MLP licensing notes<a class="headerlink" href="#mlp-licensing-notes" title="Permanent link">#</a></h2>
 <p>The <code>pixi</code> <code>presto</code> install from GitHub brings in several reference MLPs by default. Most have permissive licences but a few do not:</p>
