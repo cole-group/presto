@@ -1,5 +1,7 @@
 """Create new tagged SMARTS parameter types for molecules of interest."""
 
+from __future__ import annotations
+
 import copy
 import warnings
 from collections import defaultdict
@@ -7,7 +9,7 @@ from collections.abc import Mapping
 
 import openff.toolkit
 from loguru import logger
-from openff.units import Quantity
+from openff.units import Quantity, unit
 from rdkit import Chem
 
 from .settings import TypeGenerationSettings
@@ -248,7 +250,7 @@ def add_types_to_forcefield(
     openff.toolkit.ForceField
         Force field with bespoke parameters added, deduplicated across all molecules
     """
-    # Convert single molecule to list for backward compatibility
+    # Convert single molecule to list
     if isinstance(mols, openff.toolkit.Molecule):
         mols = [mols]
 
@@ -325,6 +327,114 @@ def add_types_to_forcefield(
         ff_copy.register_parameter_handler(handler_copy)
 
     # Remove redundant parameters that are not used by any molecule
+    ff_copy = _remove_redundant_smarts(mols_for_typing, ff_copy, id_substring="bespoke")
+
+    return ff_copy
+
+
+def add_library_charges_to_forcefield(
+    mols: openff.toolkit.Molecule | list[openff.toolkit.Molecule],
+    force_field: openff.toolkit.ForceField,
+) -> openff.toolkit.ForceField:
+    """Write per-atom ``LibraryCharges`` from molecules' partial charges into a force field.
+
+    For each atom of each molecule a bespoke single-tagged-atom SMARTS spanning the
+    whole molecule is generated using the same machinery as the valence types (see
+    :func:`add_types_to_forcefield`). The charge assigned to each SMARTS is the mean
+    of the partial charges of all atoms that produce it (i.e. symmetry-equivalent
+    atoms), which both symmetrises equivalent atoms and preserves the total molecular
+    charge exactly.
+
+    Because the SMARTS spans the whole molecule, each one only matches its own
+    symmetry class, so every atom is covered by exactly one library charge and the net
+    charge of the molecule is reproduced. This is required because OpenFF interchange
+    does not renormalise charges: it only applies a ``LibraryCharges`` handler if it
+    covers every atom of the molecule, and otherwise raises if the assigned charges do
+    not sum to the formal charge. The non-tagged hydrogens are merged onto their heavy
+    atoms by ``MergeQueryHs`` for fast SMARTS matching.
+
+    Parameters
+    ----------
+    mols : openff.toolkit.Molecule | list[openff.toolkit.Molecule]
+        Molecule or molecules with ``partial_charges`` set.
+    force_field : openff.toolkit.ForceField
+        The base force field to add the library charges to.
+
+    Returns:
+    -------
+    openff.toolkit.ForceField
+        A copy of the force field with bespoke library charges added, deduplicated
+        across all molecules.
+    """
+    # Convert single molecule to list
+    if isinstance(mols, openff.toolkit.Molecule):
+        mols = [mols]
+
+    # Validate partial charges before doing any work
+    charges_per_mol: list[list[Quantity]] = []
+    for mol in mols:
+        if mol.partial_charges is None:
+            raise ValueError(
+                f"Molecule {mol.to_smiles(explicit_hydrogens=False)} is missing "
+                "partial charges. Set Molecule.partial_charges before generating "
+                "library charges."
+            )
+
+        charges = list(mol.partial_charges)
+        charge_sum = sum(c.m_as(unit.elementary_charge) for c in charges)
+        formal_sum = mol.total_charge.m_as(unit.elementary_charge)
+        if abs(charge_sum - formal_sum) > 0.01:
+            raise ValueError(
+                f"Partial charges of molecule {mol.to_smiles(explicit_hydrogens=False)} "
+                f"sum to {charge_sum:.4f} e, which differs from its formal charge of "
+                f"{formal_sum:.4f} e by more than 0.01 e. Library charges would not "
+                "produce an integral net charge. Please ensure that the partial charges "
+                "are consistent with the formal charge of the molecule."
+            )
+        charges_per_mol.append(charges)
+
+    # Strip stereochemistry so generated SMARTS match either stereoisomer (atom index
+    # order is preserved by the copy, so the captured charges stay aligned).
+    mols_for_typing = [_remove_stereochemical_information(mol) for mol in mols]
+
+    ff_copy = copy.deepcopy(force_field)
+    parameter_handler = ff_copy.get_parameter_handler("LibraryCharges")
+
+    # Collect, for each unique whole-molecule SMARTS, the charges of every atom that
+    # produces it (across all molecules) so they can be averaged. The dict preserves
+    # insertion order, giving deterministic parameter ordering.
+    charges_by_smarts: dict[str, list[float]] = defaultdict(list)
+
+    for mol, charges in zip(mols_for_typing, charges_per_mol, strict=True):
+        for atom_index in range(mol.n_atoms):
+            smarts = _create_smarts(mol, (atom_index,), max_extend_distance=-1)
+            charges_by_smarts[smarts].append(
+                float(charges[atom_index].m_as(unit.elementary_charge))
+            )
+
+    logger.info(
+        f"Generated {len(charges_by_smarts)} bespoke library charge SMARTS patterns "
+        f"across {len(mols_for_typing)} molecules."
+    )
+
+    handler_copy = copy.deepcopy(parameter_handler)
+
+    for smarts, atom_charges in charges_by_smarts.items():
+        mean_charge = sum(atom_charges) / len(atom_charges)
+
+        counter = len(handler_copy.parameters) + 1
+        new_param_dict = {
+            "smirks": smarts,
+            "charge1": mean_charge * unit.elementary_charge,
+            "id": f"l-bespoke-{counter}",  # l for library charge
+        }
+
+        _add_parameter_with_overwrite(handler_copy, new_param_dict)
+
+    ff_copy.deregister_parameter_handler("LibraryCharges")
+    ff_copy.register_parameter_handler(handler_copy)
+
+    # Remove any redundant parameters that are not used by any molecule
     ff_copy = _remove_redundant_smarts(mols_for_typing, ff_copy, id_substring="bespoke")
 
     return ff_copy

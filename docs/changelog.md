@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
+
+### Features
+
+- Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
 ### Documentation
 
+- Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Document installing `presto` from `conda-forge` as `presto-fit` (note this comes without the MLP dependencies, which must be installed separately) in [#70](https://github.com/cole-group/presto/pull/70).
 
 ## 0.8.1
