@@ -140,6 +140,7 @@ nglview = "*"
 "openff-units" = "*"
 "openff-interchange" = ">=0.4.11" # Required for numpy 2.4 compatibility
 "openff-forcefields" = ">=2026.01.0"
+openmm-ml = ">=1.6"
 tensorboardX = "*"
 tensorboard = "*"
 versioneer = "*"
@@ -153,19 +154,13 @@ seaborn = "*"
 rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
-# openmm-ml is installed from a fork via pip (see common.pypi-dependencies);
-# that fork requires openmm >=8.5.2.
-openmm = ">=8.5.2"
+openmm = ">=8.5.0"
 smee-base = ">=0.17.0"
 descent = ">=0.6.0"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
 presto ={ path = ".", editable = true }
-# openmm-ml from a fork that lets a custom AIMNet2 model be supplied via the
-# `modelPath` kwarg (see https://github.com/cole-group/presto/issues/75).
-# TODO: revert to the conda-forge `openmm-ml` release once the change is merged upstream.
-openmmml = { git = "https://github.com/fjclark/openmm-ml.git", branch = "feature-supply-aimnet2-model" }
 
 # -----------------------------
 # GPU vs CPU toggle
