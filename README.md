@@ -76,6 +76,8 @@ If you use `presto` in your work, please cite:
 
 > Clark, F.; Pope, T.; Maier, S.; Boothroyd, S.; Horton, J. T.; Ryczko, K.; Bortolato, A.; Cole, D. J. *Fast Training of Bespoke SMIRNOFF-format Molecular Mechanics Force Fields Using Machine Learning Potentials.* ChemRxiv **2026**. [doi:10.26434/chemrxiv.15004169/v2](https://doi.org/10.26434/chemrxiv.15004169/v2)
 
+Because `presto` builds on the Open Force Field ecosystem, please also cite the relevant OpenFF publications listed at [openforcefield.org/science/how-to-cite](https://openforcefield.org/science/how-to-cite/).
+
 A `CITATION.cff` file is provided in the repository, and GitHub will generate formatted citations (including BibTeX) from the *Cite this repository* link on the project page.
 
 ## Copyright
