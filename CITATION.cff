@@ -5,30 +5,7 @@ message: >-
   below.
 type: software
 authors:
-  - given-names: Finlay
-    family-names: Clark
-    orcid: 'https://orcid.org/0000-0003-0474-5475'
-  - given-names: Thomas
-    family-names: Pope
-    orcid: 'https://orcid.org/0000-0001-7552-9812'
-  - given-names: Sarah
-    family-names: Maier
-    orcid: 'https://orcid.org/0000-0002-3817-1476'
-  - given-names: Simon
-    family-names: Boothroyd
-    orcid: 'https://orcid.org/0000-0002-3456-1872'
-  - given-names: Joshua T.
-    family-names: Horton
-    orcid: 'https://orcid.org/0000-0001-8694-7200'
-  - given-names: Kevin
-    family-names: Ryczko
-    orcid: 'https://orcid.org/0000-0001-6933-3856'
-  - given-names: Andrea
-    family-names: Bortolato
-    orcid: 'https://orcid.org/0000-0002-1631-6363'
-  - given-names: Daniel J.
-    family-names: Cole
-    orcid: 'https://orcid.org/0000-0003-2933-0719'
+  - name: The presto Contributors
 identifiers:
   - type: doi
     value: 10.26434/chemrxiv.15004169/v2
