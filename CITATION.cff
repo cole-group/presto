@@ -1,0 +1,119 @@
+cff-version: 1.2.0
+title: presto
+message: >-
+  If you use presto in your work, please cite the article
+  below.
+type: software
+authors:
+  - given-names: Finlay
+    family-names: Clark
+    orcid: 'https://orcid.org/0000-0003-0474-5475'
+  - given-names: Thomas
+    family-names: Pope
+    orcid: 'https://orcid.org/0000-0001-7552-9812'
+  - given-names: Sarah
+    family-names: Maier
+    orcid: 'https://orcid.org/0000-0002-3817-1476'
+  - given-names: Simon
+    family-names: Boothroyd
+    orcid: 'https://orcid.org/0000-0002-3456-1872'
+  - given-names: Joshua T.
+    family-names: Horton
+    orcid: 'https://orcid.org/0000-0001-8694-7200'
+  - given-names: Kevin
+    family-names: Ryczko
+    orcid: 'https://orcid.org/0000-0001-6933-3856'
+  - given-names: Andrea
+    family-names: Bortolato
+    orcid: 'https://orcid.org/0000-0002-1631-6363'
+  - given-names: Daniel J.
+    family-names: Cole
+    orcid: 'https://orcid.org/0000-0003-2933-0719'
+identifiers:
+  - type: doi
+    value: 10.26434/chemrxiv.15004169/v2
+    description: ChemRxiv Pre-Print
+repository-code: 'https://github.com/cole-group/presto'
+url: 'https://cole-group.github.io/presto/'
+abstract: >-
+  Molecular mechanics force fields enable the thorough
+  sampling required for applications such as alchemical
+  binding free energy calculations for computer-aided drug
+  design. However, parameters from transferable molecular
+  mechanics force fields can be unreliable, and training
+  accurate molecule-specific parameters against quantum
+  mechanical (QM) reference data is slow. Here, we present
+  presto (https://github.com/cole-group/presto), a Python
+  package for fast training of bespoke SMIRKS-Native Open
+  Force Field (SMIRNOFF) format force fields. presto
+  generates training data using high-temperature molecular
+  dynamics with well-tempered metadynamics. It iteratively
+  fits all valence parameters to energies and forces from
+  transferable machine learning potentials (MLPs). By
+  leveraging fast MLP evaluations and training on the GPU
+  using PyTorch (via the packages smee and descent), the
+  fully-automated workflow completes in around 15 minutes
+  for a 50-atom molecule on a single GPU. presto reduces
+  torsion scan errors by a factor of three relative to Open
+  Force Field Sage 2.3.0 on 400 molecules from TorsionNet500.
+  It also achieves torsion scan performance comparable to
+  direct QM fitting on a benchmark dataset of fragmented
+  drug-like molecules, and relative conformer energies of
+  510 molecules from the set of Folmsbee and Hutchison are
+  significantly improved compared to both Sage and espaloma.
+  presto allows simultaneous fitting of congeneric series
+  with partially shared parameters. It produces comparable
+  relative binding free energy performance to OpenFF 1.3.1
+  (Parsley) on systems where Parsley already performs well,
+  and may improve performance in cases where initial
+  parameters are particularly poor.
+keywords:
+  - force field
+  - free energy
+  - molecular mechanics
+  - machine learning potential
+  - openff
+  - smirnoff
+  - smee
+  - descent
+license: MIT
+
+preferred-citation:
+  type: article
+  title: >-
+    Fast Training of Bespoke SMIRNOFF-format Molecular
+    Mechanics Force Fields Using Machine Learning Potentials
+  authors:
+    - given-names: Finlay
+      family-names: Clark
+      orcid: 'https://orcid.org/0000-0003-0474-5475'
+    - given-names: Thomas
+      family-names: Pope
+      orcid: 'https://orcid.org/0000-0001-7552-9812'
+    - given-names: Sarah
+      family-names: Maier
+      orcid: 'https://orcid.org/0000-0002-3817-1476'
+    - given-names: Simon
+      family-names: Boothroyd
+      orcid: 'https://orcid.org/0000-0002-3456-1872'
+    - given-names: Joshua T.
+      family-names: Horton
+      orcid: 'https://orcid.org/0000-0001-8694-7200'
+    - given-names: Kevin
+      family-names: Ryczko
+      orcid: 'https://orcid.org/0000-0001-6933-3856'
+    - given-names: Andrea
+      family-names: Bortolato
+      orcid: 'https://orcid.org/0000-0002-1631-6363'
+    - given-names: Daniel J.
+      family-names: Cole
+      orcid: 'https://orcid.org/0000-0003-2933-0719'
+  identifiers:
+    - type: doi
+      value: 10.26434/chemrxiv.15004169/v2
+      description: ChemRxiv Pre-Print
+  doi: "10.26434/chemrxiv.15004169/v2"
+  journal: "ChemRxiv"
+  year: 2026
+  publisher:
+    name: ChemRxiv

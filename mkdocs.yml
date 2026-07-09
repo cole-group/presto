@@ -56,6 +56,7 @@ nav:
   - Contributing: development/contributing.md
   - Building the docs: development/docs.md
   - Releasing: development/releasing.md
+- Citing presto: citing.md
 - Changelog: changelog.md
 
 theme:

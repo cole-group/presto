@@ -70,6 +70,14 @@ presto train --param-settings.molecule-input-type sdf --param-settings.molecules
 For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
 
 
+## Citation
+
+If you use `presto` in your work, please cite:
+
+> Clark, F.; Pope, T.; Maier, S.; Boothroyd, S.; Horton, J. T.; Ryczko, K.; Bortolato, A.; Cole, D. J. *Fast Training of Bespoke SMIRNOFF-format Molecular Mechanics Force Fields Using Machine Learning Potentials.* ChemRxiv **2026**. [doi:10.26434/chemrxiv.15004169/v2](https://doi.org/10.26434/chemrxiv.15004169/v2)
+
+A `CITATION.cff` file is provided in the repository, and GitHub will generate formatted citations (including BibTeX) from the *Cite this repository* link on the project page.
+
 ## Copyright
 
 Copyright (c) 2025-2026, Finlay Clark, Newcastle University, UK
