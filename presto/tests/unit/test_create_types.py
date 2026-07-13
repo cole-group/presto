@@ -2,9 +2,12 @@
 
 import warnings
 
+import numpy as np
+import openff.interchange
 import openff.toolkit
 import pytest
 from openff.toolkit import ForceField
+from openff.units import unit
 from rdkit import Chem
 
 from presto.create_types import (
@@ -12,6 +15,7 @@ from presto.create_types import (
     _create_smarts,
     _remove_redundant_smarts,
     _remove_stereochemical_information,
+    add_library_charges_to_forcefield,
     add_types_to_forcefield,
 )
 from presto.settings import TypeGenerationSettings
@@ -1126,3 +1130,140 @@ class TestEdgeCases:
 
         assert len(labelled_bonds) > 0, "Sulfoxide bonds could not be matched"
         assert len(labelled_angles) > 0, "Sulfoxide angles could not be matched"
+
+
+def _assigned_charges(ff, mol):
+    """Return the per-atom charges interchange assigns to ``mol`` using ``ff``."""
+    inter = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+    charges = inter.collections["Electrostatics"].charges
+    return np.array(
+        [
+            charges[key].m_as(unit.elementary_charge)
+            for key in sorted(charges, key=lambda k: k.atom_indices[0])
+        ]
+    )
+
+
+class TestAddLibraryChargesToForcefield:
+    """Tests for the add_library_charges_to_forcefield function."""
+
+    def test_charges_written_and_ff_not_modified(self):
+        """New l-bespoke library charges are added and the original FF is untouched."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        original_count = len(ff.get_parameter_handler("LibraryCharges").parameters)
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        new_params = ff_with_charges.get_parameter_handler("LibraryCharges").parameters
+        bespoke = [p for p in new_params if "bespoke" in p.id]
+        assert len(bespoke) > 0
+        assert all(p.id.startswith("l-bespoke-") for p in bespoke)
+
+        # Original force field is unchanged
+        assert (
+            len(ff.get_parameter_handler("LibraryCharges").parameters) == original_count
+        )
+
+    def test_charges_reproduced_end_to_end(self):
+        """Interchange assigns exactly the input partial charges to every atom."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        expected = mol.partial_charges.m_as(unit.elementary_charge)
+        assert np.allclose(assigned, expected, atol=1e-6)
+
+    def test_total_charge_conserved_with_averaging(self):
+        """Symmetry-equivalent atoms are averaged while the net charge is preserved."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        # Deliberately break symmetry of the three methyl hydrogens (indices 2, 3, 4)
+        # while keeping the molecule net-neutral.
+        charges = [0.28, -0.68, 0.05, -0.05, 0.0, 0.40]
+        assert abs(sum(charges)) < 1e-9
+        mol.partial_charges = np.array(charges) * unit.elementary_charge
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        # Net charge preserved exactly
+        assert (
+            abs(assigned.sum() - mol.total_charge.m_as(unit.elementary_charge)) < 1e-6
+        )
+        # The three symmetry-equivalent methyl hydrogens collapse to their mean (0.0)
+        assert np.allclose(assigned[2:5], 0.0, atol=1e-6)
+
+    def test_missing_partial_charges_raises(self):
+        """A molecule without partial charges raises a clear error."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        with pytest.raises(ValueError, match="missing partial charges"):
+            add_library_charges_to_forcefield(mol, ff)
+
+    def test_non_integral_charges_raises(self):
+        """Partial charges that don't sum to the formal charge raise up front."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        charges = [0.5, -0.68, 0.0, 0.0, 0.0, 0.40]  # sums to 0.22, not 0
+        mol.partial_charges = np.array(charges) * unit.elementary_charge
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        with pytest.raises(ValueError, match="formal charge"):
+            add_library_charges_to_forcefield(mol, ff)
+
+    def test_multiple_molecules_reproduce_independently(self):
+        """A single FF built from several molecules reproduces each one's charges.
+
+        The library charges for the different molecules must coexist in the same
+        handler without interfering with one another.
+        """
+        mol_a = openff.toolkit.Molecule.from_smiles("CO")
+        mol_b = openff.toolkit.Molecule.from_smiles("CCO")
+        for mol in (mol_a, mol_b):
+            mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield([mol_a, mol_b], ff)
+
+        for mol in (mol_a, mol_b):
+            assigned = _assigned_charges(ff_with_charges, mol)
+            expected = mol.partial_charges.m_as(unit.elementary_charge)
+            assert np.allclose(assigned, expected, atol=1e-6)
+
+    def test_symmetry_equivalent_atoms_dedup(self):
+        """Symmetry-equivalent atoms collapse onto a single library charge."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")  # ethanol, 9 atoms
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+        bespoke = [
+            p
+            for p in ff_with_charges.get_parameter_handler("LibraryCharges").parameters
+            if "bespoke" in p.id
+        ]
+
+        # Ethanol has 9 atoms but only 6 distinct environments: the three methyl
+        # hydrogens are equivalent (3 -> 1) and the two methylene hydrogens are
+        # equivalent (2 -> 1), so 9 - 2 - 1 = 6 library charges are generated.
+        assert mol.n_atoms == 9
+        assert len(bespoke) == 6
+
+    def test_charged_molecule_round_trips(self):
+        """An ion reproduces its non-zero net charge."""
+        mol = openff.toolkit.Molecule.from_smiles("[NH4+]")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        assert abs(assigned.sum() - 1.0) < 1e-6
+        expected = mol.partial_charges.m_as(unit.elementary_charge)
+        assert np.allclose(assigned, expected, atol=1e-6)
