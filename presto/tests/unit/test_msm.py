@@ -7,6 +7,7 @@ See https://doi.org/10.1021/acs.jctc.7b00785.
 import json
 import math
 from importlib.resources import files
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -841,6 +842,49 @@ class TestApplyMSMToMolecule:
         for ap in angle_params_multi.values():
             assert ap.force_constant.magnitude > 0
             assert 0 < ap.angle.m_as(_ANGLE_UNIT) < np.pi
+
+    def test_supplied_starting_conformers(
+        self, base_forcefield, tmp_path, write_multiconformer_sdf
+    ):
+        """MSM runs from a supplied conformer SDF, iterating the actual conformers."""
+        import presto.msm as msm_module
+
+        n_supplied = 3
+        source = Molecule.from_smiles("CCO")
+        source.generate_conformers(
+            n_conformers=n_supplied, rms_cutoff=0.0 * off_unit.angstrom
+        )
+        assert source.n_conformers == n_supplied
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        mol = Molecule.from_smiles("CCO")
+        ff = base_forcefield
+        labels = ff.label_molecules(mol.to_topology())[0]
+        bond_indices = list(labels["Bonds"].keys())
+        angle_indices = list(labels["Angles"].keys())
+
+        # n_conformers deliberately differs from the file's conformer count. The Hessian
+        # (computed once per conformer) is spied on to prove the loop iterates every
+        # supplied conformer rather than n_conformers of them.
+        settings = MSMSettings(
+            n_conformers=1,
+            mlp_settings=MLPSettings(ml_potential="aimnet2"),
+            starting_conformers=sdf,
+        )
+
+        real_calculate_hessian = msm_module.calculate_hessian
+        with patch.object(
+            msm_module, "calculate_hessian", side_effect=real_calculate_hessian
+        ) as spy_hessian:
+            bond_params, angle_params = apply_msm_to_molecule(
+                mol, bond_indices, angle_indices, settings, device=torch.device("cpu")
+            )
+
+        # One Hessian per supplied conformer, independent of n_conformers=1.
+        assert spy_hessian.call_count == n_supplied
+        assert len(bond_params) == len(bond_indices)
+        assert len(angle_params) == len(angle_indices)
 
 
 @pytest.mark.slow

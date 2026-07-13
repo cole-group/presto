@@ -894,3 +894,86 @@ class TestWorkflowSettings:
         assert loaded.outlier_filter_settings.energy_outlier_threshold == 7.5
         assert loaded.outlier_filter_settings.force_outlier_threshold == 30.0
         assert loaded.outlier_filter_settings.min_conformations == 2
+
+
+def _write_single_conformer_sdf(smiles: str, path: Path) -> None:
+    """Write a molecule with one conformer to an SDF file."""
+    molecule = Molecule.from_smiles(smiles)
+    molecule.generate_conformers(n_conformers=1)
+    molecule.to_file(str(path), "SDF")
+
+
+class TestStartingConformersField:
+    """Tests for the optional starting_conformers field on sampling and MSM settings."""
+
+    def test_default_is_none(self):
+        """starting_conformers defaults to None (ETKDG) on every stage."""
+        assert MMMDSamplingSettings().starting_conformers is None
+        assert MLMDSamplingSettings().starting_conformers is None
+        assert MSMSettings().starting_conformers is None
+
+    def test_accepts_existing_sdf(self, tmp_path):
+        """A valid SDF path is accepted."""
+        sdf = tmp_path / "confs.sdf"
+        _write_single_conformer_sdf("CCO", sdf)
+
+        settings = MMMDSamplingSettings(starting_conformers=sdf)
+        assert settings.starting_conformers == sdf
+
+        msm = MSMSettings(starting_conformers=sdf)
+        assert msm.starting_conformers == sdf
+
+    def test_missing_file_rejected(self, tmp_path):
+        """A missing SDF path is rejected at construction."""
+        with pytest.raises(ValidationError, match="does not exist"):
+            MMMDSamplingSettings(starting_conformers=tmp_path / "missing.sdf")
+
+    def test_non_sdf_suffix_rejected(self, tmp_path):
+        """A non-.sdf path is rejected at construction."""
+        other = tmp_path / "confs.mol2"
+        other.write_text("")
+        with pytest.raises(ValidationError, match="must be an SDF file"):
+            MMMDSamplingSettings(starting_conformers=other)
+
+    def test_workflow_accepts_matching_conformers(self, tmp_path):
+        """WorkflowSettings validates when the SDF contains the fitted molecule."""
+        sdf = tmp_path / "confs.sdf"
+        _write_single_conformer_sdf("CCO", sdf)
+
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+            device_type="cpu",
+            training_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
+        )
+        assert settings.training_sampling_settings.starting_conformers == sdf
+
+    def test_workflow_rejects_missing_molecule(self, tmp_path):
+        """WorkflowSettings fails fast when a fitted molecule is absent from the SDF."""
+        sdf = tmp_path / "confs.sdf"
+        _write_single_conformer_sdf("CCO", sdf)
+
+        with pytest.raises(ValidationError, match="starting_conformers"):
+            WorkflowSettings(
+                param_settings=ParamSettings(
+                    molecule_input_type="smiles", molecules="c1ccccc1"
+                ),
+                device_type="cpu",
+                training_sampling_settings=MMMDSamplingSettings(
+                    starting_conformers=sdf
+                ),
+            )
+
+    def test_workflow_validates_msm_conformers(self, tmp_path):
+        """The MSM starting_conformers path is also cross-checked against molecules."""
+        sdf = tmp_path / "confs.sdf"
+        _write_single_conformer_sdf("CCO", sdf)
+
+        with pytest.raises(ValidationError, match=r"msm_settings\.starting_conformers"):
+            WorkflowSettings(
+                param_settings=ParamSettings(
+                    molecule_input_type="smiles",
+                    molecules="c1ccccc1",
+                    msm_settings=MSMSettings(starting_conformers=sdf),
+                ),
+                device_type="cpu",
+            )

@@ -575,6 +575,68 @@ class TestCopyMolAndAddConformers:
         # Should return a molecule with conformers (may be fewer than requested)
         assert len(result.conformers) >= 1
 
+    def test_uses_supplied_conformers_and_ignores_n_conformers(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """When a starting-conformers SDF is given, use it and ignore n_conformers."""
+        from openff.units import unit as off_unit
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=4, rms_cutoff=0.0 * off_unit.angstrom)
+        n_supplied = source.n_conformers
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        target = Molecule.from_smiles("CCCCCO")
+        # Request a different count to prove n_conformers is ignored.
+        result = _copy_mol_and_add_conformers(
+            target, n_conformers=n_supplied + 7, starting_conformers=sdf
+        )
+
+        assert len(result.conformers) == n_supplied
+
+    def test_supplied_path_does_not_call_etkdg(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """The ETKDG generator is not invoked when conformers are supplied."""
+        from unittest.mock import patch
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=2)
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        target = Molecule.from_smiles("CCCCCO")
+        with patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            result = _copy_mol_and_add_conformers(
+                target, n_conformers=10, starting_conformers=sdf
+            )
+
+        mock_generate.assert_not_called()
+        assert len(result.conformers) == source.n_conformers
+
+    def test_default_path_still_uses_etkdg(self):
+        """With no supplied conformers, ETKDG is still used."""
+        from unittest.mock import patch
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        with patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            _copy_mol_and_add_conformers(mol, n_conformers=3)
+
+        mock_generate.assert_called_once()
+
 
 class TestGetMoleculeFromDataset:
     """Tests for _get_molecule_from_dataset function."""
@@ -1191,6 +1253,53 @@ class TestSampleMmmdIntegration:
         # Verify weights are set
         assert len(entry["energy_weights"]) == len(entry["energy"])
         assert len(entry["forces_weights"]) == len(entry["energy"])
+
+    def test_sample_mmmd_uses_starting_conformers(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """sample_mmmd starts from a supplied SDF's conformers, ignoring n_conformers."""
+        from openff.units import unit as off_unit
+
+        # Build a 3-conformer SDF for the molecule being sampled.
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=3, rms_cutoff=0.0 * off_unit.angstrom)
+        n_supplied = source.n_conformers
+        assert n_supplied > 1
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        mol = Molecule.from_smiles("CCCCCO")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDSamplingSettings(
+            sampling_protocol="mm_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,  # deliberately != number supplied; must be ignored
+            starting_conformers=sdf,
+            equilibration_sampling_time_per_conformer=0.0 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.002 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,  # 2 snapshots/conformer
+        )
+
+        pdb_dir = tmp_path / "pdb"
+        pdb_dir.mkdir()
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            mock_system.addForce(openmm.CustomExternalForce("0"))
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        # 2 snapshots per conformer * the number of supplied conformers (not n_conformers).
+        expected_snapshots = 2 * n_supplied
+        assert len(result[0][0]["energy"]) == expected_snapshots
 
     def test_sample_mmmd_with_pdb_output(self, tmp_path):
         """Test sample_mmmd with PDB trajectory output."""

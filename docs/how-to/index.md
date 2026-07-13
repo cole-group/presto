@@ -7,6 +7,7 @@ Short, task-oriented recipes. Each page assumes you've finished **[Get started](
 - **[Fit a single molecule](fit-single-molecule.md)** — defaults you may want to change.
 - **[Fit a congeneric series](fit-congeneric-series.md)** — share parameters across related molecules using `max_extend_distance`.
 - **[Use SDF inputs](use-sdf-inputs.md)** — switch from SMILES to one or more `.sdf` files.
+- **[Use your own starting conformers](use-starting-conformers.md)** — seed a sampling stage (or MSM) from an SDF instead of ETKDG.
 - **[Use custom charges](use-custom-charges.md)** — bake your own partial charges into the force field as library charges.
 - **[Wipe output and rerun](clean-rerun.md)**
 
