@@ -33,6 +33,7 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
+from .load_molecules import load_conformers_for_molecule
 from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
 from .utils.gpu import cleanup_simulation
@@ -77,16 +78,36 @@ _register_sampling_fn = get_registry_decorator(_SAMPLING_FNS_REGISTRY)
 def _copy_mol_and_add_conformers(
     mol: openff.toolkit.Molecule,
     n_conformers: int,
+    starting_conformers: pathlib.Path | None = None,
 ) -> openff.toolkit.Molecule:
-    """Copy a molecule and add conformers to it."""
+    """Copy a molecule and add starting conformers to it.
+
+    If ``starting_conformers`` is None (default), ``n_conformers`` conformers are
+    generated with ETKDG. Otherwise the conformers are loaded from the given SDF (matched
+    to ``mol`` by graph and aligned to its atom ordering) and ``n_conformers`` is ignored.
+    """
     mol = copy.deepcopy(mol)
-    mol.generate_conformers(n_conformers=n_conformers, rms_cutoff=0.0 * _ANGSTROM)
-    n_gen_conformers = len(mol.conformers)
-    if n_gen_conformers < n_conformers:
-        logger.warning(
-            f"Only {n_gen_conformers} conformers were generated, which is less than the requested {n_conformers}."
-            f" As a result, {n_gen_conformers / n_conformers * 100:.1f}% of the requested samples will be generated."
-        )
+
+    if starting_conformers is None:
+        mol.generate_conformers(n_conformers=n_conformers, rms_cutoff=0.0 * _ANGSTROM)
+        n_gen_conformers = len(mol.conformers)
+        if n_gen_conformers < n_conformers:
+            logger.warning(
+                f"Only {n_gen_conformers} conformers were generated, which is less than the requested {n_conformers}."
+                f" As a result, {n_gen_conformers / n_conformers * 100:.1f}% of the requested samples will be generated."
+            )
+        return mol
+
+    # Drop any incidental conformer (e.g. one carried by an SDF-loaded molecule) before
+    # attaching the supplied starting conformers.
+    mol._conformers = []
+    conformers = load_conformers_for_molecule(mol, starting_conformers)
+    logger.info(
+        f"Starting from {len(conformers)} supplied conformers in {starting_conformers} "
+        f"(n_conformers={n_conformers} ignored)."
+    )
+    for conformer in conformers:
+        mol.add_conformer(conformer)
     return mol
 
 
@@ -338,7 +359,9 @@ def sample_mmmd(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
@@ -433,7 +456,9 @@ def sample_mlmd(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         ml_simulation, integrator = _build_ml_simulation(
             mol_with_conformers,
             mol_with_conformers.to_topology().to_openmm(),
@@ -559,7 +584,9 @@ def sample_mmmd_metadynamics(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
@@ -1175,7 +1202,9 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )

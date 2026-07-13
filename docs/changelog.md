@@ -4,11 +4,17 @@
 
 ### Features
 
+- Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
+
+### Fixes
+
+- Fix a latent `IndexError` in the MSM step when fewer conformers were available than `n_conformers`; the conformer loop now iterates the conformers actually present.
 
 ### Documentation
 
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
+- Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).
 - Document installing `presto` from `conda-forge` as `presto-fit` (note this comes without the MLP dependencies, which must be installed separately) in [#70](https://github.com/cole-group/presto/pull/70).
 

@@ -698,9 +698,11 @@ def apply_msm_to_molecule(
         Tuple of (bond_params_dict, angle_params_dict). If multiple conformers are used,
         the parameters are averaged over all conformers.
     """
-    # Generate conformers
+    # Generate conformers (or load the supplied starting conformers)
     mol_with_conformers = _copy_mol_and_add_conformers(
-        mol, n_conformers=settings.n_conformers
+        mol,
+        n_conformers=settings.n_conformers,
+        starting_conformers=settings.starting_conformers,
     )
     simulation, integrator = _build_ml_simulation(
         mol_with_conformers,
@@ -717,14 +719,12 @@ def apply_msm_to_molecule(
         defaultdict(list)
     )
 
-    for conf_idx in track(
-        range(settings.n_conformers),
+    for conformer in track(
+        mol_with_conformers.conformers,
         description="Finding MSM parameters for conformers",
     ):
         # Set positions for this conformer
-        simulation.context.setPositions(
-            mol_with_conformers.conformers[conf_idx].to_openmm()
-        )
+        simulation.context.setPositions(conformer.to_openmm())
 
         # Minimize to local energy minimum
         simulation.minimizeEnergy(maxIterations=0, tolerance=settings.tolerance)

@@ -29,7 +29,11 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
 )
-from .load_molecules import MOLECULE_LOADERS, MoleculeInputType
+from .load_molecules import (
+    MOLECULE_LOADERS,
+    MoleculeInputType,
+    load_conformers_for_molecule,
+)
 from .outputs import OutputType, WorkflowPathManager
 from .utils.dicts import deep_update
 from .utils.typing import (
@@ -169,6 +173,27 @@ class MLPSettings(_DefaultSettings):
         return self
 
 
+def _validate_starting_conformers_path(value: Path | None) -> Path | None:
+    """Validate an optional starting-conformers SDF path.
+
+    Only checks the obvious, molecule-independent problems (missing file, wrong
+    suffix). Whether the file actually contains conformers for the molecules being
+    fitted can only be checked once the molecules are known — see
+    ``WorkflowSettings._check_starting_conformers_match_molecules``.
+    """
+    if value is None:
+        return value
+    if value.suffix.lower() != ".sdf":
+        raise InvalidSettingsError(
+            f"starting_conformers must be an SDF file ending in .sdf: {value}"
+        )
+    if not value.exists():
+        raise InvalidSettingsError(
+            f"starting_conformers SDF file does not exist: {value}"
+        )
+    return value
+
+
 class _SamplingSettingsBase(_DefaultSettings, ABC):
     """Settings for sampling (usually molecular dynamics)."""
 
@@ -204,8 +229,24 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     n_conformers: int = Field(
         10,
-        description="The number of conformers to generate, from which sampling is started",
+        description="The number of conformers to generate, from which sampling is started. "
+        "Ignored when `starting_conformers` is set.",
     )
+
+    starting_conformers: Path | None = Field(
+        None,
+        description="Optional path to an SDF of starting conformers for this sampling "
+        "stage. If set, sampling starts from every conformer in the file that matches "
+        "the molecule (matched by graph, atom order aligned automatically) and "
+        "`n_conformers` is ignored for this stage. If None (default), conformers are "
+        "generated with ETKDG.",
+    )
+
+    @field_validator("starting_conformers")
+    @classmethod
+    def _validate_starting_conformers(cls, value: Path | None) -> Path | None:
+        """Validate that any supplied starting-conformers path is an existing SDF."""
+        return _validate_starting_conformers_path(value)
 
     equilibration_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         default=0.0 * unit.picoseconds,
@@ -712,8 +753,24 @@ class MSMSettings(_DefaultSettings):
     n_conformers: int = Field(
         1,
         description="Number of conformers to generate and calculate MSM parameters for. "
-        "The resulting bond and angle parameters will be averaged over all conformers.",
+        "The resulting bond and angle parameters will be averaged over all conformers. "
+        "Ignored when `starting_conformers` is set.",
     )
+
+    starting_conformers: Path | None = Field(
+        None,
+        description="Optional path to an SDF of starting conformers for the MSM Hessian "
+        "calculation. If set, MSM parameters are calculated for every conformer in the "
+        "file that matches the molecule (matched by graph, atom order aligned "
+        "automatically) and averaged, and `n_conformers` is ignored. If None (default), "
+        "conformers are generated with ETKDG.",
+    )
+
+    @field_validator("starting_conformers")
+    @classmethod
+    def _validate_starting_conformers(cls, value: Path | None) -> Path | None:
+        """Validate that any supplied starting-conformers path is an existing SDF."""
+        return _validate_starting_conformers_path(value)
 
 
 class ParamSettings(_DefaultSettings):
@@ -942,6 +999,46 @@ class WorkflowSettings(_DefaultSettings):
                 f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_starting_conformers_match_molecules(self) -> Self:
+        """Fail fast if a configured starting-conformers SDF lacks a molecule being fitted.
+
+        This runs before the (slow) parameterisation stage so a mismatch between the
+        supplied conformers and the fitted molecules surfaces immediately rather than
+        mid-run.
+        """
+        msm_settings = self.param_settings.msm_settings
+        stages: list[tuple[str, Path | None]] = [
+            (
+                "training_sampling_settings",
+                getattr(self.training_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "testing_sampling_settings",
+                getattr(self.testing_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "param_settings.msm_settings",
+                None if msm_settings is None else msm_settings.starting_conformers,
+            ),
+        ]
+
+        configured = [(name, path) for name, path in stages if path is not None]
+        if not configured:
+            return self
+
+        molecules = self.param_settings.openff_molecules
+        for name, path in configured:
+            for molecule in molecules:
+                try:
+                    load_conformers_for_molecule(molecule, path)
+                except ValueError as exc:
+                    raise InvalidSettingsError(
+                        f"{name}.starting_conformers ({path}) is invalid: {exc}"
+                    ) from exc
 
         return self
 

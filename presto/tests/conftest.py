@@ -27,6 +27,29 @@ def skip_if_model_unavailable(model_name: str) -> None:
         pytest.skip(f"{pkg} not installed")
 
 
+@pytest.fixture
+def write_multiconformer_sdf():
+    """Return a helper that writes molecules' conformers as separate SDF records.
+
+    ``Molecule.to_file(..., "SDF")`` only writes a single conformer, so tests that need a
+    genuine multi-record SDF (the shape a user supplies as starting conformers) go via
+    RDKit. The returned helper accepts a single ``Molecule`` or an iterable of them and
+    writes every conformer of each as its own record to ``path``.
+    """
+    from rdkit import Chem
+
+    def _write(molecules, path) -> None:
+        if isinstance(molecules, Molecule):
+            molecules = [molecules]
+        with Chem.SDWriter(str(path)) as writer:
+            for molecule in molecules:
+                rdkit_molecule = molecule.to_rdkit()
+                for conformer_id in range(rdkit_molecule.GetNumConformers()):
+                    writer.write(rdkit_molecule, confId=conformer_id)
+
+    return _write
+
+
 # From Simon Boothroyd
 @pytest.fixture
 def tmp_cwd(tmp_path, monkeypatch) -> Path:
