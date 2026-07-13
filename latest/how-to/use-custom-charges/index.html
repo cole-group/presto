@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://github.com/cole-group/presto/latest/how-to/">
+        <link rel="canonical" href="https://github.com/cole-group/presto/latest/how-to/use-custom-charges/">
       
       
-        <link rel="prev" href="../examples/basic-walk-through-python-api/">
+        <link rel="prev" href="../use-sdf-inputs/">
       
       
-        <link rel="next" href="fit-single-molecule/">
+        <link rel="next" href="../clean-rerun/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>How-to guides - presto</title>
+        <title>Use custom charges - presto</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#how-to-guides" class="md-skip">
+        <a href="#use-custom-charges" class="md-skip">
           Skip to content
         </a>
       
@@ -100,7 +100,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="presto" class="md-header__button md-logo" aria-label="presto" data-md-component="logo">
+    <a href="../.." title="presto" class="md-header__button md-logo" aria-label="presto" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              How-to guides
+              Use custom charges
             
           </span>
         </div>
@@ -227,7 +227,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -248,7 +248,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../get-started/" class="md-tabs__link">
+        <a href="../../get-started/" class="md-tabs__link">
           
   
   
@@ -272,7 +272,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -294,7 +294,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../concepts/" class="md-tabs__link">
+        <a href="../../concepts/" class="md-tabs__link">
           
   
   
@@ -316,7 +316,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../reference/" class="md-tabs__link">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -338,7 +338,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../development/" class="md-tabs__link">
+        <a href="../../development/" class="md-tabs__link">
           
   
   
@@ -358,7 +358,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../citing/" class="md-tabs__link">
+      <a href="../../citing/" class="md-tabs__link">
         
   
   
@@ -377,7 +377,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../changelog/" class="md-tabs__link">
+      <a href="../../changelog/" class="md-tabs__link">
         
   
   
@@ -418,7 +418,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="presto" class="md-nav__button md-logo" aria-label="presto" data-md-component="logo">
+    <a href="../.." title="presto" class="md-nav__button md-logo" aria-label="presto" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -448,7 +448,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -506,7 +506,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../get-started/" class="md-nav__link ">
+            <a href="../../get-started/" class="md-nav__link ">
               
   
   
@@ -550,7 +550,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../get-started/installation/" class="md-nav__link">
+      <a href="../../get-started/installation/" class="md-nav__link">
         
   
   
@@ -578,7 +578,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../get-started/quickstart/" class="md-nav__link">
+      <a href="../../get-started/quickstart/" class="md-nav__link">
         
   
   
@@ -606,7 +606,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/basic-walk-through-cli/" class="md-nav__link">
+      <a href="../../examples/basic-walk-through-cli/" class="md-nav__link">
         
   
   
@@ -634,7 +634,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/basic-walk-through-python-api/" class="md-nav__link">
+      <a href="../../examples/basic-walk-through-python-api/" class="md-nav__link">
         
   
   
@@ -715,7 +715,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -733,7 +733,7 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_3" id="__nav_3_label" tabindex="">
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -759,7 +759,7 @@
   
   
     <li class="md-nav__item">
-      <a href="fit-single-molecule/" class="md-nav__link">
+      <a href="../fit-single-molecule/" class="md-nav__link">
         
   
   
@@ -787,7 +787,7 @@
   
   
     <li class="md-nav__item">
-      <a href="fit-congeneric-series/" class="md-nav__link">
+      <a href="../fit-congeneric-series/" class="md-nav__link">
         
   
   
@@ -815,7 +815,7 @@
   
   
     <li class="md-nav__item">
-      <a href="use-sdf-inputs/" class="md-nav__link">
+      <a href="../use-sdf-inputs/" class="md-nav__link">
         
   
   
@@ -840,10 +840,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="use-custom-charges/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use custom charges
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -859,6 +886,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#set-partial-charges-on-the-molecule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set partial charges on the molecule
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#write-the-library-charges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write the library charges
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-charges-are-matched" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the charges are matched
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-the-charges-in-a-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use the charges in a fit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -871,7 +973,7 @@
   
   
     <li class="md-nav__item">
-      <a href="clean-rerun/" class="md-nav__link">
+      <a href="../clean-rerun/" class="md-nav__link">
         
   
   
@@ -899,7 +1001,7 @@
   
   
     <li class="md-nav__item">
-      <a href="choose-an-mlp/" class="md-nav__link">
+      <a href="../choose-an-mlp/" class="md-nav__link">
         
   
   
@@ -927,7 +1029,7 @@
   
   
     <li class="md-nav__item">
-      <a href="use-ase-calculator/" class="md-nav__link">
+      <a href="../use-ase-calculator/" class="md-nav__link">
         
   
   
@@ -955,7 +1057,7 @@
   
   
     <li class="md-nav__item">
-      <a href="inspect-outputs/" class="md-nav__link">
+      <a href="../inspect-outputs/" class="md-nav__link">
         
   
   
@@ -983,7 +1085,7 @@
   
   
     <li class="md-nav__item">
-      <a href="run-from-python/" class="md-nav__link">
+      <a href="../run-from-python/" class="md-nav__link">
         
   
   
@@ -1053,7 +1155,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../concepts/" class="md-nav__link ">
+            <a href="../../concepts/" class="md-nav__link ">
               
   
   
@@ -1097,7 +1199,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/bespoke-smirnoff-primer/" class="md-nav__link">
+      <a href="../../concepts/bespoke-smirnoff-primer/" class="md-nav__link">
         
   
   
@@ -1125,7 +1227,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/method-overview/" class="md-nav__link">
+      <a href="../../concepts/method-overview/" class="md-nav__link">
         
   
   
@@ -1153,7 +1255,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/sampling-protocols/" class="md-nav__link">
+      <a href="../../concepts/sampling-protocols/" class="md-nav__link">
         
   
   
@@ -1181,7 +1283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/type-generation/" class="md-nav__link">
+      <a href="../../concepts/type-generation/" class="md-nav__link">
         
   
   
@@ -1209,7 +1311,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/mlps/" class="md-nav__link">
+      <a href="../../concepts/mlps/" class="md-nav__link">
         
   
   
@@ -1237,7 +1339,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/output-layout/" class="md-nav__link">
+      <a href="../../concepts/output-layout/" class="md-nav__link">
         
   
   
@@ -1301,7 +1403,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -1345,7 +1447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/troubleshooting/" class="md-nav__link">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
         
   
   
@@ -1373,7 +1475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/glossary/" class="md-nav__link">
+      <a href="../../reference/glossary/" class="md-nav__link">
         
   
   
@@ -1516,7 +1618,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/api/" class="md-nav__link ">
+            <a href="../../reference/api/" class="md-nav__link ">
               
   
   
@@ -1560,7 +1662,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/analyse/" class="md-nav__link">
+      <a href="../../reference/api/analyse/" class="md-nav__link">
         
   
   
@@ -1588,7 +1690,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/convert/" class="md-nav__link">
+      <a href="../../reference/api/convert/" class="md-nav__link">
         
   
   
@@ -1616,7 +1718,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/create_types/" class="md-nav__link">
+      <a href="../../reference/api/create_types/" class="md-nav__link">
         
   
   
@@ -1644,7 +1746,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/find_torsions/" class="md-nav__link">
+      <a href="../../reference/api/find_torsions/" class="md-nav__link">
         
   
   
@@ -1672,7 +1774,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/hessian/" class="md-nav__link">
+      <a href="../../reference/api/hessian/" class="md-nav__link">
         
   
   
@@ -1700,7 +1802,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/load_molecules/" class="md-nav__link">
+      <a href="../../reference/api/load_molecules/" class="md-nav__link">
         
   
   
@@ -1728,7 +1830,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/loss/" class="md-nav__link">
+      <a href="../../reference/api/loss/" class="md-nav__link">
         
   
   
@@ -1756,7 +1858,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/metadynamics/" class="md-nav__link">
+      <a href="../../reference/api/metadynamics/" class="md-nav__link">
         
   
   
@@ -1784,7 +1886,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/mlp/" class="md-nav__link">
+      <a href="../../reference/api/mlp/" class="md-nav__link">
         
   
   
@@ -1812,7 +1914,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/models/" class="md-nav__link">
+      <a href="../../reference/api/models/" class="md-nav__link">
         
   
   
@@ -1840,7 +1942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/msm/" class="md-nav__link">
+      <a href="../../reference/api/msm/" class="md-nav__link">
         
   
   
@@ -1868,7 +1970,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/outputs/" class="md-nav__link">
+      <a href="../../reference/api/outputs/" class="md-nav__link">
         
   
   
@@ -1896,7 +1998,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/sample/" class="md-nav__link">
+      <a href="../../reference/api/sample/" class="md-nav__link">
         
   
   
@@ -1924,7 +2026,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/settings/" class="md-nav__link">
+      <a href="../../reference/api/settings/" class="md-nav__link">
         
   
   
@@ -1952,7 +2054,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/train/" class="md-nav__link">
+      <a href="../../reference/api/train/" class="md-nav__link">
         
   
   
@@ -2013,7 +2115,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/api/utils/" class="md-nav__link ">
+            <a href="../../reference/api/utils/" class="md-nav__link ">
               
   
   
@@ -2057,7 +2159,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/dicts/" class="md-nav__link">
+      <a href="../../reference/api/utils/dicts/" class="md-nav__link">
         
   
   
@@ -2085,7 +2187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/gpu/" class="md-nav__link">
+      <a href="../../reference/api/utils/gpu/" class="md-nav__link">
         
   
   
@@ -2113,7 +2215,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/rdkit_toolkit/" class="md-nav__link">
+      <a href="../../reference/api/utils/rdkit_toolkit/" class="md-nav__link">
         
   
   
@@ -2141,7 +2243,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/register/" class="md-nav__link">
+      <a href="../../reference/api/utils/register/" class="md-nav__link">
         
   
   
@@ -2169,7 +2271,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/typing/" class="md-nav__link">
+      <a href="../../reference/api/utils/typing/" class="md-nav__link">
         
   
   
@@ -2205,7 +2307,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/workflow/" class="md-nav__link">
+      <a href="../../reference/api/workflow/" class="md-nav__link">
         
   
   
@@ -2233,7 +2335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/writers/" class="md-nav__link">
+      <a href="../../reference/api/writers/" class="md-nav__link">
         
   
   
@@ -2313,7 +2415,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../development/" class="md-nav__link ">
+            <a href="../../development/" class="md-nav__link ">
               
   
   
@@ -2357,7 +2459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/contributing/" class="md-nav__link">
+      <a href="../../development/contributing/" class="md-nav__link">
         
   
   
@@ -2385,7 +2487,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/docs/" class="md-nav__link">
+      <a href="../../development/docs/" class="md-nav__link">
         
   
   
@@ -2413,7 +2515,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/releasing/" class="md-nav__link">
+      <a href="../../development/releasing/" class="md-nav__link">
         
   
   
@@ -2448,7 +2550,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../citing/" class="md-nav__link">
+      <a href="../../citing/" class="md-nav__link">
         
   
   
@@ -2475,7 +2577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2522,10 +2624,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#by-task" class="md-nav__link">
+  <a href="#set-partial-charges-on-the-molecule" class="md-nav__link">
     <span class="md-ellipsis">
       
-        By task
+        Set partial charges on the molecule
       
     </span>
   </a>
@@ -2533,10 +2635,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#by-component" class="md-nav__link">
+  <a href="#write-the-library-charges" class="md-nav__link">
     <span class="md-ellipsis">
       
-        By component
+        Write the library charges
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-charges-are-matched" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the charges are matched
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-the-charges-in-a-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use the charges in a fit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
       
     </span>
   </a>
@@ -2563,22 +2698,59 @@
   
 
 
-<h1 id="how-to-guides">How-to guides<a class="headerlink" href="#how-to-guides" title="Permanent link">#</a></h1>
-<p>Short, task-oriented recipes. Each page assumes you've finished <strong><a href="../get-started/">Get started</a></strong>.</p>
-<h2 id="by-task">By task<a class="headerlink" href="#by-task" title="Permanent link">#</a></h2>
+<h1 id="use-custom-charges">Use custom charges<a class="headerlink" href="#use-custom-charges" title="Permanent link">#</a></h1>
+<p>By default a <code>presto</code> fit takes partial charges from the base force field's charge model (usually Ash-GC). If you have your own partial charges — from a higher level of theory, a custom charge model, or an external pipeline — you can bake them into the force field as <strong>library charges</strong> so they are used in place of the default model.</p>
+<p><code>presto</code> provides <a href="../../reference/api/create_types/#presto.create_types.add_library_charges_to_forcefield"><code>add_library_charges_to_forcefield</code></a> for this. It takes an OpenFF <code>Molecule</code> (or list of molecules) that already has <code>partial_charges</code> set, plus a <code>ForceField</code>, and returns a copy of the force field with <code>LibraryCharges</code> written for those charges.</p>
+<p>This is a standalone helper: it is <strong>not</strong> part of the automatic fitting pipeline. You call it yourself to produce a force field (or <code>.offxml</code> file) that you then use as your starting point.</p>
+<h2 id="set-partial-charges-on-the-molecule">Set partial charges on the molecule<a class="headerlink" href="#set-partial-charges-on-the-molecule" title="Permanent link">#</a></h2>
+<p>Any method that populates <code>Molecule.partial_charges</code> works — assign them with the toolkit, or set them directly from your own data:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">openff.toolkit</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">openff.units</span><span class="w"> </span><span class="kn">import</span> <span class="n">unit</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">mol</span> <span class="o">=</span> <span class="n">openff</span><span class="o">.</span><span class="n">toolkit</span><span class="o">.</span><span class="n">Molecule</span><span class="o">.</span><span class="n">from_smiles</span><span class="p">(</span><span class="s2">&quot;CCO&quot;</span><span class="p">)</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Option A: assign with a toolkit charge method</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">mol</span><span class="o">.</span><span class="n">assign_partial_charges</span><span class="p">(</span><span class="s2">&quot;am1bcc&quot;</span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Option B: set your own charges directly (must be ordered by atom index)</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="n">mol</span><span class="o">.</span><span class="n">partial_charges</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="o">...</span><span class="p">])</span> <span class="o">*</span> <span class="n">unit</span><span class="o">.</span><span class="n">elementary_charge</span>
+</span></code></pre></div>
+<p>The charges must sum to the molecule's formal charge. If they do not, <code>add_library_charges_to_forcefield</code> raises a <code>ValueError</code> up front rather than letting the error surface later when the system is built.</p>
+<h2 id="write-the-library-charges">Write the library charges<a class="headerlink" href="#write-the-library-charges" title="Permanent link">#</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">presto.create_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_library_charges_to_forcefield</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">ff</span> <span class="o">=</span> <span class="n">openff</span><span class="o">.</span><span class="n">toolkit</span><span class="o">.</span><span class="n">ForceField</span><span class="p">(</span><span class="s2">&quot;openff_unconstrained-2.3.0.offxml&quot;</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">ff_with_charges</span> <span class="o">=</span> <span class="n">add_library_charges_to_forcefield</span><span class="p">(</span><span class="n">mol</span><span class="p">,</span> <span class="n">ff</span><span class="p">)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># Persist for reuse / inspection</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">ff_with_charges</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">&quot;custom_charges.offxml&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The original <code>ff</code> is left unchanged; a modified copy is returned. The new parameters are tagged with <code>l-bespoke-*</code> IDs under the <code>LibraryCharges</code> handler.</p>
+<p>Pass a list to write charges for several molecules at once:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">ff_with_charges</span> <span class="o">=</span> <span class="n">add_library_charges_to_forcefield</span><span class="p">([</span><span class="n">mol_a</span><span class="p">,</span> <span class="n">mol_b</span><span class="p">],</span> <span class="n">ff</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="how-the-charges-are-matched">How the charges are matched<a class="headerlink" href="#how-the-charges-are-matched" title="Permanent link">#</a></h2>
+<p>The library charges reproduce your input charges and always keep the molecule net-neutral (or at its formal charge). This is achieved by reusing <code>presto</code>'s <a href="../../concepts/type-generation/">type generation</a> machinery:</p>
 <ul>
-<li><strong><a href="fit-single-molecule/">Fit a single molecule</a></strong> — defaults you may want to change.</li>
-<li><strong><a href="fit-congeneric-series/">Fit a congeneric series</a></strong> — share parameters across related molecules using <code>max_extend_distance</code>.</li>
-<li><strong><a href="use-sdf-inputs/">Use SDF inputs</a></strong> — switch from SMILES to one or more <code>.sdf</code> files.</li>
-<li><strong><a href="use-custom-charges/">Use custom charges</a></strong> — bake your own partial charges into the force field as library charges.</li>
-<li><strong><a href="clean-rerun/">Wipe output and rerun</a></strong></li>
+<li>One library charge is generated per atom, using a whole-molecule SMARTS with a single tagged atom (the non-tagged hydrogens are merged onto their heavy atoms, which keeps SMARTS matching fast).</li>
+<li>Because each pattern spans the whole molecule, it only matches that atom's symmetry class, so every atom is covered exactly once.</li>
+<li>Symmetry-equivalent atoms collapse onto one library charge whose value is the <strong>mean</strong> of their input charges. Averaging both symmetrises equivalent atoms and preserves the total charge exactly.</li>
 </ul>
-<h2 id="by-component">By component<a class="headerlink" href="#by-component" title="Permanent link">#</a></h2>
+<p>A whole-molecule SMARTS is used (rather than a smaller <code>max_extend_distance</code>) to ensure that charges are only applied to the molecule they were derived for: a <code>LibraryCharges</code> handler is only applied if it covers every atom of the molecule, and the assigned charges must sum to the formal charge. Whole-molecule patterns guarantee both.</p>
+<h2 id="use-the-charges-in-a-fit">Use the charges in a fit<a class="headerlink" href="#use-the-charges-in-a-fit" title="Permanent link">#</a></h2>
+<p>Point <code>initial_force_field</code> at the <code>.offxml</code> you wrote:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">param_settings</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">molecule_input_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smiles</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">molecules</span><span class="p">:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CCO</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">initial_force_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">custom_charges.offxml</span>
+</span></code></pre></div>
+<p><code>presto</code> only retrains valence parameters (bonds, angles, torsions), so your custom charges are carried through the fit unchanged. Make sure the molecules you fit are the same ones you wrote charges for, so the library charges match.</p>
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">#</a></h2>
 <ul>
-<li><strong><a href="choose-an-mlp/">Choose an MLP</a></strong> — what each supported MLP gives you, and how to pin it.</li>
-<li><strong><a href="use-ase-calculator/">Use an ASE calculator</a></strong> — bring your own ML potential via ASE.</li>
-<li><strong><a href="inspect-outputs/">Inspect outputs and plots</a></strong> — what each file in the output directory means.</li>
-<li><strong><a href="run-from-python/">Run from Python</a></strong> — build <code>WorkflowSettings</code> programmatically instead of via the CLI.</li>
+<li>API reference: <a href="../../reference/api/create_types/#presto.create_types.add_library_charges_to_forcefield"><code>add_library_charges_to_forcefield</code></a>.</li>
+<li>Concept: <a href="../../concepts/type-generation/">Type generation and SMIRKS specificity</a>.</li>
 </ul>
 
 
@@ -2615,7 +2787,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../examples/basic-walk-through-python-api/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Basic Walk-Through (Python API)">
+          <a href="../use-sdf-inputs/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Use SDF inputs">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -2625,20 +2797,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Basic Walk-Through (Python API)
+                Use SDF inputs
               </div>
             </div>
           </a>
         
         
           
-          <a href="fit-single-molecule/" class="md-footer__link md-footer__link--next" aria-label="Next: Fit a single molecule">
+          <a href="../clean-rerun/" class="md-footer__link md-footer__link--next" aria-label="Next: Clean and rerun a fit">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Fit a single molecule
+                Clean and rerun a fit
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -2679,12 +2851,12 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["announce.dismiss", "content.code.annotate", "content.code.copy", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["announce.dismiss", "content.code.annotate", "content.code.copy", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="../javascripts/mathjax.js"></script>
+        <script src="../../javascripts/mathjax.js"></script>
       
         <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
       
