@@ -2551,6 +2551,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2657,7 +2668,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes" class="md-nav__link">
+  <a href="#fixes_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2696,7 +2707,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes_1" class="md-nav__link">
+  <a href="#fixes_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2746,7 +2757,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes_2" class="md-nav__link">
+  <a href="#fixes_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2785,7 +2796,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_3" class="md-nav__link">
+  <a href="#fixes_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2824,7 +2835,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_4" class="md-nav__link">
+  <a href="#fixes_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -2997,6 +3008,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#documentation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3103,7 +3125,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes" class="md-nav__link">
+  <a href="#fixes_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -3142,7 +3164,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes_1" class="md-nav__link">
+  <a href="#fixes_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -3192,7 +3214,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixes_2" class="md-nav__link">
+  <a href="#fixes_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -3231,7 +3253,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_3" class="md-nav__link">
+  <a href="#fixes_4" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -3270,7 +3292,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixes_4" class="md-nav__link">
+  <a href="#fixes_5" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixes
@@ -3409,11 +3431,17 @@
 <h2 id="090">0.9.0<a class="headerlink" href="#090" title="Permanent link">#</a></h2>
 <h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">#</a></h3>
 <ul>
+<li>Add an optional <code>starting_conformers</code> setting to each sampling stage (<code>training_sampling_settings</code>, <code>testing_sampling_settings</code>) and to <code>msm_settings</code>. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; <code>n_conformers</code> is ignored for that stage. The default remains ETKDG.In <a href="https://github.com/cole-group/presto/pull/78">#78</a>.</li>
 <li>Add <code>presto.create_types.add_library_charges_to_forcefield</code> to write custom partial charges from OpenFF <code>Molecule</code> objects into a force field as library charges, addressing <a href="https://github.com/cole-group/presto/issues/64">#64</a>.</li>
+</ul>
+<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
+<ul>
+<li>Fix a latent <code>IndexError</code> in the MSM step when fewer conformers were available than <code>n_conformers</code>; the conformer loop now iterates the conformers actually present.</li>
 </ul>
 <h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
 <ul>
 <li>Add <a href="../how-to/use-custom-charges/">Use custom charges</a> how-to guide.</li>
+<li>Add <a href="../how-to/use-starting-conformers/">Use your own starting conformers</a> how-to guide.</li>
 <li>Add a <code>CITATION.cff</code> file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in <a href="https://github.com/cole-group/presto/pull/76">#76</a>.</li>
 <li>Document installing <code>presto</code> from <code>conda-forge</code> as <code>presto-fit</code> (note this comes without the MLP dependencies, which must be installed separately) in <a href="https://github.com/cole-group/presto/pull/70">#70</a>.</li>
 </ul>
@@ -3446,7 +3474,7 @@
 <li>Update the default env to use Python 3.12 to avoid dm-tree (an Orb dep) build issues. In <a href="https://github.com/cole-group/presto/pull/60">#60</a>.</li>
 </ul>
 <h2 id="070">0.7.0<a class="headerlink" href="#070" title="Permanent link">#</a></h2>
-<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
+<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">#</a></h3>
 <ul>
 <li>Guard against lack of any constaints in the input force field in <a href="https://github.com/cole-group/presto/pull/56">#56</a>. This allows use of the unconstrained version of Parsely.</li>
 <li>Set default model to AIMNet2 in light of current AceFF 2.0 OpenMM-ML issues in <a href="https://github.com/cole-group/presto/pull/49">#49</a>. Also add README warning about AceFF 2.0.</li>
@@ -3458,7 +3486,7 @@
 <li>Add Orb-v3 OMOL model in <a href="https://github.com/cole-group/presto/pull/49">#49</a>.</li>
 </ul>
 <h2 id="060">0.6.0<a class="headerlink" href="#060" title="Permanent link">#</a></h2>
-<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">#</a></h3>
+<h3 id="fixes_2">Fixes<a class="headerlink" href="#fixes_2" title="Permanent link">#</a></h3>
 <ul>
 <li>Raise an error if too few conformers survive filtering in <a href="https://github.com/cole-group/presto/pull/38">#38</a>. Fixes <a href="https://github.com/cole-group/presto/issues/30">#30</a>.</li>
 <li>Remove stereochemical information from generated types in <a href="https://github.com/cole-group/presto/pull/37">#36</a>. This avoids a niche issue where mixing the RDKit and OpenEye toolkits would result in failed type generation for e.g. chiral sulfoxides.</li>
@@ -3477,7 +3505,7 @@
 <li>Update environments to OpenMM 8.5 (with PythonForce) and OpenMM-ML. This simplifies the environments required (as we can drop NNPOPs) and means we have have all MLPs in one env. The only issue is that we can now only support CUDA 12.9. <a href="https://github.com/cole-group/presto/pull/34">#34</a>.</li>
 </ul>
 <h2 id="051">0.5.1<a class="headerlink" href="#051" title="Permanent link">#</a></h2>
-<h3 id="fixes_2">Fixes<a class="headerlink" href="#fixes_2" title="Permanent link">#</a></h3>
+<h3 id="fixes_3">Fixes<a class="headerlink" href="#fixes_3" title="Permanent link">#</a></h3>
 <ul>
 <li>Fixes typo in default settings which meant that linear torsions matching <code>[*:1]~[*:2]=[#6,#7,#16,#15;X2:3]=[*:4]</code> were not excluded from training (<a href="https://github.com/cole-group/presto/pull/32">#32</a>)</li>
 </ul>
@@ -3487,7 +3515,7 @@
 <li>Use MDTraj to calculate torsions rather than doing this manually</li>
 <li>Make metadynamics more aggressive, allow user to specify torsions targeted by metadynamics, and include in-ring aliphatic torsions by default in <a href="https://github.com/cole-group/presto/pull/26">#26</a></li>
 </ul>
-<h3 id="fixes_3">Fixes<a class="headerlink" href="#fixes_3" title="Permanent link">#</a></h3>
+<h3 id="fixes_4">Fixes<a class="headerlink" href="#fixes_4" title="Permanent link">#</a></h3>
 <ul>
 <li>Remove unused settings fields in <a href="https://github.com/cole-group/presto/pull/25#issuecomment-3861009692">#25</a></li>
 </ul>
@@ -3500,7 +3528,7 @@
 <li>Update environments with explicit python and cuda versions and document installation with different cuda versions</li>
 <li>Plot sampling of rotatable torsions in <a href="https://github.com/cole-group/presto/pull/23">#23</a></li>
 </ul>
-<h3 id="fixes_4">Fixes<a class="headerlink" href="#fixes_4" title="Permanent link">#</a></h3>
+<h3 id="fixes_5">Fixes<a class="headerlink" href="#fixes_5" title="Permanent link">#</a></h3>
 <ul>
 <li>Update ParameterConfig defaults so that linear torsions are not trained in <a href="https://github.com/cole-group/presto/pull/18">#18</a></li>
 </ul>

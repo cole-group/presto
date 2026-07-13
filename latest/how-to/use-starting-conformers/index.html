@@ -10,31 +10,27 @@
       
       
       
-        <link rel="canonical" href="https://github.com/cole-group/presto/latest/how-to/">
+        <link rel="canonical" href="https://github.com/cole-group/presto/latest/how-to/use-starting-conformers/">
       
       
-        <link rel="prev" href="../examples/basic-walk-through-python-api/">
-      
-      
-        <link rel="next" href="fit-single-molecule/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>How-to guides - presto</title>
+        <title>Use your own starting conformers - presto</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,9 +49,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#how-to-guides" class="md-skip">
+        <a href="#use-your-own-starting-conformers" class="md-skip">
           Skip to content
         </a>
       
@@ -100,7 +96,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="presto" class="md-header__button md-logo" aria-label="presto" data-md-component="logo">
+    <a href="../.." title="presto" class="md-header__button md-logo" aria-label="presto" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -120,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              How-to guides
+              Use your own starting conformers
             
           </span>
         </div>
@@ -227,7 +223,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -248,7 +244,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../get-started/" class="md-tabs__link">
+        <a href="../../get-started/" class="md-tabs__link">
           
   
   
@@ -266,13 +262,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -294,7 +288,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../concepts/" class="md-tabs__link">
+        <a href="../../concepts/" class="md-tabs__link">
           
   
   
@@ -316,7 +310,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../reference/" class="md-tabs__link">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -338,7 +332,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../development/" class="md-tabs__link">
+        <a href="../../development/" class="md-tabs__link">
           
   
   
@@ -358,7 +352,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../citing/" class="md-tabs__link">
+      <a href="../../citing/" class="md-tabs__link">
         
   
   
@@ -377,7 +371,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../changelog/" class="md-tabs__link">
+      <a href="../../changelog/" class="md-tabs__link">
         
   
   
@@ -418,7 +412,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="presto" class="md-nav__button md-logo" aria-label="presto" data-md-component="logo">
+    <a href="../.." title="presto" class="md-nav__button md-logo" aria-label="presto" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -448,7 +442,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -506,7 +500,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../get-started/" class="md-nav__link ">
+            <a href="../../get-started/" class="md-nav__link ">
               
   
   
@@ -550,7 +544,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../get-started/installation/" class="md-nav__link">
+      <a href="../../get-started/installation/" class="md-nav__link">
         
   
   
@@ -578,7 +572,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../get-started/quickstart/" class="md-nav__link">
+      <a href="../../get-started/quickstart/" class="md-nav__link">
         
   
   
@@ -606,7 +600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/basic-walk-through-cli/" class="md-nav__link">
+      <a href="../../examples/basic-walk-through-cli/" class="md-nav__link">
         
   
   
@@ -634,7 +628,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/basic-walk-through-python-api/" class="md-nav__link">
+      <a href="../../examples/basic-walk-through-python-api/" class="md-nav__link">
         
   
   
@@ -666,8 +660,6 @@
       
   
   
-    
-  
   
   
     
@@ -699,23 +691,20 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -733,13 +722,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_3" id="__nav_3_label" tabindex="">
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -759,7 +748,7 @@
   
   
     <li class="md-nav__item">
-      <a href="fit-single-molecule/" class="md-nav__link">
+      <a href="../fit-single-molecule/" class="md-nav__link">
         
   
   
@@ -787,7 +776,7 @@
   
   
     <li class="md-nav__item">
-      <a href="fit-congeneric-series/" class="md-nav__link">
+      <a href="../fit-congeneric-series/" class="md-nav__link">
         
   
   
@@ -815,7 +804,7 @@
   
   
     <li class="md-nav__item">
-      <a href="use-sdf-inputs/" class="md-nav__link">
+      <a href="../use-sdf-inputs/" class="md-nav__link">
         
   
   
@@ -843,7 +832,7 @@
   
   
     <li class="md-nav__item">
-      <a href="use-custom-charges/" class="md-nav__link">
+      <a href="../use-custom-charges/" class="md-nav__link">
         
   
   
@@ -871,7 +860,7 @@
   
   
     <li class="md-nav__item">
-      <a href="clean-rerun/" class="md-nav__link">
+      <a href="../clean-rerun/" class="md-nav__link">
         
   
   
@@ -899,7 +888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="choose-an-mlp/" class="md-nav__link">
+      <a href="../choose-an-mlp/" class="md-nav__link">
         
   
   
@@ -927,7 +916,7 @@
   
   
     <li class="md-nav__item">
-      <a href="use-ase-calculator/" class="md-nav__link">
+      <a href="../use-ase-calculator/" class="md-nav__link">
         
   
   
@@ -955,7 +944,7 @@
   
   
     <li class="md-nav__item">
-      <a href="inspect-outputs/" class="md-nav__link">
+      <a href="../inspect-outputs/" class="md-nav__link">
         
   
   
@@ -983,7 +972,7 @@
   
   
     <li class="md-nav__item">
-      <a href="run-from-python/" class="md-nav__link">
+      <a href="../run-from-python/" class="md-nav__link">
         
   
   
@@ -1053,7 +1042,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../concepts/" class="md-nav__link ">
+            <a href="../../concepts/" class="md-nav__link ">
               
   
   
@@ -1097,7 +1086,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/bespoke-smirnoff-primer/" class="md-nav__link">
+      <a href="../../concepts/bespoke-smirnoff-primer/" class="md-nav__link">
         
   
   
@@ -1125,7 +1114,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/method-overview/" class="md-nav__link">
+      <a href="../../concepts/method-overview/" class="md-nav__link">
         
   
   
@@ -1153,7 +1142,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/sampling-protocols/" class="md-nav__link">
+      <a href="../../concepts/sampling-protocols/" class="md-nav__link">
         
   
   
@@ -1181,7 +1170,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/type-generation/" class="md-nav__link">
+      <a href="../../concepts/type-generation/" class="md-nav__link">
         
   
   
@@ -1209,7 +1198,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/mlps/" class="md-nav__link">
+      <a href="../../concepts/mlps/" class="md-nav__link">
         
   
   
@@ -1237,7 +1226,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/output-layout/" class="md-nav__link">
+      <a href="../../concepts/output-layout/" class="md-nav__link">
         
   
   
@@ -1301,7 +1290,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -1345,7 +1334,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/troubleshooting/" class="md-nav__link">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
         
   
   
@@ -1373,7 +1362,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/glossary/" class="md-nav__link">
+      <a href="../../reference/glossary/" class="md-nav__link">
         
   
   
@@ -1516,7 +1505,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/api/" class="md-nav__link ">
+            <a href="../../reference/api/" class="md-nav__link ">
               
   
   
@@ -1560,7 +1549,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/analyse/" class="md-nav__link">
+      <a href="../../reference/api/analyse/" class="md-nav__link">
         
   
   
@@ -1588,7 +1577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/convert/" class="md-nav__link">
+      <a href="../../reference/api/convert/" class="md-nav__link">
         
   
   
@@ -1616,7 +1605,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/create_types/" class="md-nav__link">
+      <a href="../../reference/api/create_types/" class="md-nav__link">
         
   
   
@@ -1644,7 +1633,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/find_torsions/" class="md-nav__link">
+      <a href="../../reference/api/find_torsions/" class="md-nav__link">
         
   
   
@@ -1672,7 +1661,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/hessian/" class="md-nav__link">
+      <a href="../../reference/api/hessian/" class="md-nav__link">
         
   
   
@@ -1700,7 +1689,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/load_molecules/" class="md-nav__link">
+      <a href="../../reference/api/load_molecules/" class="md-nav__link">
         
   
   
@@ -1728,7 +1717,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/loss/" class="md-nav__link">
+      <a href="../../reference/api/loss/" class="md-nav__link">
         
   
   
@@ -1756,7 +1745,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/metadynamics/" class="md-nav__link">
+      <a href="../../reference/api/metadynamics/" class="md-nav__link">
         
   
   
@@ -1784,7 +1773,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/mlp/" class="md-nav__link">
+      <a href="../../reference/api/mlp/" class="md-nav__link">
         
   
   
@@ -1812,7 +1801,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/models/" class="md-nav__link">
+      <a href="../../reference/api/models/" class="md-nav__link">
         
   
   
@@ -1840,7 +1829,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/msm/" class="md-nav__link">
+      <a href="../../reference/api/msm/" class="md-nav__link">
         
   
   
@@ -1868,7 +1857,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/outputs/" class="md-nav__link">
+      <a href="../../reference/api/outputs/" class="md-nav__link">
         
   
   
@@ -1896,7 +1885,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/sample/" class="md-nav__link">
+      <a href="../../reference/api/sample/" class="md-nav__link">
         
   
   
@@ -1924,7 +1913,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/settings/" class="md-nav__link">
+      <a href="../../reference/api/settings/" class="md-nav__link">
         
   
   
@@ -1952,7 +1941,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/train/" class="md-nav__link">
+      <a href="../../reference/api/train/" class="md-nav__link">
         
   
   
@@ -2013,7 +2002,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/api/utils/" class="md-nav__link ">
+            <a href="../../reference/api/utils/" class="md-nav__link ">
               
   
   
@@ -2057,7 +2046,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/dicts/" class="md-nav__link">
+      <a href="../../reference/api/utils/dicts/" class="md-nav__link">
         
   
   
@@ -2085,7 +2074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/gpu/" class="md-nav__link">
+      <a href="../../reference/api/utils/gpu/" class="md-nav__link">
         
   
   
@@ -2113,7 +2102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/rdkit_toolkit/" class="md-nav__link">
+      <a href="../../reference/api/utils/rdkit_toolkit/" class="md-nav__link">
         
   
   
@@ -2141,7 +2130,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/register/" class="md-nav__link">
+      <a href="../../reference/api/utils/register/" class="md-nav__link">
         
   
   
@@ -2169,7 +2158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/utils/typing/" class="md-nav__link">
+      <a href="../../reference/api/utils/typing/" class="md-nav__link">
         
   
   
@@ -2205,7 +2194,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/workflow/" class="md-nav__link">
+      <a href="../../reference/api/workflow/" class="md-nav__link">
         
   
   
@@ -2233,7 +2222,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/api/writers/" class="md-nav__link">
+      <a href="../../reference/api/writers/" class="md-nav__link">
         
   
   
@@ -2313,7 +2302,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../development/" class="md-nav__link ">
+            <a href="../../development/" class="md-nav__link ">
               
   
   
@@ -2357,7 +2346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/contributing/" class="md-nav__link">
+      <a href="../../development/contributing/" class="md-nav__link">
         
   
   
@@ -2385,7 +2374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/docs/" class="md-nav__link">
+      <a href="../../development/docs/" class="md-nav__link">
         
   
   
@@ -2413,7 +2402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../development/releasing/" class="md-nav__link">
+      <a href="../../development/releasing/" class="md-nav__link">
         
   
   
@@ -2448,7 +2437,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../citing/" class="md-nav__link">
+      <a href="../../citing/" class="md-nav__link">
         
   
   
@@ -2475,7 +2464,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2522,10 +2511,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#by-task" class="md-nav__link">
+  <a href="#behaviour" class="md-nav__link">
     <span class="md-ellipsis">
       
-        By task
+        Behaviour
       
     </span>
   </a>
@@ -2533,10 +2522,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#by-component" class="md-nav__link">
+  <a href="#cli-form" class="md-nav__link">
     <span class="md-ellipsis">
       
-        By component
+        CLI form
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yaml-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YAML form
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preparing-the-sdf" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preparing the SDF
       
     </span>
   </a>
@@ -2563,24 +2574,63 @@
   
 
 
-<h1 id="how-to-guides">How-to guides<a class="headerlink" href="#how-to-guides" title="Permanent link">#</a></h1>
-<p>Short, task-oriented recipes. Each page assumes you've finished <strong><a href="../get-started/">Get started</a></strong>.</p>
-<h2 id="by-task">By task<a class="headerlink" href="#by-task" title="Permanent link">#</a></h2>
+<h1 id="use-your-own-starting-conformers">Use your own starting conformers<a class="headerlink" href="#use-your-own-starting-conformers" title="Permanent link">#</a></h1>
+<p>By default each sampling stage generates its starting conformers with RDKit ETKDG. You can
+instead start from your own conformers (for example a curated ensemble, docked or crystal
+poses, or a torsion scan) by pointing a stage at an SDF file with <code>starting_conformers</code>.</p>
+<p>This is available <strong>per stage</strong>, so you can mix supplied conformers and ETKDG freely:</p>
 <ul>
-<li><strong><a href="fit-single-molecule/">Fit a single molecule</a></strong> — defaults you may want to change.</li>
-<li><strong><a href="fit-congeneric-series/">Fit a congeneric series</a></strong> — share parameters across related molecules using <code>max_extend_distance</code>.</li>
-<li><strong><a href="use-sdf-inputs/">Use SDF inputs</a></strong> — switch from SMILES to one or more <code>.sdf</code> files.</li>
-<li><strong><a href="use-starting-conformers/">Use your own starting conformers</a></strong> — seed a sampling stage (or MSM) from an SDF instead of ETKDG.</li>
-<li><strong><a href="use-custom-charges/">Use custom charges</a></strong> — bake your own partial charges into the force field as library charges.</li>
-<li><strong><a href="clean-rerun/">Wipe output and rerun</a></strong></li>
+<li><code>training_sampling_settings.starting_conformers</code> — training-data MD</li>
+<li><code>testing_sampling_settings.starting_conformers</code> — test-data MD</li>
+<li><code>param_settings.msm_settings.starting_conformers</code> — the MSM Hessian step that seeds the
+  initial bond/angle parameters</li>
 </ul>
-<h2 id="by-component">By component<a class="headerlink" href="#by-component" title="Permanent link">#</a></h2>
+<p>Any stage left unset keeps generating conformers with ETKDG.</p>
+<h2 id="behaviour">Behaviour<a class="headerlink" href="#behaviour" title="Permanent link">#</a></h2>
 <ul>
-<li><strong><a href="choose-an-mlp/">Choose an MLP</a></strong> — what each supported MLP gives you, and how to pin it.</li>
-<li><strong><a href="use-ase-calculator/">Use an ASE calculator</a></strong> — bring your own ML potential via ASE.</li>
-<li><strong><a href="inspect-outputs/">Inspect outputs and plots</a></strong> — what each file in the output directory means.</li>
-<li><strong><a href="run-from-python/">Run from Python</a></strong> — build <code>WorkflowSettings</code> programmatically instead of via the CLI.</li>
+<li><strong>The SDF takes precedence.</strong> When <code>starting_conformers</code> is set for a stage, that stage
+  starts from <strong>every</strong> conformer in the file, and the stage's <code>n_conformers</code> is <strong>ignored</strong>
+  (a log line makes this explicit).</li>
+<li><strong>Conformers are matched by connectivity.</strong> Each record is matched to the molecule being
+  fitted by graph isomorphism, and its atom ordering is <strong>remapped automatically</strong> to match.
+  You do not need to worry about atom ordering, and a single SDF can hold conformers for
+  several molecules in a multi-molecule fit — each molecule picks up only its own records.</li>
+<li><strong>Missing molecules fail fast.</strong> If a configured SDF contains no conformer for a molecule
+  being fitted, the run stops during settings validation, before any expensive work.</li>
 </ul>
+<h2 id="cli-form">CLI form<a class="headerlink" href="#cli-form" title="Permanent link">#</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>presto<span class="w"> </span>train<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--param-settings.molecules<span class="w"> </span><span class="s2">&quot;CCO&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--training-sampling-settings.starting-conformers<span class="w"> </span>my_conformers.sdf
+</span></code></pre></div>
+<h2 id="yaml-form">YAML form<a class="headerlink" href="#yaml-form" title="Permanent link">#</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">param_settings</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="nt">molecule_input_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">smiles</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">molecules</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CCO</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">msm_settings</span><span class="p">:</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">        </span><span class="c1"># optional: also seed the MSM Hessian step from the same (or a different) SDF</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">        </span><span class="nt">starting_conformers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_conformers.sdf</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="nt">training_sampling_settings</span><span class="p">:</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">sampling_protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mm_md_metadynamics_torsion_minimisation</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">starting_conformers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_conformers.sdf</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="nt">testing_sampling_settings</span><span class="p">:</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">sampling_protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ml_md</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="c1"># left unset -&gt; ETKDG</span>
+</span></code></pre></div>
+<h2 id="preparing-the-sdf">Preparing the SDF<a class="headerlink" href="#preparing-the-sdf" title="Permanent link">#</a></h2>
+<p>The SDF should contain one record per conformer, all of the same molecule (multiple
+molecules are fine — group them however you like, they are matched by connectivity). For
+example, from an existing OpenFF molecule:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">rdkit</span><span class="w"> </span><span class="kn">import</span> <span class="n">Chem</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">rdkit_molecule</span> <span class="o">=</span> <span class="n">molecule</span><span class="o">.</span><span class="n">to_rdkit</span><span class="p">()</span>  <span class="c1"># molecule with N conformers</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">with</span> <span class="n">Chem</span><span class="o">.</span><span class="n">SDWriter</span><span class="p">(</span><span class="s2">&quot;my_conformers.sdf&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">writer</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="k">for</span> <span class="n">conformer_id</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">rdkit_molecule</span><span class="o">.</span><span class="n">GetNumConformers</span><span class="p">()):</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        <span class="n">writer</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">rdkit_molecule</span><span class="p">,</span> <span class="n">confId</span><span class="o">=</span><span class="n">conformer_id</span><span class="p">)</span>
+</span></code></pre></div>
 
 
 
@@ -2612,44 +2662,6 @@
         <footer class="md-footer">
   
     
-      
-      <nav class="md-footer__inner md-grid" aria-label="Footer" >
-        
-          
-          <a href="../examples/basic-walk-through-python-api/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Basic Walk-Through (Python API)">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Previous
-              </span>
-              <div class="md-ellipsis">
-                Basic Walk-Through (Python API)
-              </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="fit-single-molecule/" class="md-footer__link md-footer__link--next" aria-label="Next: Fit a single molecule">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                Next
-              </span>
-              <div class="md-ellipsis">
-                Fit a single molecule
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
-        
-      </nav>
-    
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
@@ -2680,12 +2692,12 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["announce.dismiss", "content.code.annotate", "content.code.copy", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["announce.dismiss", "content.code.annotate", "content.code.copy", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="../javascripts/mathjax.js"></script>
+        <script src="../../javascripts/mathjax.js"></script>
       
         <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
       
