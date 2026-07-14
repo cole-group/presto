@@ -1,1 +1,1 @@
-"""Compiled models"""
+"""Compiled models."""

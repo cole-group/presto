@@ -1,3 +1,6 @@
+"""Shared test fixtures used across the test suite."""
+
+import importlib
 from pathlib import Path
 
 import pytest
@@ -5,16 +8,59 @@ import smee
 from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 
+MODEL_REQUIRED_PACKAGE = {
+    "aceff-2.0": "torchmdnet",
+    "mace-off23-small": "mace",
+    "mace-off23-medium": "mace",
+    "mace-off23-large": "mace",
+    "mace-omol-0-extra-large": "mace",
+    "egret-1": "mace",
+    "aimnet2": "aimnet",
+    "orb-v3-conservative-omol": "orb_models",
+}
+
+
+def skip_if_model_unavailable(model_name: str) -> None:
+    """Skip the current test if the package required by model_name is not installed."""
+    pkg = MODEL_REQUIRED_PACKAGE.get(model_name)
+    if pkg is not None and importlib.util.find_spec(pkg) is None:
+        pytest.skip(f"{pkg} not installed")
+
+
+@pytest.fixture
+def write_multiconformer_sdf():
+    """Return a helper that writes molecules' conformers as separate SDF records.
+
+    ``Molecule.to_file(..., "SDF")`` only writes a single conformer, so tests that need a
+    genuine multi-record SDF (the shape a user supplies as starting conformers) go via
+    RDKit. The returned helper accepts a single ``Molecule`` or an iterable of them and
+    writes every conformer of each as its own record to ``path``.
+    """
+    from rdkit import Chem
+
+    def _write(molecules, path) -> None:
+        if isinstance(molecules, Molecule):
+            molecules = [molecules]
+        with Chem.SDWriter(str(path)) as writer:
+            for molecule in molecules:
+                rdkit_molecule = molecule.to_rdkit()
+                for conformer_id in range(rdkit_molecule.GetNumConformers()):
+                    writer.write(rdkit_molecule, confId=conformer_id)
+
+    return _write
+
 
 # From Simon Boothroyd
 @pytest.fixture
 def tmp_cwd(tmp_path, monkeypatch) -> Path:
+    """Change the working directory to a temporary path for the duration of the test."""
     monkeypatch.chdir(tmp_path)
     yield tmp_path
 
 
 @pytest.fixture
 def jnk1_lig_smiles():
+    """SMILES string for a JNK1 ligand used in integration tests."""
     return "C(C(Oc1nc(c(c(N([H])[H])c1C#N)[H])N(C(=O)C(c1c(c(C([H])([H])[H])c(c(c1[H])[H])[H])[H])([H])[H])[H])([H])[H])([H])([H])[H]"
 
 

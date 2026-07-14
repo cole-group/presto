@@ -1,3 +1,5 @@
+"""Unit tests for metadynamics.py."""
+
 import numpy as np
 import pytest
 from openmm import (
@@ -17,8 +19,10 @@ from presto.metadynamics import Metadynamics
 
 # Adapted from https://github.com/openmm/openmm/blob/8eeee16de9bc772321ae2b87672700b076913b56/wrappers/python/tests/TestMetadynamics.py#L6
 def test_harmonic_oscillator():
-    """Check we haven't messed up the independentCVs=False case by testing
-    running metadynamics on a harmonic oscillator with dependent CVs."""
+    """Check we haven't messed up the independentCVs=False case.
+
+    Do this by testing metadynamics on a harmonic oscillator with dependent CVs.
+    """
     system = System()
     system.addParticle(1.0)
     system.addParticle(1.0)
@@ -404,7 +408,7 @@ def test_sync_with_disk_io_error(tmp_path):
     with open(bias_dir / "bias_999_0.npy", "w") as f:
         f.write("dummy")
 
-    with patch("numpy.load", side_effect=IOError("Mocked IO Error")):
+    with patch("numpy.load", side_effect=OSError("Mocked IO Error")):
         # It should just ignore the error
         meta = Metadynamics(
             system, [bias], 300, 3.0, 5.0, 10, saveFrequency=10, biasDir=str(bias_dir)

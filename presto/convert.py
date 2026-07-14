@@ -3,7 +3,7 @@
 import collections
 import copy
 import math
-from typing import Callable
+from collections.abc import Callable
 
 import loguru
 import openff.interchange
@@ -19,7 +19,7 @@ from .create_types import (
     add_types_to_forcefield,
 )
 from .msm import apply_msm_to_molecules
-from .settings import ParameterisationSettings
+from .settings import ParamSettings
 from .utils.typing import TorchDevice
 
 logger = loguru.logger
@@ -40,13 +40,16 @@ def _reflect_angle(angle: float) -> float:
 def convert_to_smirnoff(
     ff: smee.TensorForceField, base: openff.toolkit.ForceField | None = None
 ) -> openff.toolkit.ForceField:
-    """Convert a tensor force field that *contains bespoke valence parameters* to
+    """Convert a tensor force field that *contains bespoke valence parameters* to.
+
     SMIRNOFF format.
+
     Args:
         ff: The force field containing the bespoke valence terms.
         base: The (optional) original SMIRNOFF force field to add the bespoke
             parameters to. If no specified, a force field containing only the bespoke
             parameters will be returned.
+
     Returns:
         A SMIRNOFF force field containing the valence terms of the input force field.
     """
@@ -223,7 +226,7 @@ def convert_to_smirnoff(
 
 
 def parameterise(
-    settings: ParameterisationSettings,
+    settings: ParamSettings,
     device: TorchDevice = "cuda",
 ) -> tuple[
     list[openff.toolkit.Molecule],
@@ -231,18 +234,19 @@ def parameterise(
     list[smee.TensorTopology],
     smee.TensorForceField,
 ]:
-    """Prepare a Trainable object that contains a force field with
+    """Prepare a Trainable object that contains a force field with.
+
     unique parameters for each topologically symmetric term across multiple molecules.
 
     Parameters
     ----------
-    settings: ParameterisationSettings
+    settings: ParamSettings
         The settings for the parameterisation.
 
     device: TorchDevice, default "cuda"
         The device to use for the force field and topology.
 
-    Returns
+    Returns:
     -------
     mols: list[openff.toolkit.Molecule]
         The molecules that have been parameterised.
@@ -255,16 +259,18 @@ def parameterise(
         symmetric term.
     """
     # Create molecules from SMILES
-    mols = settings.molecules
+    mols = settings.openff_molecules
 
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
-    if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
-        logger.warning(
-            "The force field contains a constraint for [#1:1]-[*:2] which "
-            "is not supported. Removing this constraint."
-        )
-        del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
+    # First check required as Parsely does not contain constraints
+    if "Constraints" in off_ff.registered_parameter_handlers:
+        if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
+            logger.warning(
+                "The force field contains a constraint for [#1:1]-[*:2] which "
+                "is not supported. Removing this constraint."
+            )
+            del off_ff["Constraints"].parameters["[#1:1]-[*:2]"]
 
     if settings.expand_torsions:
         torsion_generation_settings = settings.type_generation_settings.get(
@@ -289,6 +295,7 @@ def parameterise(
             mols=mols,
             off_ff=bespoke_ff,
             settings=settings.msm_settings,
+            device=torch.device(device),
         )
 
     # Create separate Interchange objects for each molecule
@@ -321,7 +328,7 @@ def parameterise(
 def _expand_torsions(
     ff: openff.toolkit.ForceField, excluded_smirks: list[str] | None = None
 ) -> openff.toolkit.ForceField:
-    """Expand the torsion potential to include K0-4 for proper torsions"""
+    """Expand the torsion potential to include K0-4 for proper torsions."""
     excluded_smirks = excluded_smirks or []
     ff_copy = copy.deepcopy(ff)
     torsion_handler = ff_copy.get_parameter_handler("ProperTorsions")
@@ -349,7 +356,7 @@ def _expand_torsions(
 
 
 def _add_angle_within_range(initial_angle: float, diff: float) -> float:
-    """Add a difference to an angle cap to be within [0, pi]"""
+    """Add a difference to an angle cap to be within [0, pi]."""
     new_angle = initial_angle + diff
     if diff > 0:
         return min(new_angle, math.pi)

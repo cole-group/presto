@@ -4,13 +4,13 @@ from unittest.mock import MagicMock, patch
 
 import datasets
 import numpy as np
+import openff.interchange
 import openmm
 import pytest
 import torch
-from openff.toolkit import ForceField, Molecule
+from openff.toolkit import ForceField, Molecule, Topology
 from openmm import unit as omm_unit
 
-from presto._exceptions import InvalidSettingsError
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
 from presto.find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
@@ -20,9 +20,11 @@ from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
     _add_torsion_restraint_forces,
+    _build_ml_simulation,
+    _build_mm_simulation,
+    _create_simulation,
     _find_available_force_group,
     _get_integrator,
-    _get_ml_omm_system,
     _get_molecule_from_dataset,
     _get_torsion_bias_forces,
     _remove_torsion_restraint_forces,
@@ -38,23 +40,11 @@ from presto.sample import (
 )
 from presto.settings import (
     MLMDSamplingSettings,
+    MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
     PreComputedDatasetSettings,
-)
-
-# Check if NNPOps is available (required for EGRET-1 and MACE models)
-try:
-    import NNPOps  # noqa: F401
-
-    NNPOPS_AVAILABLE = True
-except ImportError:
-    NNPOPS_AVAILABLE = False
-
-requires_nnpops = pytest.mark.skipif(
-    not NNPOPS_AVAILABLE,
-    reason="NNPOps not available (required for EGRET-1 and MACE models)",
 )
 
 
@@ -210,7 +200,7 @@ class TestLoadPrecomputedDataset:
 
         with pytest.raises(
             ValueError,
-            match="Number of dataset paths .* must match number of molecules",
+            match=r"Number of dataset paths .* must match number of molecules",
         ):
             load_precomputed_dataset(
                 mols=[mol1, mol2],  # 2 molecules
@@ -245,7 +235,7 @@ class TestLoadPrecomputedDataset:
         ff = ForceField("openff_unconstrained-2.3.0.offxml")
         device = torch.device("cpu")
 
-        with pytest.raises(FileNotFoundError, match="Dataset not found.*molecule 1"):
+        with pytest.raises(FileNotFoundError, match=r"Dataset not found.*molecule 1"):
             load_precomputed_dataset(
                 mols=[mol1, mol2],
                 off_ff=ff,
@@ -255,145 +245,9 @@ class TestLoadPrecomputedDataset:
             )
 
 
-class TestGetMlOmmSystem:
-    """Tests for _get_ml_omm_system function."""
-
-    @pytest.fixture(autouse=True)
-    def mock_get_mlp(self):
-        """Mock get_mlp to avoid loading real models and pass isinstance checks."""
-        from unittest.mock import MagicMock, patch
-
-        import openmm
-
-        with patch("presto.sample.mlp.get_mlp") as mock:
-            mock_potential = MagicMock()
-
-            def create_mock_system(topology, **kwargs):
-                system = openmm.System()
-                for _ in range(topology.getNumAtoms()):
-                    system.addParticle(1.0)
-                return system
-
-            mock_potential.createSystem.side_effect = create_mock_system
-            mock.return_value = mock_potential
-            yield mock
-
-    @requires_nnpops
-    def test_neutral_molecule_with_egret(self):
-        """Test creating system for neutral molecule with EGRET-1."""
-        mol = Molecule.from_smiles("CCO")
-        mol.generate_conformers(n_conformers=1)
-
-        system = _get_ml_omm_system(mol, "egret-1")
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_neutral_molecule_with_aceff(self):
-        """Test creating system for neutral molecule with ACEFF-2.0."""
-        mol = Molecule.from_smiles("C")
-        mol.generate_conformers(n_conformers=1)
-
-        system = _get_ml_omm_system(mol, "aceff-2.0")
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_aceff(self):
-        """Test creating system for charged molecule with ACEFF-2.0."""
-        mol = Molecule.from_smiles("[NH4+]")
-        mol.generate_conformers(n_conformers=1)
-
-        # Should not raise
-        system = _get_ml_omm_system(mol, "aceff-2.0")
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_aimnet2(self):
-        """Test creating system for charged molecule with AIMNet2."""
-        mol = Molecule.from_smiles("[Cl-]")
-        mol.generate_conformers(n_conformers=1)
-
-        # Should not raise
-        system = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
-
-        assert isinstance(system, openmm.System)
-        assert system.getNumParticles() == mol.n_atoms
-
-    def test_charged_molecule_with_unsupported_model_raises(self):
-        """Test that charged molecule with unsupported model raises error."""
-        mol = Molecule.from_smiles("[NH4+]")
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, "egret-1")
-
-    def test_charged_molecule_with_mace_raises(self):
-        """Test that charged molecule with MACE raises error."""
-        mol = Molecule.from_smiles("[Cl-]")
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, "mace-off23-small")
-
-    @pytest.mark.parametrize(
-        "smiles",
-        ["C", "CCO", "c1ccccc1", "CC(C)C"],
-    )
-    def test_various_neutral_molecules(self, smiles):
-        """Test various neutral molecules work with ACEFF-2.0."""
-        mol = Molecule.from_smiles(smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        # Test with ACEFF-2.0 (doesn't require NNPOps)
-        system = _get_ml_omm_system(mol, "aceff-2.0")
-        assert isinstance(system, openmm.System)
-
-    @pytest.mark.parametrize(
-        "charged_smiles",
-        ["[NH4+]", "[Cl-]", "[Na+]", "[Ca+2]"],
-    )
-    def test_various_charged_molecules_with_compatible_models(self, charged_smiles):
-        """Test various charged molecules work with compatible models."""
-        mol = Molecule.from_smiles(charged_smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        # Should work with charge-supporting models
-        system1 = _get_ml_omm_system(mol, "aceff-2.0")
-        system2 = _get_ml_omm_system(mol, "aimnet2_b973c_d3_ens")
-
-        assert isinstance(system1, openmm.System)
-        assert isinstance(system2, openmm.System)
-
-    @pytest.mark.parametrize(
-        "charged_smiles,unsupported_model",
-        [
-            ("[NH4+]", "egret-1"),
-            ("[Cl-]", "mace-off23-small"),
-            ("[Na+]", "mace-off23-medium"),
-            ("[Ca+2]", "mace-off23-large"),
-        ],
-    )
-    def test_various_charged_molecules_with_incompatible_models_raise(
-        self, charged_smiles, unsupported_model
-    ):
-        """Test that various charged molecules fail with incompatible models."""
-        mol = Molecule.from_smiles(charged_smiles)
-        mol.generate_conformers(n_conformers=1)
-
-        with pytest.raises(
-            InvalidSettingsError, match="does not support charged molecules"
-        ):
-            _get_ml_omm_system(mol, unsupported_model)
-
-
 @pytest.fixture
 def mock_molecule():
+    """Ethanol molecule for testing."""
     mol = Molecule.from_smiles("CCO")
     mol.generate_conformers(n_conformers=1)
     return mol
@@ -401,6 +255,7 @@ def mock_molecule():
 
 @pytest.fixture
 def mock_simulation():
+    """Mock OpenMM simulation for testing."""
     sim = MagicMock(spec=openmm.app.Simulation)
 
     # Mock context
@@ -410,13 +265,14 @@ def mock_simulation():
     # Mock state
     state = MagicMock()
     state.getPositions.return_value = omm_unit.Quantity(
-        np.random.rand(9, 3), omm_unit.angstrom
+        np.random.default_rng().random((9, 3)), omm_unit.angstrom
     )
     state.getPotentialEnergy.return_value = omm_unit.Quantity(
         10.0, omm_unit.kilocalorie_per_mole
     )
     state.getForces.return_value = omm_unit.Quantity(
-        np.random.rand(9, 3), omm_unit.kilocalorie_per_mole / omm_unit.angstrom
+        np.random.default_rng().random((9, 3)),
+        omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
     )
     context.getState.return_value = state
 
@@ -427,6 +283,7 @@ def mock_simulation():
 
 
 def test_get_integrator():
+    """Test that the integrator is created correctly."""
     temp = 300 * omm_unit.kelvin
     dt = 2.0 * omm_unit.femtosecond
     integrator = _get_integrator(temp, dt)
@@ -435,8 +292,86 @@ def test_get_integrator():
     assert integrator.getStepSize() == dt
 
 
+def test_create_simulation_uses_standard_integrator():
+    """Test that create_simulation uses the standard integrator."""
+    topology = openmm.app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("MOL", chain)
+    topology.addAtom("H", openmm.app.element.hydrogen, residue)
+
+    system = openmm.System()
+    system.addParticle(1.0)
+
+    temp = 300 * omm_unit.kelvin
+    dt = 2.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    simulation, integrator = _create_simulation(
+        topology,
+        system,
+        temp,
+        dt,
+        device,
+    )
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.context.getPlatform().getName() == "CPU"
+
+
+def test_build_ml_simulation_creates_system_and_simulation(mock_molecule):
+    """Build ml simulation creates system and simulation."""
+    topology = mock_molecule.to_topology().to_openmm()
+    temp = 300 * omm_unit.kelvin
+    dt = 1.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    fake_system = openmm.System()
+    for _ in range(mock_molecule.n_atoms):
+        fake_system.addParticle(12.0)
+
+    with patch("presto.sample.mlp.get_ml_omm_system", return_value=fake_system):
+        simulation, integrator = _build_ml_simulation(
+            mock_molecule,
+            topology,
+            MLPSettings(ml_potential="aceff-2.0"),
+            temp,
+            dt,
+            device,
+        )
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.system.getNumParticles() == mock_molecule.n_atoms
+    assert simulation.context.getPlatform().getName() == "CPU"
+
+
+def test_build_mm_simulation_creates_system_and_simulation():
+    """Build mm simulation creates system and simulation."""
+    mol = Molecule.from_smiles("C")
+    mol.generate_conformers(n_conformers=1)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+    interchange = openff.interchange.Interchange.from_smirnoff(
+        ff, Topology.from_molecules(mol)
+    )
+
+    temp = 300 * omm_unit.kelvin
+    dt = 1.0 * omm_unit.femtosecond
+    device = torch.device("cpu")
+
+    simulation, integrator = _build_mm_simulation(interchange, temp, dt, device)
+
+    assert isinstance(integrator, openmm.LangevinMiddleIntegrator)
+    assert isinstance(simulation, openmm.app.Simulation)
+    assert simulation.system.getNumParticles() == mol.n_atoms
+    assert simulation.context.getPlatform().getName() == "CPU"
+
+
 class TestTorsionRestraints:
+    """Tests for TestTorsionRestraints."""
+
     def test_find_available_force_group(self):
+        """Find available force group."""
         system = openmm.System()
         # Add some forces
         for i in range(5):
@@ -448,6 +383,7 @@ class TestTorsionRestraints:
         assert group == 5
 
     def test_add_torsion_restraint_forces(self, mock_simulation):
+        """Add torsion restraint forces."""
         mock_simulation.system = openmm.System()
         torsion_indices = [(0, 1, 2, 3), (4, 5, 6, 7)]
         k = 100.0  # kJ/mol/rad^2
@@ -467,6 +403,7 @@ class TestTorsionRestraints:
         assert group == 0
 
     def test_remove_torsion_restraint_forces(self, mock_simulation):
+        """Remove torsion restraint forces."""
         mock_simulation.system = openmm.System()
         f1 = openmm.CustomBondForce("0")
         f2 = openmm.CustomTorsionForce("0")
@@ -478,6 +415,7 @@ class TestTorsionRestraints:
         assert mock_simulation.context.reinitialize.called
 
     def test_update_torsion_restraints(self, mock_simulation):
+        """Update torsion restraints."""
         mock_simulation.system = MagicMock()
         mock_force = MagicMock()
         mock_simulation.system.getForce.return_value = mock_force
@@ -517,7 +455,7 @@ def test_sample_mmmd_metadynamics_no_rotatable_bonds(tmp_path):
     with (
         patch("presto.sample.openff.interchange.Interchange.from_smirnoff"),
         patch("presto.sample._run_md") as mock_run,
-        patch("presto.sample._get_ml_omm_system"),
+        patch("presto.sample.mlp.get_ml_omm_system"),
         patch("presto.sample.Simulation"),
         patch("presto.sample.recalculate_energies_and_forces") as mock_recalc,
         patch("presto.sample.cleanup_simulation"),
@@ -637,6 +575,68 @@ class TestCopyMolAndAddConformers:
         # Should return a molecule with conformers (may be fewer than requested)
         assert len(result.conformers) >= 1
 
+    def test_uses_supplied_conformers_and_ignores_n_conformers(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """When a starting-conformers SDF is given, use it and ignore n_conformers."""
+        from openff.units import unit as off_unit
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=4, rms_cutoff=0.0 * off_unit.angstrom)
+        n_supplied = source.n_conformers
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        target = Molecule.from_smiles("CCCCCO")
+        # Request a different count to prove n_conformers is ignored.
+        result = _copy_mol_and_add_conformers(
+            target, n_conformers=n_supplied + 7, starting_conformers=sdf
+        )
+
+        assert len(result.conformers) == n_supplied
+
+    def test_supplied_path_does_not_call_etkdg(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """The ETKDG generator is not invoked when conformers are supplied."""
+        from unittest.mock import patch
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=2)
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        target = Molecule.from_smiles("CCCCCO")
+        with patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            result = _copy_mol_and_add_conformers(
+                target, n_conformers=10, starting_conformers=sdf
+            )
+
+        mock_generate.assert_not_called()
+        assert len(result.conformers) == source.n_conformers
+
+    def test_default_path_still_uses_etkdg(self):
+        """With no supplied conformers, ETKDG is still used."""
+        from unittest.mock import patch
+
+        from presto.sample import _copy_mol_and_add_conformers
+
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        with patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            _copy_mol_and_add_conformers(mol, n_conformers=3)
+
+        mock_generate.assert_called_once()
+
 
 class TestGetMoleculeFromDataset:
     """Tests for _get_molecule_from_dataset function."""
@@ -666,7 +666,6 @@ class TestGetTorsionBiasForces:
 
     def test_returns_bias_variables_for_rotatable_bonds(self):
         """Test that bias variables are created for rotatable bonds."""
-
         mol = Molecule.from_smiles("CCCC")  # Butane has rotatable bonds
         mol.generate_conformers(n_conformers=1)
 
@@ -683,7 +682,6 @@ class TestGetTorsionBiasForces:
 
     def test_returns_empty_for_no_rotatable_bonds(self):
         """Test returns empty list for molecule with no rotatable bonds."""
-
         mol = Molecule.from_smiles("C")  # Methane
         mol.generate_conformers(n_conformers=1)
 
@@ -852,7 +850,7 @@ class TestGenerateTorsionMinimisedDatasetEdgeCases:
         )
 
         with patch("presto.sample.get_rot_torsions_by_rot_bond", return_value={}):
-            mm_result, ml_result = generate_torsion_minimised_dataset(
+            mm_result, _ml_result = generate_torsion_minimised_dataset(
                 mm_dataset=dataset,
                 ml_simulation=MagicMock(),
                 mm_simulation=MagicMock(),
@@ -894,13 +892,13 @@ class TestGenerateTorsionMinimisedDatasetIntegration:
             sim.context = MagicMock()
             state = MagicMock()
             state.getPositions.return_value = omm_unit.Quantity(
-                np.random.rand(n_atoms, 3), omm_unit.angstrom
+                np.random.default_rng().random((n_atoms, 3)), omm_unit.angstrom
             )
             state.getPotentialEnergy.return_value = omm_unit.Quantity(
                 10.0, omm_unit.kilocalorie_per_mole
             )
             state.getForces.return_value = omm_unit.Quantity(
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
                 omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
             )
             sim.context.getState.return_value = state
@@ -912,9 +910,9 @@ class TestGenerateTorsionMinimisedDatasetIntegration:
         # Mock _minimize_with_frozen_torsions to avoid the slow operation
         with patch("presto.sample._minimize_with_frozen_torsions") as mock_min:
             mock_min.return_value = (
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
                 10.0,
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
             )
 
             mm_result, ml_result = generate_torsion_minimised_dataset(
@@ -959,13 +957,13 @@ class TestGenerateTorsionMinimisedDatasetIntegration:
             sim.context = MagicMock()
             state = MagicMock()
             state.getPositions.return_value = omm_unit.Quantity(
-                np.random.rand(n_atoms, 3), omm_unit.angstrom
+                np.random.default_rng().random((n_atoms, 3)), omm_unit.angstrom
             )
             state.getPotentialEnergy.return_value = omm_unit.Quantity(
                 10.0, omm_unit.kilocalorie_per_mole
             )
             state.getForces.return_value = omm_unit.Quantity(
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
                 omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
             )
             sim.context.getState.return_value = state
@@ -982,9 +980,9 @@ class TestGenerateTorsionMinimisedDatasetIntegration:
         # Mock _minimize_with_frozen_torsions to avoid slow operation
         with patch("presto.sample._minimize_with_frozen_torsions") as mock_min:
             mock_min.return_value = (
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
                 10.0,
-                np.random.rand(n_atoms, 3),
+                np.random.default_rng().random((n_atoms, 3)),
             )
 
             generate_torsion_minimised_dataset(
@@ -1144,7 +1142,7 @@ class TestAddTorsionRestraintForcesWithParticles:
         initial_angles = [0.5, 1.0]
         k = 100.0
 
-        indices, group = _add_torsion_restraint_forces(
+        indices, _group = _add_torsion_restraint_forces(
             sim, torsion_indices, k, initial_angles
         )
 
@@ -1184,7 +1182,7 @@ class TestMinimizeWithFrozenTorsions:
             mock_traj_class.return_value = mock_traj
             mock_compute.return_value = np.array([[0.0]])
 
-            result_coords, result_energy, result_forces = (
+            _result_coords, _result_energy, _result_forces = (
                 _minimize_with_frozen_torsions(
                     mock_simulation,
                     coords,
@@ -1228,7 +1226,7 @@ class TestSampleMmmdIntegration:
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
         # Mock ML potential creation to avoid needing actual ML models
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             # Create a mock system that returns a real OpenMM system
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
@@ -1256,6 +1254,53 @@ class TestSampleMmmdIntegration:
         assert len(entry["energy_weights"]) == len(entry["energy"])
         assert len(entry["forces_weights"]) == len(entry["energy"])
 
+    def test_sample_mmmd_uses_starting_conformers(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """sample_mmmd starts from a supplied SDF's conformers, ignoring n_conformers."""
+        from openff.units import unit as off_unit
+
+        # Build a 3-conformer SDF for the molecule being sampled.
+        source = Molecule.from_smiles("CCCCCO")
+        source.generate_conformers(n_conformers=3, rms_cutoff=0.0 * off_unit.angstrom)
+        n_supplied = source.n_conformers
+        assert n_supplied > 1
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        mol = Molecule.from_smiles("CCCCCO")
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDSamplingSettings(
+            sampling_protocol="mm_md",
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,  # deliberately != number supplied; must be ignored
+            starting_conformers=sdf,
+            equilibration_sampling_time_per_conformer=0.0 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.002 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,  # 2 snapshots/conformer
+        )
+
+        pdb_dir = tmp_path / "pdb"
+        pdb_dir.mkdir()
+        output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            mock_system.addForce(openmm.CustomExternalForce("0"))
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mmmd(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        # 2 snapshots per conformer * the number of supplied conformers (not n_conformers).
+        expected_snapshots = 2 * n_supplied
+        assert len(result[0][0]["energy"]) == expected_snapshots
+
     def test_sample_mmmd_with_pdb_output(self, tmp_path):
         """Test sample_mmmd with PDB trajectory output."""
         mol = Molecule.from_smiles("C")  # Methane
@@ -1277,7 +1322,7 @@ class TestSampleMmmdIntegration:
         pdb_base = tmp_path / "trajectory.pdb"
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1325,7 +1370,7 @@ class TestSampleMlmdIntegration:
         pdb_dir.mkdir()
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_dir}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1369,7 +1414,7 @@ class TestSampleMlmdIntegration:
         pdb_base = tmp_path / "trajectory.pdb"
         output_paths = {OutputType.PDB_TRAJECTORY: pdb_base}
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1422,7 +1467,7 @@ class TestSampleMmmdMetadynamicsIntegration:
             OutputType.METADYNAMICS_BIAS: bias_dir,
         }
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1474,7 +1519,7 @@ class TestSampleMmmdMetadynamicsIntegration:
             OutputType.METADYNAMICS_BIAS: bias_dir,
         }
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)
@@ -1533,7 +1578,7 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
         (tmp_path / "ml_min").mkdir()
         (tmp_path / "mm_min").mkdir()
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
 
             def create_mock_system(*args, **kwargs):
                 mock_system = openmm.System()
@@ -1551,7 +1596,8 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
 
         assert len(result) == 1
         assert isinstance(result[0], datasets.Dataset)
-        # Verify weighted dataset structure with all required fields
+
+        # Verify weighted dataset structure
         entry = result[0][0]
         assert "smiles" in entry
         assert "coords" in entry
@@ -1591,7 +1637,7 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
         (tmp_path / "ml_min").mkdir()
         (tmp_path / "mm_min").mkdir()
 
-        with patch("presto.sample._get_ml_omm_system") as mock_ml_sys:
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_system = openmm.System()
             for _ in range(mol.n_atoms):
                 mock_system.addParticle(12.0)

@@ -1,8 +1,4 @@
-"""
-WRITERS:
-
-Output functions for run-fit
-"""
+"""Output functions for run-fit."""
 
 import contextlib
 import pathlib
@@ -26,6 +22,7 @@ logger = loguru.logger
 
 @contextlib.contextmanager
 def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
+    """Open a TensorBoard writer."""
     path.mkdir(parents=True, exist_ok=True)
     with tensorboardX.SummaryWriter(str(path)) as writer:
         yield writer
@@ -35,7 +32,7 @@ def write_scatter(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
     topology_in: smee.TensorTopology,
-    device_type: str,
+    device: torch.device,
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
@@ -44,7 +41,7 @@ def write_scatter(
             dataset,
             force_field,
             {dataset[0]["smiles"]: topology_in},
-            device_type=device_type,
+            device=device,
             normalize=False,
         )
     )
@@ -124,7 +121,7 @@ def report(
             initial_parameters,
             topologies,
             regularisation_target,
-            x.device.type,
+            x.device,
             compute_grad=False,
         )
 
@@ -136,7 +133,7 @@ def report(
             initial_parameters,
             topologies,
             regularisation_target,
-            x.device.type,
+            x.device,
             compute_grad=False,
         )
 
@@ -152,6 +149,7 @@ def write_metrics(
     writer: tensorboardX.SummaryWriter,
     outfile: TextIO,
 ) -> None:
+    """Write metrics to TensorBoard and output file."""
     for loss_record in (loss_train, loss_test):
         for field in loss_record._fields:
             outfile.write(f"{getattr(loss_record, field).detach().item():.10f} ")
@@ -164,6 +162,7 @@ def write_metrics(
 
 
 def get_potential_summary(potential: smee.TensorPotential) -> str:
+    """Get string summary of a potential's parameters."""
     output = [""]
     parameter_rows = []
     for key_id, value in enumerate(potential.parameters.detach()):
@@ -212,6 +211,7 @@ def get_potential_summary(potential: smee.TensorPotential) -> str:
 def get_potential_comparison(
     pot1: smee.TensorPotential, pot2: smee.TensorPotential
 ) -> str:
+    """Get string comparison of two potentials."""
     output = [""]
     parameter_rows = []
     for key_id, value in enumerate(

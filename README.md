@@ -24,10 +24,9 @@
 
 Train bespoke SMIRNOFF force fields quickly using a machine learning potential (MLP). All valence parameters (bonds, angles, proper torsions, and improper torsions) are trained to MLP energies sampled using molecular dynamics. Please see the [**documentation**](https://cole-group.github.io/presto/latest/).
 
-***Warning**: This code is experimental and under active development. It is not guaranteed to provide correct results,
-the documentation and testing is incomplete, and the API may change without notice.*
+***Warning**: ⚠️ This code is under active development and the API may change without notice.*
 
-Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AceFF-2.0 model (as well as Egret-1 and AIMNet-2) does.
+Please note that the MACE-OFF models are released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) which **does not permit commercial use**. However, the default AIMNet-2 model (as well as Egret-1, Orb-v3 OMOL, and others) does.
 
 ## Installation
 
@@ -37,18 +36,17 @@ git clone https://github.com/cole-group/presto.git
 cd presto
 pixi shell
 ```
-By default, this will create an environment with CUDA 12.9. If your version is older, but >= 12.6 (check with `nvidia-smi`), then run
-```bash
-pixi shell -e gpu-py313-cuda126
-```
+This will create an environment with CUDA 12.9. **You'll need to update to CUDA >= 12.9 (check with `nvidia-smi`) to use `presto`** (older versions are not usable as we require OpenMM 8.5 for the PythonForce class, and this requires CUDA 12.9).
 
 For more information on activating pixi environments, see [the documentation](https://pixi.sh/latest/advanced/pixi_shell/#traditional-conda-activate-like-activation).
+
+`presto` is also available on `conda-forge` as `presto-fit`, but note that this comes without the MLP dependencies (install these separately, e.g. `pip install aimnet`). See the [installation docs](https://cole-group.github.io/presto/get-started/installation/) for details.
 
 ## Usage
 
 Run with command line arguments:
 ```bash
-presto train --parameterisation-settings.smiles "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
+presto train --param-settings.molecules "CCC(CC)C(=O)Nc2cc(NC(=O)c1c(Cl)cccc1Cl)ccn2"
 ```
 then see the bespoke force field at `training_iteration_2/bespoke_ff.offxml`.
 
@@ -60,19 +58,27 @@ presto train --help
 Run from a yaml file:
 ```bash
 presto write-default-yaml default.yaml
-# Modify the yaml to set the desired smiles
+# Modify the yaml to set the desired input_type and molecule input(s)
 presto train-from-yaml default.yaml
+```
+
+For SDF inputs, set `molecule_input_type: sdf` and list one or more `.sdf` files under `molecules`. Each SDF may contain one or more molecules. For example, with the CLI:
+```bash
+presto train --param-settings.molecule-input-type sdf --param-settings.molecules input_molecule.sdf
 ```
 
 For more details on the theory and implementation, please see the [documentation](https://cole-group.github.io/presto/latest/).
 
-## MACE-Model Use
 
-To use models with the MACE architecture, run
-```
-pixi shell -e gpu-py313-cuda129-mace
-```
-(or the equivalent CUDA 12.6 version)
+## Citation
+
+If you use `presto` in your work, please cite:
+
+> Clark, F.; Pope, T.; Maier, S.; Boothroyd, S.; Horton, J. T.; Ryczko, K.; Bortolato, A.; Cole, D. J. *Fast Training of Bespoke SMIRNOFF-format Molecular Mechanics Force Fields Using Machine Learning Potentials.* ChemRxiv **2026**. [doi:10.26434/chemrxiv.15004169/v2](https://doi.org/10.26434/chemrxiv.15004169/v2)
+
+Because `presto` builds on the Open Force Field ecosystem, please also cite the relevant OpenFF publications listed at [openforcefield.org/science/how-to-cite](https://openforcefield.org/science/how-to-cite/).
+
+A `CITATION.cff` file is provided in the repository, and GitHub will generate formatted citations (including BibTeX) from the *Cite this repository* link on the project page.
 
 ## Copyright
 

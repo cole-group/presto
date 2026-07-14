@@ -1,1 +1,1 @@
-"""Unit and integration tests for presto"""
+"""Unit and integration tests for presto."""

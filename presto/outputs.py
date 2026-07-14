@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -11,7 +11,19 @@ if TYPE_CHECKING:
 
 
 class OutputType(Enum):
-    """An enumeration of the different types of outputs produced by bespoke fitting functions"""
+    """An enumeration of the different types of outputs produced by bespoke fitting functions.
+
+    Every run lays out files in the following stages under ``output_dir``:
+
+    - ``workflow_settings.yaml`` at the top, recording the inputs.
+    - ``test_data/`` containing the validation dataset.
+    - ``initial_statistics/`` with the offxml and scatter data for the starting force field.
+    - ``training_iteration_<n>/`` for each iteration, containing the bespoke offxml,
+      sampled trajectories, energies/forces, and TensorBoard metrics.
+    - ``plots/`` aggregating loss and parameter diagnostic plots across iterations.
+
+    The string value of each member is the filename or directory name on disk.
+    """
 
     WORKFLOW_SETTINGS = "workflow_settings.yaml"
     """The settings yaml file which is written if the user runs using `presto train`
@@ -70,7 +82,7 @@ class OutputType(Enum):
     MM_MINIMISED_PDB = "mm_minimised.pdb"
     """PDB file containing structures minimised using the molecular mechanics potential."""
 
-    TORSION_DIHEDRALS_PLOT = "torsion_dihedrals.png"
+    TORSION_SAMPLING_PLOT = "torsion_sampling.png"
     """Plot of dihedral angles for all rotatable torsions during trajectories."""
 
 
@@ -87,11 +99,13 @@ PER_MOLECULE_OUTPUT_TYPES: set[OutputType] = {
     OutputType.PARAMETER_DIFFERENCES_PLOT,
     OutputType.ML_MINIMISED_PDB,
     OutputType.MM_MINIMISED_PDB,
-    OutputType.TORSION_DIHEDRALS_PLOT,
+    OutputType.TORSION_SAMPLING_PLOT,
 }
 
 
-class StageKind(str, Enum):
+class StageKind(StrEnum):
+    """Enumeration of output directory names for each stage of the workflow."""
+
     BASE = ""
     INITIAL_STATISTICS = "initial_statistics"
     TESTING = "test_data"
@@ -101,10 +115,13 @@ class StageKind(str, Enum):
 
 @dataclass(frozen=True)
 class OutputStage:
+    """A specific stage in the workflow output directory structure."""
+
     kind: StageKind
     index: int | None = None
 
     def __str__(self) -> str:
+        """String representation."""
         return (
             f"{self.kind.value}_{self.index}"
             if self.index is not None
@@ -126,7 +143,6 @@ class WorkflowPathManager:
     @property
     def outputs_by_stage(self) -> dict[OutputStage, set[OutputType]]:
         """Return a dictionary mapping each stage to expected output types."""
-
         outputs_by_stage: dict[OutputStage, set[OutputType]] = {
             OutputStage(StageKind.BASE): {OutputType.WORKFLOW_SETTINGS},
             OutputStage(StageKind.TESTING): (
@@ -164,7 +180,7 @@ class WorkflowPathManager:
                 OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
                 OutputType.PARAMETER_VALUES_PLOT,
                 OutputType.PARAMETER_DIFFERENCES_PLOT,
-                OutputType.TORSION_DIHEDRALS_PLOT,
+                OutputType.TORSION_SAMPLING_PLOT,
             },
         }
         return outputs_by_stage
@@ -207,12 +223,12 @@ class WorkflowPathManager:
         mol_idx : int
             The molecule index.
 
-        Returns
+        Returns:
         -------
         Path
             The path for the per-molecule output.
 
-        Raises
+        Raises:
         ------
         ValueError
             If the output type is not a per-molecule output type, or if mol_idx
@@ -299,7 +315,7 @@ class WorkflowPathManager:
         only_if_exists : bool, optional
             If True, only return paths that exist on disk, by default True.
 
-        Returns
+        Returns:
         -------
         dict[OutputType, dict[int, list[Path]] | list[Path]]
             A dictionary mapping output types to either:
@@ -347,7 +363,7 @@ class WorkflowPathManager:
         path : Path
             A path with the _mol{idx} naming convention.
 
-        Returns
+        Returns:
         -------
         int
             The molecule index.
@@ -360,7 +376,6 @@ class WorkflowPathManager:
 
     def clean(self) -> None:
         """Remove all output files and empty stage directories."""
-
         # Delete all output files
         all_paths = self.get_all_output_paths(only_if_exists=True)
 
@@ -382,8 +397,9 @@ class WorkflowPathManager:
 
 
 def delete_path(path: Path, recursive: bool = False) -> None:
-    """Delete an output file or directory if it exists. Deletes the entire contents of
-    a directory.
+    """Delete an output file or directory if it exists.
+
+    Deletes the entire contents of a directory.
 
     Parameters
     ----------
@@ -419,12 +435,12 @@ def get_mol_path(base_path: Path, mol_idx: int) -> Path:
     mol_idx : int
         The molecule index.
 
-    Returns
+    Returns:
     -------
     Path
         The path with the molecule index appended.
 
-    Examples
+    Examples:
     --------
     >>> get_mol_path(Path("output/scatter.hdf5"), 0)
     PosixPath('output/scatter_mol0.hdf5')

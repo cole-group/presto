@@ -430,10 +430,10 @@ class TestWorkflowPathManagerMolPaths:
         """Test that invalid mol_idx raises ValueError."""
         stage = OutputStage(StageKind.INITIAL_STATISTICS)
 
-        with pytest.raises(ValueError, match="mol_idx .* is out of range"):
+        with pytest.raises(ValueError, match=r"mol_idx .* is out of range"):
             path_manager.get_output_path_for_mol(stage, OutputType.SCATTER, 10)
 
-        with pytest.raises(ValueError, match="mol_idx .* is out of range"):
+        with pytest.raises(ValueError, match=r"mol_idx .* is out of range"):
             path_manager.get_output_path_for_mol(stage, OutputType.SCATTER, -1)
 
     def test_get_all_output_paths_includes_per_mol_paths(
@@ -500,7 +500,7 @@ class TestPerMoleculeOutputTypes:
             OutputType.PARAMETER_DIFFERENCES_PLOT,
             OutputType.ML_MINIMISED_PDB,
             OutputType.MM_MINIMISED_PDB,
-            OutputType.TORSION_DIHEDRALS_PLOT,
+            OutputType.TORSION_SAMPLING_PLOT,
         }
         assert PER_MOLECULE_OUTPUT_TYPES == expected_per_mol
 

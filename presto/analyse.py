@@ -35,7 +35,7 @@ PLT_STYLE = "ggplot"
 
 def _add_legend_if_labels(ax: Axes, **kwargs: Any) -> None:
     """Add a legend to the axes only if there are labeled artists."""
-    handles, labels = ax.get_legend_handles_labels()
+    _handles, labels = ax.get_legend_handles_labels()
     if labels:
         ax.legend(**kwargs)
 
@@ -55,7 +55,6 @@ def read_errors(
         'forces_reference', 'forces_predicted', 'forces_differences'.
         Each value is a dict mapping iteration number to numpy array.
     """
-
     results: dict[str, dict[int, npt.NDArray[np.float64]]] = {
         "energy_reference": {},
         "energy_predicted": {},
@@ -80,6 +79,7 @@ def read_errors(
 
 
 def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
+    """Read training and test losses from CSV metric files and return them as a DataFrame."""
     df_rows = []
     names = []
     for loss_type in ["train", "test"]:
@@ -104,6 +104,7 @@ def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
 
 
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
+    """Plot training and test losses across epochs, with vertical lines separating iterations."""
     # Colour by iteration - full line for train, dotted for test
     iterations = losses["iteration"].unique()
     first_iteration = iterations[0]
@@ -155,9 +156,10 @@ def plot_energy_correlation(
     reference: dict[int, npt.NDArray[np.float64]],
     predicted: dict[int, npt.NDArray[np.float64]],
 ) -> None:
-    """Plot the correlation between reference and predicted values. For
-    forces, convert to the magnitude of the forces."""
+    """Plot the correlation between reference and predicted values.
 
+    For forces, convert to the magnitude of the forces.
+    """
     for i in reference.keys():
         ax.scatter(reference[i], predicted[i], alpha=0.5, label=f"Iteration {i}")
     all_values = np.concatenate(list(reference.values()) + list(predicted.values()))
@@ -262,6 +264,7 @@ def plot_distributions_of_errors(
     errors: dict[int, npt.NDArray[np.float64]],
     error_type: Literal["energy", "force"],
 ) -> None:
+    """Plot a histogram of energy or force errors, coloured by iteration."""
     # Colour by iteration
     # Use continuous colourmap for the iterations
     iterations = errors.keys()
@@ -299,6 +302,7 @@ def plot_mean_errors(
     errors: dict[int, npt.NDArray[np.float64]],
     error_type: Literal["energy", "force"],
 ) -> None:
+    """Plot the mean energy or force error per iteration."""
     mean_errors = {i: np.mean(errors[i]) for i in errors.keys()}
 
     ax.plot(
@@ -322,6 +326,7 @@ def plot_rmse_of_errors(
     errors: dict[int, npt.NDArray[np.float64]],
     error_type: Literal["energy", "force"],
 ) -> None:
+    """Plot the RMSE of energy or force errors per iteration."""
     rmsd_errors = [np.sqrt(np.mean(errors[i] ** 2)) for i in errors.keys()]
 
     ax.plot(
@@ -348,7 +353,6 @@ def plot_error_statistics(
     ],
 ) -> None:
     """Plot the error statistics for the energy and force errors."""
-
     axs = axs.flatten()
     plot_distributions_of_errors(fig, axs[0], errors["energy_differences"], "energy")
     plot_distributions_of_errors(fig, axs[1], errors["forces_differences"], "force")
@@ -372,6 +376,7 @@ def plot_ff_differences(
     potential_type: POTENTIAL_KEYS,
     parameter_key: str,
 ) -> dict[str, float]:
+    """Plot the change in a force field parameter between the first and last fitting iteration."""
     # Get the initial and final potentials
     iterations = list(force_fields)
     topology = molecule.to_topology()
@@ -407,7 +412,7 @@ def plot_ff_differences(
     if not differences:
         return {}
 
-    differences_first_key = list(differences.keys())[0]
+    differences_first_key = next(iter(differences.keys()))
 
     # Plot the differences
     q_units = (
@@ -441,11 +446,12 @@ def plot_ff_values(
     potential_type: POTENTIAL_KEYS,
     parameter_key: str,
 ) -> None:
+    """Plot the value of a force field parameter across all fitting iterations."""
     # nice colour map for the iterations
     colours = plt.colormaps["viridis"](np.linspace(0, 1, len(force_fields) + 1))
 
     # Get the desired ids
-    first_ff = force_fields[list(force_fields.keys())[0]]
+    first_ff = force_fields[next(iter(force_fields.keys()))]
     labeled = first_ff.label_molecules(molecule.to_topology())[0]
     potentials_set = set(labeled[potential_type].values())
     param_ids = sorted([p.id for p in potentials_set])
@@ -476,7 +482,7 @@ def plot_ff_values(
         if not vals:
             return
 
-        vals_first_key = list(vals.keys())[0]
+        vals_first_key = next(iter(vals.keys()))
 
         # Plot the differences
         q_units = (
@@ -522,6 +528,7 @@ def plot_all_ffs(
     molecule: Molecule,
     plot_type: Literal["values", "differences"],
 ) -> tuple[Figure, Axes]:
+    """Plot parameter values or differences for all valence types and keys across fitting iterations."""
     plt_fn = plot_ff_values if plot_type == "values" else plot_ff_differences
 
     # 1 column per potential type
@@ -570,13 +577,12 @@ def calculate_dihedrals_for_trajectory(
     torsions : dict[tuple[int, int], tuple[int, int, int, int]]
         Dictionary mapping rotatable bonds to torsion atom indices.
 
-    Returns
+    Returns:
     -------
     dict[tuple[int, int, int, int], npt.NDArray[np.float64]]
         Dictionary mapping torsion atom indices to array of dihedral angles (in degrees)
         for each frame.
     """
-
     trajectory = mdtraj.load(str(pdb_path))
     dihedrals = {}
 
@@ -591,7 +597,7 @@ def calculate_dihedrals_for_trajectory(
     return dihedrals
 
 
-def plot_torsion_dihedrals(
+def plot_torsion_sampling(
     fig: Figure,
     axs: npt.NDArray[Any],
     dihedrals_by_iteration: dict[
@@ -722,8 +728,7 @@ def plot_torsion_dihedrals(
 
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
     """Analyse the results of a presto workflow."""
-
-    mols = workflow_settings.parameterisation_settings.molecules
+    mols = workflow_settings.param_settings.openff_molecules
 
     # Suppress matplotlib categorical units warning by setting logger level
     import logging
@@ -842,9 +847,9 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                         fig, axs = plt.subplots(
                             nrows, ncols, figsize=(8 * ncols, 5 * nrows), squeeze=False
                         )
-                        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, mol)
+                        plot_torsion_sampling(fig, axs, dihedrals_by_iteration, mol)
                         torsion_plot_path = path_manager.get_output_path(
-                            stage, OutputType.TORSION_DIHEDRALS_PLOT
+                            stage, OutputType.TORSION_SAMPLING_PLOT
                         )
                         torsion_plot_path_mol = get_mol_path(torsion_plot_path, mol_idx)
                         fig.tight_layout()

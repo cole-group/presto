@@ -1,7 +1,8 @@
 """Typing utilities for the presto package."""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 PathLike = str | Path
 TorchDevice = Literal["cpu", "cuda"]

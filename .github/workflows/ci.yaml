@@ -15,19 +15,24 @@ on:
 
 jobs:
   test:
-    name: Test on ubuntu-latest, Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    # Avoid running on latest with the non-base py313 env which includes the Orb feature, as
+    # this avoids issues # with e.g. different gcc versions when building dm-tree from source
+    # for Python 3.13.
+    name: Test on ${{ matrix.runs-on }}, py${{ matrix.python-version }}, ${{ matrix.env-type }}
+    runs-on: ${{ matrix.runs-on }}
+
     strategy:
       matrix:
-        python-version: ["3.12", "3.13"]
-        include:
-          - python-version: "3.12"
-            pixi-environment: "cpu-py312"
-          - python-version: "3.13"
-            pixi-environment: "cpu-py313"
+        runs-on: ["ubuntu-22.04", "ubuntu-latest"]
+        python-version: ["312", "313"]
+        env-type: ["cpu", "base-cpu"]
+        exclude:
+          - runs-on: "ubuntu-latest"
+            python-version: "313"
+            env-type: "cpu"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Additional info about the build
         shell: bash
@@ -36,25 +41,27 @@ jobs:
           df -h
           ulimit -a
 
-      - uses: prefix-dev/setup-pixi@v0.9.2
+      - uses: prefix-dev/setup-pixi@v0.10.0
         with:
-          pixi-version: v0.63.2
+          pixi-version: v0.67.2
           cache: true
-          environments: ${{ matrix.pixi-environment }}
+          environments: ${{ matrix.env-type }}-py${{ matrix.python-version }}
 
       - name: Lint
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} lint
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} lint
 
       - name: Type check
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} type-check
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} type-check
 
       - name: Run tests
         run: |
-          pixi run -e ${{ matrix.pixi-environment }} test
+          pixi run -e ${{ matrix.env-type }}-py${{ matrix.python-version }} test
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4
+        # Only do this for one of the runs. Avoid the base envs as they skip a few MLP tests.
+        if: matrix.runs-on == 'ubuntu-22.04' && matrix.env-type == 'cpu' && matrix.python-version == '313'
+        uses: codecov/codecov-action@v7
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

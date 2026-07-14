@@ -34,8 +34,9 @@ console = Console()
 def get_bespoke_force_field(
     settings: WorkflowSettings, write_settings: bool = True
 ) -> ForceField:
-    """
-    Fit a bespoke force field. This involves:
+    """Fit a bespoke force field.
+
+    This involves:
 
     - Parameterising a base force field for the target molecule and generating
       specific tagged SMARTS parameters
@@ -51,7 +52,7 @@ def get_bespoke_force_field(
     write_settings : bool, optional
         Whether to write the settings to a YAML file in the output directory, by default True.
 
-    Returns
+    Returns:
     -------
     ForceField
         The fitted bespoke force field.
@@ -73,7 +74,7 @@ def get_bespoke_force_field(
 
     # Parameterise the base force field for all molecules
     off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
-        settings.parameterisation_settings, device=settings.device_type
+        settings.param_settings, device=settings.device_type
     )
 
     pruned_parameter_configs = {
@@ -88,7 +89,7 @@ def get_bespoke_force_field(
         settings.training_settings.attribute_configs,
     )
 
-    trainable_parameters = trainable.to_values().to((settings.device))
+    trainable_parameters = trainable.to_values().to(settings.device)
 
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()
@@ -133,7 +134,7 @@ def get_bespoke_force_field(
             dataset_test,
             tensor_ff,
             tensor_top,
-            str(settings.device),
+            settings.device,
             str(scatter_path_mol),
         )
         logger.info(
@@ -187,7 +188,7 @@ def get_bespoke_force_field(
                         force_field=tensor_ff,
                         topology=tensor_top,
                         settings=settings.outlier_filter_settings,
-                        device=str(settings.device),
+                        device=settings.device,
                     )
                     for ds, tensor_top in zip(
                         datasets_train_new, tensor_tops, strict=True
@@ -254,7 +255,7 @@ def get_bespoke_force_field(
                         dataset_test,
                         tensor_ff,
                         tensor_top,
-                        str(settings.device),
+                        settings.device,
                         str(scatter_path_mol),
                     )
                 )

@@ -21,7 +21,6 @@ from presto.train import train_adam, train_levenberg_marquardt
 @pytest.fixture
 def ethanol_training_setup():
     """Create a complete training setup for ethanol."""
-
     # Create molecule and generate conformers
     mol = Molecule.from_smiles("CCO")
     # Use rms_cutoff=0 to ensure we get exactly the requested number of conformers
@@ -255,7 +254,7 @@ class TestTrainAdam:
 
         # Read metrics file and check that loss values are written
         metrics_file = output_paths[OutputType.TRAINING_METRICS]
-        with open(metrics_file, "r") as f:
+        with open(metrics_file) as f:
             lines = f.readlines()
 
         # Check that we have metric outputs (at least 6 lines: 0, 10, 20, 30, 40, 50)
@@ -617,7 +616,7 @@ class TestTrainLevenbergMarquardt:
 
         # Read LM metrics
         lm_metrics_file = output_paths[OutputType.TRAINING_METRICS]
-        with open(lm_metrics_file, "r") as f:
+        with open(lm_metrics_file) as f:
             lm_lines = f.readlines()
 
         # Check that LM produced metrics
@@ -657,7 +656,7 @@ class TestTrainLevenbergMarquardt:
         )
 
         metrics_file = output_paths[OutputType.TRAINING_METRICS]
-        with open(metrics_file, "r") as f:
+        with open(metrics_file) as f:
             lines = f.readlines()
 
         for i, line in enumerate(lines):
@@ -700,8 +699,7 @@ class TestExcludedTorsionsNotTrained:
 
     @pytest.fixture
     def linear_tor_mol_setup(self):
-        """Create a set up force field for a molecule which hits all of the
-        linear torsion patterns (O=C=CC#CC)."""
+        """Set up a FF for a molecule which hits all of the linear torsion patterns (O=C=CC#CC)."""
         # CCC#N contains linear torsions around the C#N triple bond
         mol = Molecule.from_smiles("O=C=CC#CC")
         mol.generate_conformers(n_conformers=1)

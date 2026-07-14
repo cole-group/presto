@@ -3,7 +3,7 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Literal, TypeVar, Union
+from typing import Any, Literal, Self, TypeVar
 
 import numpy as np
 import torch
@@ -17,20 +17,25 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     field_validator,
     model_validator,
 )
 from pydantic_units import OpenMMQuantity
-from rdkit import Chem
-from typing_extensions import Self
 
-from . import __version__, mlp
+from . import __version__
 from ._exceptions import InvalidSettingsError
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
 )
+from .load_molecules import (
+    MOLECULE_LOADERS,
+    MoleculeInputType,
+    load_conformers_for_molecule,
+)
 from .outputs import OutputType, WorkflowPathManager
+from .utils.dicts import deep_update
 from .utils.typing import (
     AllowedAttributeType,
     NonLinearValenceType,
@@ -40,17 +45,48 @@ from .utils.typing import (
     ValenceType,
 )
 
-_DEFAULT_SMILES_PLACEHOLDER = "CHANGEME"
+_DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
+_RUNTIME_OBJECT_PLACEHOLDER = "__PRESTO_RUNTIME_OBJECT_PLACEHOLDER__"
+
+
+def _replace_non_serializable(obj: dict[str, Any]) -> dict[str, Any]:
+    """Recursively replace non-JSON-serializable values with the runtime placeholder."""
+    return {k: _replace_value(v) for k, v in obj.items()}
+
+
+def _replace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _replace_non_serializable(value)
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return _RUNTIME_OBJECT_PLACEHOLDER
+
+
+def _find_placeholder_paths(obj: Any, prefix: str = "") -> list[str]:
+    """Return bracket-notation paths of all placeholder values in a (possibly nested) dict."""
+    paths: list[str] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            paths.extend(_find_placeholder_paths(v, f"{prefix}[{k}]"))
+    elif obj == _RUNTIME_OBJECT_PLACEHOLDER:
+        paths.append(prefix)
+    return paths
+
 
 _DEFAULT_MODEL_CONFIG = ConfigDict(
     extra="forbid",
     validate_assignment=True,
+    arbitrary_types_allowed=True,
 )
 
 
-def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
-    """Save the settings to a YAML file"""
+def _model_to_yaml(
+    model: BaseModel, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+) -> None:
+    """Save the settings to a YAML file."""
     data = model.model_dump(mode="json")
+    if overwrite:
+        data = deep_update(data, overwrite)
     with open(yaml_path, "w") as file:
         yaml.dump(data, file, default_flow_style=False, sort_keys=False, indent=4)
 
@@ -58,10 +94,14 @@ def _model_to_yaml(model: BaseModel, yaml_path: PathLike) -> None:
 _T = TypeVar("_T", bound=BaseModel)
 
 
-def _model_from_yaml(cls: type[_T], yaml_path: PathLike) -> _T:
-    """Load settings from a YAML file"""
-    with open(yaml_path, "r") as file:
-        settings_data = yaml.safe_load(file)
+def _model_from_yaml(
+    cls: type[_T], yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+) -> _T:
+    """Load settings from a YAML file."""
+    with open(yaml_path) as file:
+        settings_data = yaml.safe_load(file) or {}
+    if overwrite:
+        settings_data = deep_update(settings_data, overwrite)
     return cls(**settings_data)
 
 
@@ -70,31 +110,88 @@ class _DefaultSettings(BaseModel, ABC):
 
     model_config = _DEFAULT_MODEL_CONFIG
 
-    def to_yaml(self, yaml_path: PathLike) -> None:
-        """Save the settings to a YAML file"""
-        _model_to_yaml(self, yaml_path)
+    def to_yaml(
+        self, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+    ) -> None:
+        """Save the settings to a YAML file."""
+        _model_to_yaml(self, yaml_path, overwrite=overwrite)
 
     @classmethod
-    def from_yaml(cls, yaml_path: PathLike) -> Self:
-        """Load settings from a YAML file"""
-        return _model_from_yaml(cls, yaml_path)
+    def from_yaml(
+        cls, yaml_path: PathLike, overwrite: dict[str, Any] | None = None
+    ) -> Self:
+        """Load settings from a YAML file."""
+        return _model_from_yaml(cls, yaml_path, overwrite=overwrite)
 
     @property
     def output_types(self) -> set[OutputType]:
-        """Return a set of expected output types for the function which
-        implements this settings object. Subclasses should override this method."""
+        """Return the expected output types for the function implementing this settings object.
+
+        Subclasses should override this method.
+        """
         return set()
 
-    # @property
-    # def output_types(self) -> set[OutputType]:
-    #     """Return a set of expected output types for this settings object
-    #     and all _DefaultSettings it contains."""
-    #     outputs = set(self._output_types)
-    #     for name, field in self.model_fields.items():
-    #         if issubclass(field.annotation, _DefaultSettings):
-    #             nested_settings = getattr(self, name)
-    #             outputs.update(nested_settings.output_types)
-    #     return outputs
+
+class MLPSettings(_DefaultSettings):
+    """Settings for selecting and configuring the reference ML potential."""
+
+    ml_potential: str = Field(
+        "aimnet2",
+        description="The OpenMM-ML potential identifier (for example `aimnet2`, "
+        "`aceff-2.0`, or `ase`). Any model supported by your OpenMM-ML installation "
+        "can be used.",
+    )
+
+    ml_potential_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments passed to openmmml.MLPotential(...) when "
+        "creating the reference potential.",
+    )
+
+    ml_system_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to MLPotential.createSystem(...). "
+        "For ASE-backed runs, this can include keys such as `calculator`, `aseAtoms`, "
+        "and `info`.",
+    )
+
+    @field_serializer("ml_system_kwargs")
+    def serialize_ml_system_kwargs(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Replace non-serializable runtime objects (e.g. ASE calculators) with placeholders."""
+        return _replace_non_serializable(value)
+
+    @model_validator(mode="after")
+    def validate_no_runtime_placeholders(self) -> Self:
+        """Raise if ml_system_kwargs contains runtime placeholder values (i.e. was loaded from YAML without overwrite)."""
+        placeholder_paths = _find_placeholder_paths(self.ml_system_kwargs)
+        if placeholder_paths:
+            raise InvalidSettingsError(
+                f"ml_system_kwargs contains runtime-only placeholder values at keys: "
+                f"{placeholder_paths}. Supply the actual objects via from_yaml(..., overwrite=...) "
+                "before validation."
+            )
+        return self
+
+
+def _validate_starting_conformers_path(value: Path | None) -> Path | None:
+    """Validate an optional starting-conformers SDF path.
+
+    Only checks the obvious, molecule-independent problems (missing file, wrong
+    suffix). Whether the file actually contains conformers for the molecules being
+    fitted can only be checked once the molecules are known — see
+    ``WorkflowSettings._check_starting_conformers_match_molecules``.
+    """
+    if value is None:
+        return value
+    if value.suffix.lower() != ".sdf":
+        raise InvalidSettingsError(
+            f"starting_conformers must be an SDF file ending in .sdf: {value}"
+        )
+    if not value.exists():
+        raise InvalidSettingsError(
+            f"starting_conformers SDF file does not exist: {value}"
+        )
+    return value
 
 
 class _SamplingSettingsBase(_DefaultSettings, ABC):
@@ -107,20 +204,22 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         "loading from YAML.",
     )
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aceff-2.0",
-        description="The machine learning potential to use for calculating energies and forces of "
-        " the snapshots. Note that this is not generally the potential used for sampling.",
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "energy and force calculations.",
     )
 
     timestep: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
         default=1 * unit.femtoseconds,
-        description="MD timestep",
+        description="MD timestep (femtoseconds). Must divide evenly into the "
+        "equilibration and production sampling times.",
     )
 
     temperature: OpenMMQuantity[unit.kelvin] = Field(  # type: ignore[type-arg]
         default=500 * unit.kelvin,
-        description="Temperature to run MD at",
+        description="Temperature to run MD at (kelvin). Defaults to 500 K to broaden "
+        "the sampled conformer distribution beyond room temperature.",
     )
 
     snapshot_interval: OpenMMQuantity[unit.femtoseconds] = Field(  # type: ignore[type-arg]
@@ -130,8 +229,24 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     n_conformers: int = Field(
         10,
-        description="The number of conformers to generate, from which sampling is started",
+        description="The number of conformers to generate, from which sampling is started. "
+        "Ignored when `starting_conformers` is set.",
     )
+
+    starting_conformers: Path | None = Field(
+        None,
+        description="Optional path to an SDF of starting conformers for this sampling "
+        "stage. If set, sampling starts from every conformer in the file that matches "
+        "the molecule (matched by graph, atom order aligned automatically) and "
+        "`n_conformers` is ignored for this stage. If None (default), conformers are "
+        "generated with ETKDG.",
+    )
+
+    @field_validator("starting_conformers")
+    @classmethod
+    def _validate_starting_conformers(cls, value: Path | None) -> Path | None:
+        """Validate that any supplied starting-conformers path is an existing SDF."""
+        return _validate_starting_conformers_path(value)
 
     equilibration_sampling_time_per_conformer: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         default=0.0 * unit.picoseconds,
@@ -148,12 +263,15 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
     loss_energy_weight: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for samples from this protocol.",
+        description="Scaling factor for the energy loss term (energies are in "
+        "kcal/mol). The default (1000) is much larger than `loss_force_weight` (0.1) "
+        "to balance the different units of energy and force contributions to the loss.",
     )
 
     loss_force_weight: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for samples from this protocol.",
+        description="Scaling factor for the force loss term (forces are in "
+        "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
     )
 
     @property
@@ -193,7 +311,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
         # Additionally check that production sampling time divides by snapshot interval
         time = self.production_sampling_time_per_conformer / self.snapshot_interval
-        if not n_steps.is_integer():
+        if not time.is_integer():
             raise InvalidSettingsError(
                 f"production_sampling_time_per_conformer ({time}) must be divisible by the snapshot_interval ({self.snapshot_interval})."
             )
@@ -202,9 +320,11 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 
 
 class MMMDSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics
-    force field. This is initally the force field supplined in the parameterisation
-    settings, but is updated as the bespoke force field is trained."""
+    """Settings for molecular dynamics sampling using a molecular mechanics force field.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
 
     sampling_protocol: Literal["mm_md"] = Field(
         "mm_md", description="Sampling protocol to use."
@@ -212,9 +332,11 @@ class MMMDSamplingSettings(_SamplingSettingsBase):
 
 
 class MLMDSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a machine learning
-    potential. This protocol uses the ML reference potential for sampling as
-    well as for energy and force calculations."""
+    """Settings for molecular dynamics sampling using a machine learning potential.
+
+    This protocol uses the ML reference potential for both sampling and
+    energy/force calculations.
+    """
 
     sampling_protocol: Literal["ml_md"] = Field(
         "ml_md", description="Sampling protocol to use."
@@ -222,9 +344,11 @@ class MLMDSamplingSettings(_SamplingSettingsBase):
 
 
 class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics
-    force field with metadynamics. This is initally the force field supplined in the parameterisation
-    settings, but is updated as the bespoke force field is trained."""
+    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
 
     sampling_protocol: Literal["mm_md_metadynamics"] = Field(
         "mm_md_metadynamics", description="Sampling protocol to use."
@@ -239,36 +363,42 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
         1.0 * unit.kilojoules_per_mole,
-        description="Initial height of the bias",
+        description="Initial height of the Gaussian bias (kJ/mol). In well-tempered "
+        "metadynamics this is scaled down over time according to `bias_factor`.",
     )
 
     bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         0.1 * unit.picoseconds,
-        description="Frequency at which to add bias",
+        description="How often to add a Gaussian to the bias (picoseconds). Must "
+        "divide evenly into the timestep.",
     )
 
     bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
         10 * unit.picoseconds,
-        description="Frequency at which to save the bias",
+        description="How often to save the accumulated bias to disk (picoseconds).",
     )
 
     torsions_to_include_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_INCLUDE_SMARTS.copy(),
         description="SMARTS patterns for torsions to include in metadynamics biasing. "
-        "Matches single bonds not in rings and single bonds in aliphatic rings of size 5 or more. "
-        "These should match the entire torsion (4 atoms), not just the rotatable bond.",
+        "Note that the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
+        "RDKIT default gives more sane aromaticty perception. These should match the "
+        "entire torsion (4 atoms), not just the rotatable bond. ",
     )
 
     torsions_to_exclude_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for bonds to exclude from metadynamics biasing. These "
-        "are removed from the list of torsions matched by the include patterns. "
-        "These should match only the rotatable bond (2 atoms), not the full torsion.",
+        description="SMARTS patterns for bonds to exclude from metadynamics biasing. Note that "
+        "the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
+        "RDKIT default gives more sane aromaticty perception. Matches are removed from the list of "
+        "torsions matched by the include patterns. These should match only the rotatable bond "
+        "(2 atoms), not the full torsion.",
     )
 
     # Make sure that the frequency and save_frequency are multiples of the timestep
     @model_validator(mode="after")
     def validate_frequencies(self) -> Self:
+        """Validate that bias frequencies and save frequencies divide evenly into the sampling time."""
         for freq, name in [
             (self.bias_frequency, "frequency"),
             (self.bias_save_frequency, "save_frequency"),
@@ -289,23 +419,28 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     @property
     def n_steps_per_bias(self) -> int:
+        """Number of simulation steps between each bias addition."""
         return int(self.bias_frequency / self.timestep)
 
     @property
     def n_steps_per_bias_save(self) -> int:
+        """Number of simulation steps between each bias save."""
         return int(self.bias_save_frequency / self.timestep)
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
 class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     MMMDMetadynamicsSamplingSettings
 ):
-    """Settings for MM MD metadynamics sampling with additional torsion-restrained
-    minimisation structures. This extends MMMDMetadynamicsSamplingSettings by generating
-    additional training data from torsion-restrained minimisations."""
+    """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
+
+    Extends MMMDMetadynamicsSamplingSettings by generating additional training data
+    from torsion-restrained minimisations.
+    """
 
     sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
         "mm_md_metadynamics_torsion_minimisation",
@@ -367,6 +502,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
         return {
             OutputType.METADYNAMICS_BIAS,
             OutputType.PDB_TRAJECTORY,
@@ -407,13 +543,13 @@ class PreComputedDatasetSettings(_DefaultSettings):
         return set()
 
 
-SamplingSettings = Union[
-    MMMDSamplingSettings,
-    MLMDSamplingSettings,
-    MMMDMetadynamicsSamplingSettings,
-    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
-    PreComputedDatasetSettings,
-]
+SamplingSettings = (
+    MMMDSamplingSettings
+    | MLMDSamplingSettings
+    | MMMDMetadynamicsSamplingSettings
+    | MMMDMetadynamicsTorsionMinimisationSamplingSettings
+    | PreComputedDatasetSettings
+)
 """Union type for all sampling settings. See the associated `sampling_protocol` field
 in each class for the string identifier which should be supplied to
 `training_sampling_settings` and `testing_sampling_settings` fields in
@@ -497,7 +633,13 @@ class TrainingSettings(_DefaultSettings):
         "This allows 1-4 scaling for 'vdW' and 'Electrostatics' to be trained.",
     )
 
-    n_epochs: int = Field(1000, description="Number of epochs in the ML fit")
+    n_epochs: int = Field(
+        1000,
+        description="Number of training epochs. The default (1000) is comfortably "
+        "above the typical convergence point for the Adam optimiser on small "
+        "molecules; reduce for quick iteration and raise if the loss has not "
+        "flattened.",
+    )
     learning_rate: float = Field(0.01, description="Learning Rate in the ML fit")
     learning_rate_decay: float = Field(
         1.00, description="Learning Rate Decay. 0.99 is 1%, and 1.0 is no decay."
@@ -511,6 +653,7 @@ class TrainingSettings(_DefaultSettings):
 
     @property
     def output_types(self) -> set[OutputType]:
+        """Return the expected output types for the training protocol."""
         return {
             OutputType.TENSORBOARD,
             OutputType.TRAINING_METRICS,
@@ -528,7 +671,7 @@ class OutlierFilterSettings(_DefaultSettings):
     energy_outlier_threshold: float | None = Field(
         2.0,
         description="Absolute threshold in kcal/mol/atom for energy outlier detection. "
-        "Conformations where |energy_mm - energy_ref| / n_atoms (relative to minimum) "
+        "Conformations where |energy_mm - energy_ref| / n_atoms (energies relative to median) "
         "exceeds this threshold will be removed. Set to None to disable energy-based filtering.",
     )
 
@@ -541,9 +684,9 @@ class OutlierFilterSettings(_DefaultSettings):
 
     min_conformations: int = Field(
         1,
+        ge=1,
         description="Minimum number of conformations to keep per molecule. "
-        "If filtering would remove too many conformations, all conformations "
-        "will be kept for that molecule.",
+        "If filtering would remove too many conformations, an error is raised.",
     )
 
 
@@ -580,11 +723,17 @@ class TypeGenerationSettings(_DefaultSettings):
 
 
 class MSMSettings(_DefaultSettings):
-    """Settings for the modified Seminario method."""
+    """Settings for the modified Seminario method (MSM).
 
-    ml_potential: Literal[mlp.AvailableModels] = Field(
-        "aceff-2.0",
-        description="The machine learning potential to use for calculating the Hessian matrix",
+    The MSM derives bond and angle force constants and equilibrium values from
+    the molecular Hessian — here computed using the reference MLP. See
+    https://doi.org/10.1021/acs.jctc.7b00785 for the algorithm.
+    """
+
+    mlp_settings: MLPSettings = Field(
+        default_factory=MLPSettings,
+        description="Settings controlling the OpenMM-ML reference potential used for "
+        "Hessian calculations.",
     )
 
     finite_step: OpenMMQuantity[unit.nanometers] = Field(  # type: ignore[type-arg]
@@ -598,24 +747,43 @@ class MSMSettings(_DefaultSettings):
     )
 
     vib_scaling: float = Field(
-        0.958,
-        description="Vibrational scaling factor. This is a reasonable default for ωB97M-V/def2-TZVPPD (AceFF-2.0 LOT), "
-        " see https://doi-org.libproxy.ncl.ac.uk/10.1063/5.0152838",
+        1.0, description="Vibrational scaling factor. Set as appropriate for your MLP."
     )
 
     n_conformers: int = Field(
         1,
         description="Number of conformers to generate and calculate MSM parameters for. "
-        "The resulting bond and angle parameters will be averaged over all conformers.",
+        "The resulting bond and angle parameters will be averaged over all conformers. "
+        "Ignored when `starting_conformers` is set.",
     )
 
+    starting_conformers: Path | None = Field(
+        None,
+        description="Optional path to an SDF of starting conformers for the MSM Hessian "
+        "calculation. If set, MSM parameters are calculated for every conformer in the "
+        "file that matches the molecule (matched by graph, atom order aligned "
+        "automatically) and averaged, and `n_conformers` is ignored. If None (default), "
+        "conformers are generated with ETKDG.",
+    )
 
-class ParameterisationSettings(_DefaultSettings):
-    """Settings for the starting parameterisation."""
+    @field_validator("starting_conformers")
+    @classmethod
+    def _validate_starting_conformers(cls, value: Path | None) -> Path | None:
+        """Validate that any supplied starting-conformers path is an existing SDF."""
+        return _validate_starting_conformers_path(value)
 
-    smiles: list[str] = Field(
+
+class ParamSettings(_DefaultSettings):
+    """Settings controlling the initial parameterisation."""
+
+    molecule_input_type: MoleculeInputType = Field(
+        "smiles",
+        description="Input type for molecule loading.",
+    )
+
+    molecules: list[str] = Field(
         ...,
-        description="SMILES string or list of SMILES for molecules to fit",
+        description="Molecule input(s). Meaning depends on molecule_input_type.",
     )
 
     initial_force_field: str = Field(
@@ -660,36 +828,53 @@ class ParameterisationSettings(_DefaultSettings):
         )
     )
 
-    # Validate that all SMILES strings are valid
-    @field_validator("smiles", mode="before")
-    def validate_smiles(cls, value: str | list[str]) -> list[str]:
-        """Validate all SMILES are valid, unique. Accepts string or list."""
-        # Convert single string to list for backward compatibility
-        if isinstance(value, str):
-            value = [value]
+    @field_validator("molecules", mode="before")
+    @classmethod
+    def normalize_input(cls, value: Any) -> list[str]:
+        """Normalize molecule input to a unique, non-empty list of strings."""
+        if isinstance(value, (str, Path)):
+            normalized = [str(value)]
+        elif isinstance(value, list):
+            normalized = [str(v) for v in value]
+        else:
+            raise ValueError(
+                "input must be a string/path or a list of string/path values"
+            )
 
-        if not value:
-            raise ValueError("smiles list cannot be empty")
+        if not normalized:
+            raise ValueError("input list cannot be empty")
 
-        # Check for duplicates
-        if len(value) != len(set(value)):
-            duplicates = [s for s in value if value.count(s) > 1]
-            unique_duplicates = list(set(duplicates))
-            raise ValueError(f"Duplicate SMILES found: {unique_duplicates}")
+        if len(normalized) != len(set(normalized)):
+            duplicates = [item for item in normalized if normalized.count(item) > 1]
+            unique_duplicates = sorted(set(duplicates))
+            raise ValueError(f"Duplicate inputs found: {unique_duplicates}")
 
-        # Validate each SMILES string
-        for smiles in value:
-            if Chem.MolFromSmiles(smiles) is None:
-                raise ValueError(f"Invalid SMILES string: {smiles}")
-        return value
+        return normalized
+
+    def _load_molecules(self) -> list[Molecule]:
+        """Load and validate molecules from input on every instantiation/update."""
+        if self.molecule_input_type not in MOLECULE_LOADERS:
+            raise ValueError(f"Unsupported input_type: {self.molecule_input_type}")
+        loader = MOLECULE_LOADERS[self.molecule_input_type]
+        return [
+            molecule
+            for input_value in self.molecules
+            for molecule in loader(input_value)
+        ]
+
+    @model_validator(mode="after")
+    def _check_molecule_loading(self) -> Self:
+        """Check that molecules can be loaded."""
+        # It's a waste reloading every time, but this is pretty cheap,
+        # and avoids issues with appending to `molecules` not-causing re-validation
+        # if caching. Setting `molecules` to a tuple messes with the CLI.
+        _ = self._load_molecules()
+        return self
 
     @property
-    def molecules(self) -> list[Molecule]:
-        """Return the list of OpenFF Molecule objects for the SMILES strings."""
-        return [
-            Molecule.from_smiles(smiles, allow_undefined_stereo=True)
-            for smiles in self.smiles
-        ]
+    def openff_molecules(self) -> list[Molecule]:
+        """Return the loaded OpenFF Molecule objects."""
+        return self._load_molecules()
 
 
 class WorkflowSettings(_DefaultSettings):
@@ -706,22 +891,29 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     device_type: TorchDevice = Field(
-        "cuda", description="Device type for training, either 'cpu' or 'cuda'"
+        "cuda",
+        description="Device type for training and sampling, either 'cpu' or 'cuda'. "
+        "Using 'cuda' requires an NVIDIA driver compatible with CUDA >= 12.9 "
+        "(required by OpenMM 8.5's PythonForce). 'cpu' is supported but very slow.",
     )
 
     n_iterations: int = Field(
         2,
-        description="Number of iterations of sampling, then training the FF to run",
+        description="Number of (sample, train) iterations to run. Iteration 1 samples "
+        "with the initial force field; later iterations sample with the bespoke force "
+        "field produced by the previous iteration, which usually improves test loss.",
     )
 
     memory: bool = Field(
         False,
-        description="Whether to append new training data to training data from the previous iterations,"
-        " or overwrite it (False).",
+        description="If True, each iteration appends its newly sampled training data "
+        "to the data from previous iterations (growing dataset). If False (default), "
+        "each iteration replaces the previous training dataset. Enabling memory "
+        "increases peak GPU memory usage with each iteration.",
     )
 
-    parameterisation_settings: ParameterisationSettings = Field(
-        description="Settings for the starting parameterisation",
+    param_settings: ParamSettings = Field(
+        description="Settings controlling the initial parameterisation",
     )
 
     training_sampling_settings: SamplingSettings = Field(
@@ -792,10 +984,8 @@ class WorkflowSettings(_DefaultSettings):
     # in the training settings
     @model_validator(mode="after")
     def validate_parameterisation_training_consistency(self) -> Self:
-        """Validate that linearise_harmonics argument in parameterisation settings is consistent with the valence types
-        in the training settings."""
-
-        harmonics_linearised = self.parameterisation_settings.linearise_harmonics
+        """Validate that linearise_harmonics in parameterisation settings is consistent with the valence types in the training settings."""
+        harmonics_linearised = self.param_settings.linearise_harmonics
         excluded_valence_types = (
             ("Bonds", "Angles")
             if harmonics_linearised
@@ -806,21 +996,61 @@ class WorkflowSettings(_DefaultSettings):
             for valence_type in excluded_valence_types
         ):
             raise InvalidSettingsError(
-                f"ParameterisationSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
+                f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
 
         return self
 
+    @model_validator(mode="after")
+    def validate_starting_conformers_match_molecules(self) -> Self:
+        """Fail fast if a configured starting-conformers SDF lacks a molecule being fitted.
+
+        This runs before the (slow) parameterisation stage so a mismatch between the
+        supplied conformers and the fitted molecules surfaces immediately rather than
+        mid-run.
+        """
+        msm_settings = self.param_settings.msm_settings
+        stages: list[tuple[str, Path | None]] = [
+            (
+                "training_sampling_settings",
+                getattr(self.training_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "testing_sampling_settings",
+                getattr(self.testing_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "param_settings.msm_settings",
+                None if msm_settings is None else msm_settings.starting_conformers,
+            ),
+        ]
+
+        configured = [(name, path) for name, path in stages if path is not None]
+        if not configured:
+            return self
+
+        molecules = self.param_settings.openff_molecules
+        for name, path in configured:
+            for molecule in molecules:
+                try:
+                    load_conformers_for_molecule(molecule, path)
+                except ValueError as exc:
+                    raise InvalidSettingsError(
+                        f"{name}.starting_conformers ({path}) is invalid: {exc}"
+                    ) from exc
+
+        return self
+
     @property
     def device(self) -> torch.device:
+        """Return a torch.device corresponding to the configured device_type."""
         return torch.device(self.device_type)
 
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""
-        # Get the number of molecules from the smiles list
-        smiles = self.parameterisation_settings.smiles
-        n_mols = len(smiles) if isinstance(smiles, list) else 1
+        # Get the number of molecules from the validated molecule list
+        n_mols = len(self.param_settings.openff_molecules)
         return WorkflowPathManager(
             output_dir=self.output_dir,
             n_iterations=self.n_iterations,

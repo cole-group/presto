@@ -1,15 +1,21 @@
 """Tests for the create_types module."""
 
+import warnings
+
+import numpy as np
+import openff.interchange
 import openff.toolkit
 import pytest
 from openff.toolkit import ForceField
+from openff.units import unit
 from rdkit import Chem
 
 from presto.create_types import (
     _add_parameter_with_overwrite,
-    _add_types_to_parameter_handler,
     _create_smarts,
     _remove_redundant_smarts,
+    _remove_stereochemical_information,
+    add_library_charges_to_forcefield,
     add_types_to_forcefield,
 )
 from presto.settings import TypeGenerationSettings
@@ -288,6 +294,50 @@ def test_create_smarts(
         assert smarts == expected_smarts
 
 
+class TestRemoveStereochemicalInformation:
+    """Tests for the _remove_stereochemical_information helper."""
+
+    @pytest.mark.parametrize("smiles", ["C[C@H](O)N", "F/C=C/F"])
+    def test_returns_copy_with_stereo_removed(self, smiles):
+        """Returns copy with stereo removed."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+
+        original_atom_stereo = [atom.stereochemistry for atom in mol.atoms]
+        original_bond_stereo = [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ]
+
+        with pytest.warns(UserWarning, match="stereochemical information.*removed"):
+            mol_stripped = _remove_stereochemical_information(mol)
+
+        # Ensure a distinct molecule object is returned.
+        assert mol_stripped is not mol
+
+        # Original molecule should remain unchanged.
+        assert [atom.stereochemistry for atom in mol.atoms] == original_atom_stereo
+        assert [getattr(bond, "_stereochemistry", None) for bond in mol.bonds] == (
+            original_bond_stereo
+        )
+
+        # Returned copy should have no atom or bond stereochemistry.
+        assert all(atom.stereochemistry is None for atom in mol_stripped.atoms)
+        assert all(
+            getattr(bond, "_stereochemistry", None) is None
+            for bond in mol_stripped.bonds
+        )
+
+    def test_no_warning_for_non_stereochemical_molecule(self):
+        """No warning for non stereochemical molecule."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            mol_stripped = _remove_stereochemical_information(mol)
+
+        assert len(record) == 0
+        assert mol_stripped is not mol
+
+
 class TestRemoveRedundantSmarts:
     """Tests for the _remove_redundant_smarts function."""
 
@@ -299,7 +349,7 @@ class TestRemoveRedundantSmarts:
         # Add a bespoke parameter that will be used
         bond_handler = ff.get_parameter_handler("Bonds")
         labels = bond_handler.find_matches(mol.to_topology())
-        first_bond_indices = list(labels.keys())[0]
+        first_bond_indices = next(iter(labels.keys()))
 
         # Create a SMARTS that matches ethanol
         used_smarts = _create_smarts(mol, first_bond_indices, max_extend_distance=-1)
@@ -677,116 +727,32 @@ class TestAddTypesToForcefield:
         # Full extension should add more parameters
         assert count_full > count_limited
 
-
-class TestAddTypesToParameterHandler:
-    """Tests for _add_types_to_parameter_handler function."""
-
-    def test_excluded_and_included_mutually_exclusive(self):
-        """Test that excluded_smirks and included_smirks cannot both be provided."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
+    @pytest.mark.parametrize("smiles", ["C[C@H](O)N", "F/C=C/F", "O=[S@@](C)c1ccccc1"])
+    def test_stereochemistry_removed_on_copy_with_warning(self, smiles):
+        """Stereo should be stripped on copied molecules and emit a warning."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
         ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
 
-        with pytest.raises(
-            ValueError,
-            match="excluded_smirks and included_smirks are mutually exclusive",
-        ):
-            _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                excluded_smirks=["[#6:1]-[#6:2]"],
-                included_smirks=["[#6:1]-[#1:2]"],
-            )
+        original_atom_stereo = [atom.stereochemistry for atom in mol.atoms]
+        original_bond_stereo = [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ]
 
-    def test_with_excluded_smirks(self):
-        """Test parameter generation with excluded SMIRKS."""
-        mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
 
-        # Get matches to find a SMIRKS to exclude
-        matches = bond_handler.find_matches(mol.to_topology())
-        if matches:
-            first_match = next(iter(matches.values()))
-            excluded_smirks = first_match.parameter_type.smirks
+        with pytest.warns(UserWarning, match="stereochemical information.*removed"):
+            ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
 
-            original_count = len(bond_handler.parameters)
+        # Ensure original molecule stereochemistry was not modified in place.
+        assert [atom.stereochemistry for atom in mol.atoms] == original_atom_stereo
+        assert [
+            getattr(bond, "_stereochemistry", None) for bond in mol.bonds
+        ] == original_bond_stereo
 
-            handler_with_types = _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                excluded_smirks=[excluded_smirks],
-            )
-
-            new_count = len(handler_with_types.parameters)
-
-            # Should have added some parameters, but not for excluded SMIRKS
-            assert new_count > original_count
-
-    def test_with_included_smirks(self):
-        """Test parameter generation with included SMIRKS."""
-        mol = openff.toolkit.Molecule.from_smiles("CCO")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        # Get matches to find SMIRKS to include
-        matches = bond_handler.find_matches(mol.to_topology())
-        if len(matches) >= 2:
-            # Include only one specific SMIRKS
-            first_match = next(iter(matches.values()))
-            included_smirks = first_match.parameter_type.smirks
-
-            original_count = len(bond_handler.parameters)
-
-            handler_with_types = _add_types_to_parameter_handler(
-                mol,
-                bond_handler,
-                "Bonds",
-                max_extend_distance=-1,
-                included_smirks=[included_smirks],
-            )
-
-            new_count = len(handler_with_types.parameters)
-
-            # Should have added fewer parameters than without restrictions
-            assert new_count > original_count
-
-    def test_handler_not_modified_in_place(self):
-        """Test that original handler is not modified."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        original_count = len(bond_handler.parameters)
-
-        _add_types_to_parameter_handler(
-            mol, bond_handler, "Bonds", max_extend_distance=-1
-        )
-
-        # Original should be unchanged
-        assert len(bond_handler.parameters) == original_count
-
-    def test_preserves_parameter_attributes(self):
-        """Test that parameter attributes are correctly preserved."""
-        mol = openff.toolkit.Molecule.from_smiles("CC")
-        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
-        bond_handler = ff.get_parameter_handler("Bonds")
-
-        handler_with_types = _add_types_to_parameter_handler(
-            mol, bond_handler, "Bonds", max_extend_distance=-1
-        )
-
-        # Check that bespoke parameters have proper attributes
-        for param in handler_with_types.parameters:
-            if "bespoke" in param.id:
-                # Should have k and length
-                assert hasattr(param, "k")
-                assert hasattr(param, "length")
-                assert param.k.m > 0  # Should be positive
+        # Sanity check that type generation still succeeded.
+        assert isinstance(ff_with_types, openff.toolkit.ForceField)
 
 
 class TestAddTypesToForcefieldExtended:
@@ -933,6 +899,89 @@ class TestAddTypesToForcefieldExtended:
         # Should have generated parameters for all molecules
         assert len(bespoke_params) > 0
 
+    @pytest.mark.parametrize(
+        "smiles",
+        [
+            "CCO",
+            "c1ccccc1",
+            "C[C@H](O)N",
+            "O=[S@@](C)c1ccccc1",
+        ],
+    )
+    def test_molecule_assigned_only_bespoke_valence_types(self, smiles):
+        """Generated FF should assign only bespoke valence parameters."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        valence_handlers = (
+            "Bonds",
+            "Angles",
+            "ProperTorsions",
+            "ImproperTorsions",
+        )
+        type_gen_settings = {
+            handler: TypeGenerationSettings(max_extend_distance=-1, exclude=[])
+            for handler in valence_handlers
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+        labels_by_handler = ff_with_types.label_molecules(mol.to_topology())[0]
+
+        for handler_name in valence_handlers:
+            labels = labels_by_handler[handler_name]
+            if len(labels) == 0:
+                continue
+            assert all("bespoke" in param.id for param in labels.values()), (
+                f"Found non-bespoke assignment in {handler_name} for {smiles}"
+            )
+
+    @pytest.mark.parametrize(
+        "smiles",
+        [
+            "CC",
+            "c1ccccc1",
+            "O=[S@@](C)c1ccccc1",
+        ],
+    )
+    def test_add_types_increases_parameter_count(self, smiles):
+        """add_types_to_forcefield should increase counts for matching valence handlers."""
+        mol = openff.toolkit.Molecule.from_smiles(smiles)
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        valence_handlers = (
+            "Bonds",
+            "Angles",
+            "ProperTorsions",
+            "ImproperTorsions",
+        )
+
+        type_gen_settings = {
+            handler: TypeGenerationSettings(max_extend_distance=-1, exclude=[])
+            for handler in valence_handlers
+        }
+
+        original_counts = {
+            handler: len(ff.get_parameter_handler(handler).parameters)
+            for handler in valence_handlers
+        }
+        match_counts = {
+            handler: len(
+                ff.get_parameter_handler(handler).find_matches(mol.to_topology())
+            )
+            for handler in valence_handlers
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        for handler in valence_handlers:
+            new_count = len(ff_with_types.get_parameter_handler(handler).parameters)
+            if match_counts[handler] > 0:
+                assert new_count > original_counts[handler], (
+                    f"No bespoke {handler} parameters added for {smiles}"
+                )
+            else:
+                assert new_count == original_counts[handler]
+
 
 class TestEdgeCases:
     """Test edge cases and corner cases."""
@@ -1041,3 +1090,180 @@ class TestEdgeCases:
         # Should handle stereochemistry without error
         bond_handler = ff_with_types.get_parameter_handler("Bonds")
         assert len(bond_handler.parameters) > 0
+
+    def test_chiral_sulfoxide(self):
+        """Test with chiral sulfoxide O=[S@@](C)c1ccccc1.
+
+        This test checks that bespoke parameters are correctly generated for
+        the sulfoxide functional group with stereochemistry. This is tricky with
+        OpenEye in the env because RDKit and OpenEye handle sulfoxide stereochemistry
+        differently, so it's important to check we get usable types.
+        """
+        mol = openff.toolkit.Molecule.from_smiles("O=[S@@](C)c1ccccc1")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        type_gen_settings = {
+            "Bonds": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+            "Angles": TypeGenerationSettings(max_extend_distance=-1, exclude=[]),
+        }
+
+        ff_with_types = add_types_to_forcefield(mol, ff, type_gen_settings)
+
+        # Check that bespoke parameters were generated
+        bond_handler = ff_with_types.get_parameter_handler("Bonds")
+        angle_handler = ff_with_types.get_parameter_handler("Angles")
+
+        bond_bespoke = [p for p in bond_handler.parameters if "bespoke" in p.id]
+        angle_bespoke = [p for p in angle_handler.parameters if "bespoke" in p.id]
+
+        # Should have generated parameters for sulfoxide bonds/angles
+        assert len(bond_bespoke) > 0, (
+            "No bespoke bond parameters generated for chiral sulfoxide"
+        )
+        assert len(angle_bespoke) > 0, (
+            "No bespoke angle parameters generated for chiral sulfoxide"
+        )
+
+        # Verify that the molecule can be parameterized with the new force field
+        labelled_bonds = bond_handler.find_matches(mol.to_topology())
+        labelled_angles = angle_handler.find_matches(mol.to_topology())
+
+        assert len(labelled_bonds) > 0, "Sulfoxide bonds could not be matched"
+        assert len(labelled_angles) > 0, "Sulfoxide angles could not be matched"
+
+
+def _assigned_charges(ff, mol):
+    """Return the per-atom charges interchange assigns to ``mol`` using ``ff``."""
+    inter = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+    charges = inter.collections["Electrostatics"].charges
+    return np.array(
+        [
+            charges[key].m_as(unit.elementary_charge)
+            for key in sorted(charges, key=lambda k: k.atom_indices[0])
+        ]
+    )
+
+
+class TestAddLibraryChargesToForcefield:
+    """Tests for the add_library_charges_to_forcefield function."""
+
+    def test_charges_written_and_ff_not_modified(self):
+        """New l-bespoke library charges are added and the original FF is untouched."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        original_count = len(ff.get_parameter_handler("LibraryCharges").parameters)
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        new_params = ff_with_charges.get_parameter_handler("LibraryCharges").parameters
+        bespoke = [p for p in new_params if "bespoke" in p.id]
+        assert len(bespoke) > 0
+        assert all(p.id.startswith("l-bespoke-") for p in bespoke)
+
+        # Original force field is unchanged
+        assert (
+            len(ff.get_parameter_handler("LibraryCharges").parameters) == original_count
+        )
+
+    def test_charges_reproduced_end_to_end(self):
+        """Interchange assigns exactly the input partial charges to every atom."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        expected = mol.partial_charges.m_as(unit.elementary_charge)
+        assert np.allclose(assigned, expected, atol=1e-6)
+
+    def test_total_charge_conserved_with_averaging(self):
+        """Symmetry-equivalent atoms are averaged while the net charge is preserved."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        # Deliberately break symmetry of the three methyl hydrogens (indices 2, 3, 4)
+        # while keeping the molecule net-neutral.
+        charges = [0.28, -0.68, 0.05, -0.05, 0.0, 0.40]
+        assert abs(sum(charges)) < 1e-9
+        mol.partial_charges = np.array(charges) * unit.elementary_charge
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        # Net charge preserved exactly
+        assert (
+            abs(assigned.sum() - mol.total_charge.m_as(unit.elementary_charge)) < 1e-6
+        )
+        # The three symmetry-equivalent methyl hydrogens collapse to their mean (0.0)
+        assert np.allclose(assigned[2:5], 0.0, atol=1e-6)
+
+    def test_missing_partial_charges_raises(self):
+        """A molecule without partial charges raises a clear error."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        with pytest.raises(ValueError, match="missing partial charges"):
+            add_library_charges_to_forcefield(mol, ff)
+
+    def test_non_integral_charges_raises(self):
+        """Partial charges that don't sum to the formal charge raise up front."""
+        mol = openff.toolkit.Molecule.from_smiles("CO")
+        charges = [0.5, -0.68, 0.0, 0.0, 0.0, 0.40]  # sums to 0.22, not 0
+        mol.partial_charges = np.array(charges) * unit.elementary_charge
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        with pytest.raises(ValueError, match="formal charge"):
+            add_library_charges_to_forcefield(mol, ff)
+
+    def test_multiple_molecules_reproduce_independently(self):
+        """A single FF built from several molecules reproduces each one's charges.
+
+        The library charges for the different molecules must coexist in the same
+        handler without interfering with one another.
+        """
+        mol_a = openff.toolkit.Molecule.from_smiles("CO")
+        mol_b = openff.toolkit.Molecule.from_smiles("CCO")
+        for mol in (mol_a, mol_b):
+            mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield([mol_a, mol_b], ff)
+
+        for mol in (mol_a, mol_b):
+            assigned = _assigned_charges(ff_with_charges, mol)
+            expected = mol.partial_charges.m_as(unit.elementary_charge)
+            assert np.allclose(assigned, expected, atol=1e-6)
+
+    def test_symmetry_equivalent_atoms_dedup(self):
+        """Symmetry-equivalent atoms collapse onto a single library charge."""
+        mol = openff.toolkit.Molecule.from_smiles("CCO")  # ethanol, 9 atoms
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+        bespoke = [
+            p
+            for p in ff_with_charges.get_parameter_handler("LibraryCharges").parameters
+            if "bespoke" in p.id
+        ]
+
+        # Ethanol has 9 atoms but only 6 distinct environments: the three methyl
+        # hydrogens are equivalent (3 -> 1) and the two methylene hydrogens are
+        # equivalent (2 -> 1), so 9 - 2 - 1 = 6 library charges are generated.
+        assert mol.n_atoms == 9
+        assert len(bespoke) == 6
+
+    def test_charged_molecule_round_trips(self):
+        """An ion reproduces its non-zero net charge."""
+        mol = openff.toolkit.Molecule.from_smiles("[NH4+]")
+        mol.assign_partial_charges("mmff94")
+        ff = openff.toolkit.ForceField("openff_unconstrained-2.3.0.offxml")
+
+        ff_with_charges = add_library_charges_to_forcefield(mol, ff)
+
+        assigned = _assigned_charges(ff_with_charges, mol)
+        assert abs(assigned.sum() - 1.0) < 1e-6
+        expected = mol.partial_charges.m_as(unit.elementary_charge)
+        assert np.allclose(assigned, expected, atol=1e-6)

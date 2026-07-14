@@ -1,11 +1,10 @@
-"""
-Functionality to obtain samples to fit the force field to.
-"""
+"""Functionality to obtain samples to fit the force field to."""
 
 import copy
 import functools
 import pathlib
-from typing import Callable, Protocol, TypedDict, Unpack
+from collections.abc import Callable
+from typing import Protocol, TypedDict, Unpack
 
 import datasets
 import datasets.table
@@ -34,6 +33,7 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
+from .load_molecules import load_conformers_for_molecule
 from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
 from .utils.gpu import cleanup_simulation
@@ -65,7 +65,8 @@ class SampleFnArgs(TypedDict):
 class SampleFn(Protocol):
     """A protocol for sampling functions."""
 
-    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> list[datasets.Dataset]: ...
+    def __call__(self, **kwargs: Unpack[SampleFnArgs]) -> list[datasets.Dataset]:
+        """Execute sampling function."""
 
 
 _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
@@ -77,16 +78,36 @@ _register_sampling_fn = get_registry_decorator(_SAMPLING_FNS_REGISTRY)
 def _copy_mol_and_add_conformers(
     mol: openff.toolkit.Molecule,
     n_conformers: int,
+    starting_conformers: pathlib.Path | None = None,
 ) -> openff.toolkit.Molecule:
-    """Copy a molecule and add conformers to it."""
+    """Copy a molecule and add starting conformers to it.
+
+    If ``starting_conformers`` is None (default), ``n_conformers`` conformers are
+    generated with ETKDG. Otherwise the conformers are loaded from the given SDF (matched
+    to ``mol`` by graph and aligned to its atom ordering) and ``n_conformers`` is ignored.
+    """
     mol = copy.deepcopy(mol)
-    mol.generate_conformers(n_conformers=n_conformers, rms_cutoff=0.0 * _ANGSTROM)
-    n_gen_conformers = len(mol.conformers)
-    if n_gen_conformers < n_conformers:
-        logger.warning(
-            f"Only {n_gen_conformers} conformers were generated, which is less than the requested {n_conformers}."
-            f" As a result, {n_gen_conformers / n_conformers * 100:.1f}% of the requested samples will be generated."
-        )
+
+    if starting_conformers is None:
+        mol.generate_conformers(n_conformers=n_conformers, rms_cutoff=0.0 * _ANGSTROM)
+        n_gen_conformers = len(mol.conformers)
+        if n_gen_conformers < n_conformers:
+            logger.warning(
+                f"Only {n_gen_conformers} conformers were generated, which is less than the requested {n_conformers}."
+                f" As a result, {n_gen_conformers / n_conformers * 100:.1f}% of the requested samples will be generated."
+            )
+        return mol
+
+    # Drop any incidental conformer (e.g. one carried by an SDF-loaded molecule) before
+    # attaching the supplied starting conformers.
+    mol._conformers = []
+    conformers = load_conformers_for_molecule(mol, starting_conformers)
+    logger.info(
+        f"Starting from {len(conformers)} supplied conformers in {starting_conformers} "
+        f"(n_conformers={n_conformers} ignored)."
+    )
+    for conformer in conformers:
+        mol.add_conformer(conformer)
     return mol
 
 
@@ -94,6 +115,70 @@ def _get_integrator(
     temp: openmm.unit.Quantity, timestep: openmm.unit.Quantity
 ) -> LangevinMiddleIntegrator:
     return LangevinMiddleIntegrator(temp, 1 / _OMM_PS, timestep)
+
+
+def _create_simulation(
+    topology: openmm.app.Topology,
+    system: openmm.System,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create an OpenMM simulation with a standard Langevin integrator."""
+    integrator = _get_integrator(temperature, timestep)
+    platform = _get_openmm_platform(device)
+    simulation = Simulation(
+        topology,
+        system,
+        integrator,
+        platform=platform,
+    )
+    return simulation, integrator
+
+
+def _get_openmm_platform(device: torch.device) -> openmm.Platform:
+    """Map a torch device to an OpenMM platform."""
+    if device.type == "cuda":
+        return openmm.Platform.getPlatformByName("CUDA")
+
+    if device.type == "cpu":
+        return openmm.Platform.getPlatformByName("CPU")
+
+    raise ValueError(f"Unsupported device type for OpenMM platform selection: {device}")
+
+
+def _build_ml_simulation(
+    mol: openff.toolkit.Molecule,
+    topology: openmm.app.Topology,
+    mlp_settings: settings.MLPSettings,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create a simulation that uses an ML potential system."""
+    ml_system = mlp.get_ml_omm_system(
+        mol,
+        mlp_settings,
+        device,
+    )
+
+    # As a temporary hack to get around an OpeMM-ML issue, set the device to CPU for the ML simulation
+    # This doesn't slow things down as the MLP is still loaded on the GPU when requested.
+    return _create_simulation(
+        topology, ml_system, temperature, timestep, device=torch.device("cpu")
+    )
+
+
+def _build_mm_simulation(
+    interchange: openff.interchange.Interchange,
+    temperature: openmm.unit.Quantity,
+    timestep: openmm.unit.Quantity,
+    device: torch.device,
+) -> tuple[Simulation, LangevinMiddleIntegrator]:
+    """Create a simulation that uses an MM system from an Interchange object."""
+    mm_system = interchange.to_openmm_system()
+    mm_topology = interchange.topology.to_openmm()
+    return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
 
 
 def _run_md(
@@ -105,8 +190,7 @@ def _run_md(
     production_n_steps_per_snapshot_per_conformer: int,
     pdb_reporter_path: str | None = None,
 ) -> datasets.Dataset:
-    """Run MD on a molecule and return a dataset of the coordinates,
-    energies, and forces of the snapshots.
+    """Run MD on a molecule and return a dataset of the coordinates, energies, and forces of the snapshots.
 
     Parameters
     ----------
@@ -136,12 +220,11 @@ def _run_md(
         simulation to. The frames saved correspond
         to the production snapshots. If None, no trajectory is saved.
 
-    Returns
+    Returns:
     -------
     datasets.Dataset
         The dataset of snapshots with coordinates, energies, and forces.
     """
-
     coords, energy, forces = [], [], []
     if pdb_reporter_path is not None:
         reporter = PDBReporter(
@@ -201,48 +284,10 @@ def _run_md(
     )
 
 
-def _get_ml_omm_system(
-    mol: openff.toolkit.Molecule, mlp_name: mlp.AvailableModels
-) -> openmm.System:
-    """Get an OpenMM system for a molecule using a machine learning potential.
-
-    Parameters
-    ----------
-    mol : openff.toolkit.Molecule
-        The molecule for which to create the system.
-    mlp_name : mlp.AvailableModels
-        The name of the ML potential to use.
-
-    Returns
-    -------
-    openmm.System
-        The OpenMM system for the molecule.
-
-    Raises
-    ------
-    InvalidSettingsError
-        If the molecule is charged and the ML potential does not support charges.
-    """
-    # Validate that charged molecules are only used with compatible models
-    mlp.validate_model_charge_compatibility(mlp_name, mol)
-
-    potential = mlp.get_mlp(mlp_name)
-    charge = mol.total_charge.m_as(off_unit.e)
-
-    # Always pass charge argument for consistency, even for neutral molecules
-    system = potential.createSystem(
-        mol.to_topology().to_openmm(),
-        charge=charge,
-    )
-
-    return system
-
-
 def recalculate_energies_and_forces(
     dataset: datasets.Dataset, simulation: Simulation
 ) -> datasets.Dataset:
     """Recalculate energies and forces for a dataset using a given OpenMM simulation."""
-
     recalc_energies = []
     recalc_forces = []
 
@@ -301,7 +346,7 @@ def sample_mmmd(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -314,14 +359,16 @@ def sample_mmmd(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        system = interchange.to_openmm_system()
-        integrator = _get_integrator(settings.temperature, settings.timestep)
-        simulation = Simulation(interchange.topology.to_openmm(), system, integrator)
+        simulation, integrator = _build_mm_simulation(
+            interchange, settings.temperature, settings.timestep, device
+        )
 
         # Create molecule-specific PDB path
         pdb_path = None
@@ -343,12 +390,13 @@ def sample_mmmd(
         cleanup_simulation(simulation, integrator)
 
         # Recalculate energies and forces using the ML potential
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology,
-            ml_system,
-            ml_integrator,
+            settings.mlp_settings,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -395,7 +443,7 @@ def sample_mlmd(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -408,11 +456,16 @@ def sample_mlmd(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
-            mol_with_conformers.to_topology().to_openmm(), ml_system, integrator
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
+        ml_simulation, integrator = _build_ml_simulation(
+            mol_with_conformers,
+            mol_with_conformers.to_topology().to_openmm(),
+            settings.mlp_settings,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Create molecule-specific PDB path
@@ -457,9 +510,7 @@ def _get_torsion_bias_forces(
     torsions_to_exclude: list[str] = DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     bias_width: float = np.pi / 10,
 ) -> list[openmm.app.metadynamics.BiasVariable]:
-    """
-    Find important torsions in a molecule and return a list of BiasVariable objects -
-    one for each torsion.
+    """Find important torsions in a molecule and return a list of BiasVariable objects, one for each torsion.
 
     Args:
         mol: OpenFF Molecule.
@@ -520,7 +571,7 @@ def sample_mmmd_metadynamics(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets of samples with energies and forces, one per molecule.
@@ -533,7 +584,9 @@ def sample_mmmd_metadynamics(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
@@ -548,10 +601,8 @@ def sample_mmmd_metadynamics(
                 f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
             )
             # Fall back to regular MD for this molecule
-            system = interchange.to_openmm_system()
-            integrator = _get_integrator(settings.temperature, settings.timestep)
-            simulation = Simulation(
-                interchange.topology.to_openmm(), system, integrator
+            simulation, integrator = _build_mm_simulation(
+                interchange, settings.temperature, settings.timestep, device
             )
 
             pdb_path = None
@@ -599,10 +650,12 @@ def sample_mmmd_metadynamics(
                 independentCVs=True,
             )
 
-            simulation = Simulation(
+            simulation, integrator = _create_simulation(
                 interchange.topology.to_openmm(),
                 system,
-                _get_integrator(settings.temperature, settings.timestep),
+                settings.temperature,
+                settings.timestep,
+                device,
             )
 
             step_fn = functools.partial(metad.step, simulation)
@@ -624,15 +677,16 @@ def sample_mmmd_metadynamics(
             )
 
             # Clean up MM simulation to free GPU memory
-            cleanup_simulation(simulation)
+            cleanup_simulation(simulation, integrator)
 
         # Recalculate with ML potential
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_system,
-            ml_integrator,
+            settings.mlp_settings,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
         ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -666,7 +720,7 @@ def _get_molecule_from_dataset(
     dataset : datasets.Dataset
         Dataset containing SMILES string
 
-    Returns
+    Returns:
     -------
     openff.toolkit.Molecule
         Reconstructed molecule from SMILES
@@ -685,12 +739,12 @@ def _find_available_force_group(simulation: Simulation) -> int:
     simulation : Simulation
         OpenMM simulation object
 
-    Returns
+    Returns:
     -------
     int
         An available force group number (0-31)
 
-    Raises
+    Raises:
     ------
     RuntimeError
         If all force groups (0-31) are in use
@@ -732,7 +786,7 @@ def _add_torsion_restraint_forces(
         Initial target angles for each torsion (in radians).
         If None, defaults to 0.0 for all torsions.
 
-    Returns
+    Returns:
     -------
     tuple[list[int], int]
         Tuple of (list of force indices that were added, force group number)
@@ -850,7 +904,7 @@ def _minimize_with_frozen_torsions(
     max_iterations : int, optional
         Maximum minimization iterations (0 = until convergence)
 
-    Returns
+    Returns:
     -------
     tuple[numpy.ndarray, float, numpy.ndarray]
         Minimized coordinates, energy, and forces (excluding restraint forces)
@@ -952,7 +1006,7 @@ def generate_torsion_minimised_dataset(
     ml_min_forces_weight : float, optional
         Forces weight for ML-minimised dataset.
 
-    Returns
+    Returns:
     -------
     tuple[datasets.Dataset, datasets.Dataset]
         Tuple of (MM-minimised dataset, ML-minimised dataset).
@@ -1135,7 +1189,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
     output_paths: dict[OutputType, PathLike]
         A mapping of output types to filesystem paths.
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The generated datasets with combined metadynamics and torsion-minimised samples.
@@ -1148,7 +1202,9 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
     all_datasets = []
 
     for mol_idx, mol in enumerate(mols):
-        mol_with_conformers = _copy_mol_and_add_conformers(mol, settings.n_conformers)
+        mol_with_conformers = _copy_mol_and_add_conformers(
+            mol, settings.n_conformers, settings.starting_conformers
+        )
         interchange = openff.interchange.Interchange.from_smirnoff(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
@@ -1166,9 +1222,12 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 "Falling back to regular MD without torsion minimisation."
             )
             # Fall back to regular MD for this molecule
-            integrator = _get_integrator(settings.temperature, settings.timestep)
-            simulation = Simulation(
-                interchange.topology.to_openmm(), system, integrator
+            simulation, integrator = _create_simulation(
+                interchange.topology.to_openmm(),
+                system,
+                settings.temperature,
+                settings.timestep,
+                device,
             )
 
             pdb_path = None
@@ -1190,12 +1249,13 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             cleanup_simulation(simulation, integrator)
 
             # Recalculate with ML potential
-            ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-            ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-            ml_simulation = Simulation(
+            ml_simulation, ml_integrator = _build_ml_simulation(
+                mol_with_conformers,
                 interchange.topology.to_openmm(),
-                ml_system,
-                ml_integrator,
+                settings.mlp_settings,
+                settings.temperature,
+                settings.timestep,
+                device,
             )
             ml_dataset = recalculate_energies_and_forces(mm_dataset, ml_simulation)
 
@@ -1241,10 +1301,12 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             independentCVs=True,
         )
 
-        simulation = Simulation(
+        simulation, integrator = _create_simulation(
             interchange.topology.to_openmm(),
             system,
-            _get_integrator(settings.temperature, settings.timestep),
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         step_fn = functools.partial(metad.step, simulation)
@@ -1267,15 +1329,16 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         )
 
         # Clean up MM simulation to free GPU memory
-        cleanup_simulation(simulation)
+        cleanup_simulation(simulation, integrator)
 
         # Create ML simulation for energy/force recalculation
-        ml_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_simulation = Simulation(
+        ml_simulation, ml_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_system,
-            ml_integrator,
+            settings.mlp_settings,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Step 2: Recalculate energies and forces with ML potential
@@ -1298,21 +1361,18 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
         # Step 3: Generate torsion-minimised structures
         # Create a fresh MM simulation for minimisation (without metadynamics biases)
-        mm_min_system = interchange.to_openmm_system()
-        mm_min_integrator = _get_integrator(settings.temperature, settings.timestep)
-        mm_min_simulation = Simulation(
-            interchange.topology.to_openmm(),
-            mm_min_system,
-            mm_min_integrator,
+        mm_min_simulation, mm_min_integrator = _build_mm_simulation(
+            interchange, settings.temperature, settings.timestep, device
         )
 
         # Create a fresh ML simulation for minimisation
-        ml_min_system = _get_ml_omm_system(mol_with_conformers, settings.ml_potential)
-        ml_min_integrator = _get_integrator(settings.temperature, settings.timestep)
-        ml_min_simulation = Simulation(
+        ml_min_simulation, ml_min_integrator = _build_ml_simulation(
+            mol_with_conformers,
             interchange.topology.to_openmm(),
-            ml_min_system,
-            ml_min_integrator,
+            settings.mlp_settings,
+            settings.temperature,
+            settings.timestep,
+            device,
         )
 
         # Create molecule-specific PDB paths for minimised structures
@@ -1387,12 +1447,12 @@ def load_precomputed_dataset(
     output_paths : dict[OutputType, pathlib.Path]
         Output paths (should be empty for this protocol).
 
-    Returns
+    Returns:
     -------
     list[datasets.Dataset]
         The loaded datasets, one per molecule.
 
-    Raises
+    Raises:
     ------
     ValueError
         If the number of dataset paths doesn't match the number of molecules.

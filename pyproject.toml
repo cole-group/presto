@@ -33,20 +33,24 @@ include = ["presto/models/*.pt"]
 
 [tool.ruff.lint]
 ignore = ["C901", "E501"]
-select = ["B","C","E","F","W","B9"]
+select = ["B", "B9", "C", "C4", "D", "E","F", "NPY", "RUF", "UP", "W"]
 ignore-init-module-imports = true
-exclude = ["presto/models/compile_aimnet2_ens_models.py"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.coverage.run]
-omit = ["**/tests/*", "**/_version.py", "presto/models/compile_aimnet2_ens_models.py"]
+omit = ["**/tests/*", "**/_version.py"]
 
 [tool.mypy]
 plugins = "numpy.typing.mypy_plugin,pydantic.mypy"
+# Required because newer mypy versions (in base env) complain about the use of
+# # type: ignore[comparison-overlap] but older versions (in dev env) require it.
+disable_error_code = ["unused-ignore"] # Required because ne
 exclude = [
   "presto/_version.py",
   "presto/tests/",
   "presto/metadynamics.py", # As mostly lifted from OpenMM
-  "presto/models/compile_aimnet2_ens_models.py"
 ]
 
 [tool.coverage.report]
@@ -83,19 +87,23 @@ version = "*"
 channels = ["https://prefix.dev/conda-forge"]
 
 [tool.pixi.environments]
-# Default is equivalent to gpu-py313-cuda129
-default = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
-gpu-py313-cuda129 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda129"] }
-gpu-py313-cuda126 = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "aceff", "py313", "cuda126"] }
-gpu-py313-cuda129-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda129"] }
-gpu-py313-cuda126-mace = { features = ["common", "smee_descent", "gpu", "dev", "docs", "typing", "mace", "py313", "cuda126"] }
-# Different Python versions for testing in CI
-cpu-py312 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py312"] }
-cpu-py313 = { features = ["common", "smee_descent", "cpu", "dev", "docs", "typing", "aceff", "py313"] }
+# Default is equivalent to gpu-py312-cuda129 (the py313 environment can be problematic as the Orb dep
+# dm-tree has to be built. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
+default = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"] }
+gpu-py312-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
+# CPU
+cpu-py312 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312"] }
+cpu-py313 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313"] }
+
+# Base (no MLPs). These mimic the conda-forge environments.
+base-py312-cuda129 = { features = ["common", "gpu", "dev", "typing", "py312", "cuda129"] }
+base-py313-cuda129 = { features = ["common", "gpu", "dev", "typing", "py313", "cuda129"] }
+base-cpu-py312 = { features = ["common", "cpu", "dev", "typing", "py312"] }
+base-cpu-py313 = { features = ["common", "cpu", "dev", "typing", "py313"] }
 
 [tool.pixi.dependencies]
 python = ">=3.11,<3.15"
-rich = ">=14.3.1,<15"
 
 # -----------------------------
 # Python version features
@@ -114,19 +122,15 @@ cuda = "12.9"
 
 [tool.pixi.feature.cuda129.dependencies]
 cuda-version = "12.9.*"
-pytorch-gpu = "*"
-
-[tool.pixi.feature.cuda126.system-requirements]
-cuda = "12.6"
-
-[tool.pixi.feature.cuda126.dependencies]
-cuda-version = "12.6.*"
-pytorch-gpu = "*"
+# Need dev headers for AceFF
+cuda-cudart-dev = "12.9.*"
+pytorch-gpu = ">=2.8.0"
 
 # -----------------------------
 # Shared dependencies
 # -----------------------------
 [tool.pixi.feature.common.dependencies]
+pip = "*"
 pyyaml = "*"
 datasets = "*"
 jupyter = "*"
@@ -136,9 +140,11 @@ nglview = "*"
 "openff-units" = "*"
 "openff-interchange" = ">=0.4.11" # Required for numpy 2.4 compatibility
 "openff-forcefields" = ">=2026.01.0"
+openmm-ml = ">=1.6"
 tensorboardX = "*"
 tensorboard = "*"
 versioneer = "*"
+rich = ">=14.3.1, <15"
 "pydantic" = ">=2"
 "pydantic-settings" = "*"
 "pydantic-units"= "*"
@@ -148,12 +154,12 @@ seaborn = "*"
 rdkit = ">=2024.03.6"
 ambertools = "*"
 mdtraj = "*"
+openmm = ">=8.5.0"
+smee-base = ">=0.17.0"
+descent = ">=0.6.0"
 
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
-descent = { git = "https://github.com/fjclark/descent.git", branch = "feature-regularization" }
-smee = { git = "https://github.com/thomasjamespope/smee.git" }
-mace-torch = "*"
 presto ={ path = ".", editable = true }
 
 # -----------------------------
@@ -164,7 +170,6 @@ cuda = "12"
 
 [tool.pixi.feature.gpu.dependencies]
 cuda-version = ">=12"
-pytorch-gpu = "*"
 # cuequivariance="*"
 # cuequivariance-torch="*"
 
@@ -172,35 +177,40 @@ pytorch-gpu = "*"
 # cuequivariance-ops-torch-cu12="*"
 
 [tool.pixi.feature.cpu.dependencies]
-pytorch = "*"
-
-# Temporary descent and smee deps -  this allows installing
-# Tom's custom smee fork from GitHub and will be removed once
-# the changes are merged upstream and available from conda-forge.
-[tool.pixi.feature.smee_descent.dependencies]
-scipy = "*"
-pyarrow = "*"
-datasets = "*"
-openff-units = "*"
-openff-toolkit-base = ">=0.9.2"
-openff-interchange-base = ">=0.3.17"
-pytorch = "*"
-__unix = "*"
+pytorch = ">=2.8.0"
 
 # -----------------------------
 # Different ML potential options
 # -----------------------------
 # Need for different features as nnpoops pins torch to older versions. This causes resolution conflicts with openmm-torch (which pins a specific build).
 [tool.pixi.feature.aceff.dependencies]
-openmm = ">=8.4"
-openmm-ml = ">=1.5"
-openmm-torch = ">=1.5.1"
-torchmd-net = "*"
+# 3.0.3 has 3x speedup
+torchmd-net = ">=3.0.3"
+# Warp-lang >= 1.12 incompatible with nvalchemi-toolkit-ops
+warp-lang = "==1.11.1"
 
-[tool.pixi.feature.mace.dependencies] # Also applies to Egret-1
-openmm = ">=8.2"
-openmm-ml = ">=1.2"
-nnpops = "*"
+[tool.pixi.feature.aimnet.dependencies]
+# Warp-lang >= 1.12 incompatible with nvalchemi-toolkit-ops
+warp-lang = "==1.11.1"
+
+[tool.pixi.feature.aimnet.pypi-dependencies]
+aimnet = ">=0.1.0"
+# aimnet doesn't like more recent versions but doesn't specify an upper bound...
+nvalchemi-toolkit-ops = "==0.2.0"
+
+[tool.pixi.feature.mace.pypi-dependencies]
+mace-torch = "*"
+
+[tool.pixi.feature.ase.dependencies]
+ase = "*"
+
+[tool.pixi.feature.orb.pypi-dependencies]
+orb-models = ">=0.5.5"
+# Pixi doesn't seem to detect the
+# Current annoyance is https://github.com/allenai/cached_path/issues/263 -- cached-path does
+# not allow new rich versions, though they should work fine. To get round this, install directly
+# from fork on GitHub which allows newer rich versions.
+cached-path = { git = "https://github.com/fjclark/cached_path.git", rev = "1cb8bdecd22e3af70182b8075bc86d7c18184c9e" }
 
 # -----------------------------
 # Dev/test tools
@@ -255,6 +265,7 @@ mkdocs-bibtex = "*"
 "types-requests" = "*"
 "types-tabulate" = "*"
 "pandas-stubs" = "*"
+"types-cachetools" = "*"
 
 # -----------------------------
 # Tasks (run in proper environment/feature context)
@@ -267,13 +278,19 @@ lint = { cmd = "ruff check presto" }
 format = { cmd = "ruff format presto && ruff check --fix --select I presto" }
 
 # Testing requires dev + common + GPU/CPU
-test = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests" }
-"test-unit" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/unit" }
-"test-integration" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes presto/tests/integration" }
-
+test = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests" }
+"test-slow" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m slow presto/tests" }
+"test-unit" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests/unit" }
+"test-unit-slow" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m slow presto/tests/unit" }
+"test-integration" = { cmd = "pytest -v --cov=presto --cov-report=term --cov-report=xml --junitxml=unit.xml --color=yes -m 'not slow' presto/tests/integration" }
 type-check = { cmd = "mypy --follow-imports=silent --ignore-missing-imports --strict presto" }
-
 # Docs tasks require docs feature
 "docs-build" = { cmd = "mkdocs build" }
 "docs-serve" = { cmd = "mkdocs serve" }
 "docs-deploy" = { cmd = "mike deploy --push --update-aliases $VERSION" }
+"rerun-notebooks" = { cmd = "jupyter nbconvert --to notebook --execute --inplace examples/*.ipynb" }
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: marks tests as slow (excluded from default test tasks)",
+]

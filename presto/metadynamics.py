@@ -1,5 +1,5 @@
-"""
-The code below is slightly modified from the original in OpenMM
+"""The code below is slightly modified from the original in OpenMM.
+
 at https://github.com/openmm/openmm/blob/master/wrappers/python/openmm/app/metadynamics.py.
 The original code is licensed under the MIT License and is reproduced here:
 
@@ -32,6 +32,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
+import operator
 import os
 import re
 from collections import namedtuple
@@ -46,7 +47,7 @@ except ImportError:
     pass
 
 
-class Metadynamics(object):
+class Metadynamics:
     """Performs metadynamics.
 
     This class implements well-tempered metadynamics, as described in Barducci et al.,
@@ -145,7 +146,7 @@ class Metadynamics(object):
         self.frequency = frequency
         self.biasDir = biasDir
         self.saveFrequency = saveFrequency
-        self._id = np.random.randint(0x7FFFFFFF)
+        self._id = np.random.default_rng().integers(0x7FFFFFFF)
         self._saveIndex = 0
         self._independentCVs = independentCVs
         if self._independentCVs:
@@ -164,17 +165,19 @@ class Metadynamics(object):
         self._loadedBiases = {}
         self._syncWithDisk()
         self._deltaT = temperature * (biasFactor - 1)
-        varNames = ["cv%d" % i for i in range(len(variables))]
+        varNames = [f"cv{i}" for i in range(len(variables))]
         if self._independentCVs:
             self._force = mm.CustomCVForce(
                 " + ".join(f"table{i}({name})" for i, name in enumerate(varNames))
             )
         else:
-            self._force = mm.CustomCVForce("table(%s)" % ", ".join(varNames))
+            self._force = mm.CustomCVForce("table({})".format(", ".join(varNames)))
         for name, var in zip(varNames, variables, strict=False):
             self._force.addCollectiveVariable(name, var.force)
         self._widths = [v.gridWidth for v in variables]
-        self._limits = sum(([v.minValue, v.maxValue] for v in variables), [])
+        self._limits = reduce(
+            operator.iadd, ([v.minValue, v.maxValue] for v in variables), []
+        )
         numPeriodics = sum(v.periodic for v in variables)
         if numPeriodics not in [0, len(variables)]:
             raise ValueError(
@@ -195,7 +198,7 @@ class Metadynamics(object):
 
                 self._tables.append(table)
 
-                self._force.addTabulatedFunction("table%d" % i, table)
+                self._force.addTabulatedFunction(f"table{i}", table)
 
         else:
             if len(variables) == 1:
@@ -335,16 +338,10 @@ class Metadynamics(object):
 
         # Use a safe save to write out the biases to disk, then delete the older file.
 
-        oldName = os.path.join(
-            self.biasDir, "bias_%d_%d.npy" % (self._id, self._saveIndex)
-        )
+        oldName = os.path.join(self.biasDir, f"bias_{self._id}_{self._saveIndex}.npy")
         self._saveIndex += 1
-        tempName = os.path.join(
-            self.biasDir, "temp_%d_%d.npy" % (self._id, self._saveIndex)
-        )
-        fileName = os.path.join(
-            self.biasDir, "bias_%d_%d.npy" % (self._id, self._saveIndex)
-        )
+        tempName = os.path.join(self.biasDir, f"temp_{self._id}_{self._saveIndex}.npy")
+        fileName = os.path.join(self.biasDir, f"bias_{self._id}_{self._saveIndex}.npy")
         np.save(tempName, self._selfBias)
         os.rename(tempName, fileName)
         if os.path.exists(oldName):
@@ -369,7 +366,7 @@ class Metadynamics(object):
                             matchId, matchIndex, data
                         )
                         fileLoaded = True
-                    except IOError:
+                    except OSError:
                         # There's a tiny chance the file could get deleted by another process between when
                         # we check the directory and when we try to load it.  If so, just ignore the error
                         # and keep using whatever version of that process' biases we last loaded.

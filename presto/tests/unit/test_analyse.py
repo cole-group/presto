@@ -25,7 +25,7 @@ from presto.analyse import (
     plot_loss,
     plot_mean_errors,
     plot_rmse_of_errors,
-    plot_torsion_dihedrals,
+    plot_torsion_sampling,
     read_errors,
     read_losses,
 )
@@ -65,7 +65,7 @@ def path_manager(workflow_settings: WorkflowSettings):
 @pytest.fixture(scope="module")
 def test_molecule(workflow_settings: WorkflowSettings) -> Molecule:
     """Get the test molecule from workflow settings."""
-    return workflow_settings.parameterisation_settings.molecules[0]
+    return workflow_settings.param_settings.openff_molecules[0]
 
 
 @pytest.fixture(scope="module")
@@ -568,11 +568,11 @@ class TestCalculateDihedralsForTrajectory:
         assert not np.allclose(angles[0], angles[1])
 
 
-class TestPlotTorsionDihedrals:
-    """Tests for plot_torsion_dihedrals function."""
+class TestPlotTorsionSampling:
+    """Tests for plot_torsion_sampling function."""
 
-    def test_plot_torsion_dihedrals_creates_plot(self, test_molecule: Molecule) -> None:
-        """Test that plot_torsion_dihedrals creates a plot without errors."""
+    def test_plot_torsion_sampling_creates_plot(self, test_molecule: Molecule) -> None:
+        """Test that plot_torsion_sampling creates a plot without errors."""
         # Create mock dihedral data
         n_frames = 10
         dihedrals_by_iteration = {
@@ -588,7 +588,7 @@ class TestPlotTorsionDihedrals:
 
         # Create subplots for 2 torsions
         fig, axs = plt.subplots(1, 2, figsize=(16, 5), squeeze=False)
-        plot_torsion_dihedrals(fig, axs, dihedrals_by_iteration, test_molecule)
+        plot_torsion_sampling(fig, axs, dihedrals_by_iteration, test_molecule)
 
         # Check that each subplot has content
         for ax in axs.flat:
@@ -597,6 +597,7 @@ class TestPlotTorsionDihedrals:
 
 
 def test_add_legend_if_labels_no_labels():
+    """Add legend if labels no labels."""
     from presto.analyse import _add_legend_if_labels
 
     fig, ax = plt.subplots()
@@ -607,6 +608,7 @@ def test_add_legend_if_labels_no_labels():
 
 
 def test_plot_loss_with_regularisation(losses_data):
+    """Plot loss with regularisation."""
     from presto.analyse import plot_loss
 
     fig, ax = plt.subplots()
@@ -619,6 +621,7 @@ def test_plot_loss_with_regularisation(losses_data):
 
 
 def test_plot_ff_differences_empty(force_fields, test_molecule):
+    """Plot ff differences empty."""
     from presto.analyse import plot_ff_differences
 
     fig, ax = plt.subplots()
@@ -631,6 +634,7 @@ def test_plot_ff_differences_empty(force_fields, test_molecule):
 
 
 def test_plot_ff_differences_mismatched_ids(test_molecule):
+    """Plot ff differences mismatched ids."""
     from unittest.mock import MagicMock, PropertyMock
 
     from presto.analyse import plot_ff_differences
@@ -655,6 +659,7 @@ def test_plot_ff_differences_mismatched_ids(test_molecule):
 
 
 def test_plot_ff_values_empty(force_fields, test_molecule):
+    """Plot ff values empty."""
     from presto.analyse import plot_ff_values
 
     fig, ax = plt.subplots()
@@ -664,6 +669,7 @@ def test_plot_ff_values_empty(force_fields, test_molecule):
 
 
 def test_plot_ff_values_mismatched_ids(test_molecule):
+    """Plot ff values mismatched ids."""
     from unittest.mock import MagicMock, PropertyMock
 
     from presto.analyse import plot_ff_values
@@ -700,6 +706,7 @@ def test_plot_ff_values_mismatched_ids(test_molecule):
 
 
 def test_read_errors_multiple_iterations(tmp_path):
+    """Read errors multiple iterations."""
     import h5py
 
     from presto.analyse import read_errors

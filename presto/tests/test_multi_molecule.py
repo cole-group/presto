@@ -7,7 +7,7 @@ from openff.toolkit import ForceField, Molecule
 from presto.convert import parameterise
 from presto.create_types import add_types_to_forcefield
 from presto.settings import (
-    ParameterisationSettings,
+    ParamSettings,
     TypeGenerationSettings,
 )
 
@@ -17,14 +17,15 @@ class TestMultiMoleculeParameterisation:
 
     def test_single_molecule_compatibility(self):
         """Test that single molecule works as a list of one."""
-        settings = ParameterisationSettings(
-            smiles=["CCO"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CCO"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, _tensor_ff = parameterise(settings=settings, device="cpu")
 
         assert len(mols) == 1
         assert len(tops) == 1
@@ -32,14 +33,15 @@ class TestMultiMoleculeParameterisation:
 
     def test_multiple_molecules_parameterisation(self):
         """Test parameterisation with multiple molecules."""
-        settings = ParameterisationSettings(
-            smiles=["CC", "CCO", "CCCC"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CC", "CCO", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         assert len(mols) == 3
         # Each molecule gets its own force field with its parameters
@@ -82,27 +84,30 @@ class TestMultiMoleculeParameterisation:
     def test_invalid_smiles_validation(self):
         """Test that invalid SMILES in list raises error."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
-            ParameterisationSettings(
-                smiles=["CCO", "invalid_smiles_123", "CC"],
+            ParamSettings(
+                molecule_input_type="smiles",
+                molecules=["CCO", "invalid_smiles_123", "CC"],
             )
 
     def test_empty_smiles_list(self):
         """Test that empty SMILES list is handled."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            ParameterisationSettings(smiles=[])
+            ParamSettings(molecule_input_type="smiles", molecules=[])
 
     def test_single_invalid_smiles(self):
         """Test that one invalid SMILES in list fails."""
         with pytest.raises(ValueError, match="Invalid SMILES"):
-            ParameterisationSettings(
-                smiles=["CCO", "INVALID", "CCC"],
+            ParamSettings(
+                molecule_input_type="smiles",
+                molecules=["CCO", "INVALID", "CCC"],
             )
 
     def test_duplicate_smiles(self):
         """Test that duplicate SMILES are rejected."""
-        with pytest.raises(ValueError, match="Duplicate SMILES found"):
-            ParameterisationSettings(
-                smiles=["CC", "CCO", "CC", "CCC"],
+        with pytest.raises(ValueError, match="Duplicate inputs found"):
+            ParamSettings(
+                molecule_input_type="smiles",
+                molecules=["CC", "CCO", "CC", "CCC"],
             )
 
 
@@ -179,14 +184,14 @@ class TestMultiMoleculeWorkflowSettings:
         )
 
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(
-                smiles=["CCO", "CC", "CCC"]
+            param_settings=ParamSettings(
+                molecule_input_type="smiles", molecules=["CCO", "CC", "CCC"]
             ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.smiles) == 3
+        assert len(settings.param_settings.molecules) == 3
 
     def test_backward_compatibility_single_molecule(self):
         """Test that single molecule still works."""
@@ -196,12 +201,14 @@ class TestMultiMoleculeWorkflowSettings:
         )
 
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles=["CCO"]),
+            param_settings=ParamSettings(
+                molecule_input_type="smiles", molecules=["CCO"]
+            ),
             training_sampling_settings=MMMDSamplingSettings(),
             n_iterations=1,
         )
 
-        assert len(settings.parameterisation_settings.smiles) == 1
+        assert len(settings.param_settings.molecules) == 1
 
 
 class TestMultiMoleculeEnergyCalculations:
@@ -210,14 +217,15 @@ class TestMultiMoleculeEnergyCalculations:
     @pytest.mark.parametrize("linearise_harmonics", [True, False])
     def test_energy_calculation_single_molecule(self, linearise_harmonics: bool):
         """Test energy calculation with single molecule."""
-        settings = ParameterisationSettings(
-            smiles=["CCO"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Generate a conformer
         mols[0].generate_conformers(n_conformers=1)
@@ -234,14 +242,15 @@ class TestMultiMoleculeEnergyCalculations:
     @pytest.mark.parametrize("linearise_harmonics", [True, False])
     def test_energy_calculation_multiple_molecules(self, linearise_harmonics: bool):
         """Test that parameterisation works for multiple molecules."""
-        settings = ParameterisationSettings(
-            smiles=["CC", "CCO"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CC", "CCO"],
             linearise_harmonics=linearise_harmonics,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Verify we get separate topologies for each molecule
         assert len(mols) == 2
@@ -258,14 +267,15 @@ class TestMultiMoleculeParameterSharing:
 
     def test_same_force_field_for_all_molecules(self):
         """Test that all molecules use the same force field."""
-        settings = ParameterisationSettings(
-            smiles=["CC", "CCC", "CCCC"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CC", "CCC", "CCCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        _mols, _off_ff, tops, _tensor_ff = parameterise(settings=settings, device="cpu")
 
         # All topologies should reference the same force field structure
         # (though they have different topological indices)
@@ -277,14 +287,15 @@ class TestMultiMoleculeParameterSharing:
         """Test that updating parameters affects all molecules."""
         from descent.train import ParameterConfig, Trainable
 
-        settings = ParameterisationSettings(
-            smiles=["CC", "CCC"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CC", "CCC"],
             linearise_harmonics=False,
             expand_torsions=False,
             msm_settings=None,
         )
 
-        mols, off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
+        _mols, _off_ff, tops, tensor_ff = parameterise(settings=settings, device="cpu")
 
         # Create a trainable with parameter configs
         parameter_configs = {

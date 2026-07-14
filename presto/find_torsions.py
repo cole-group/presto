@@ -1,6 +1,12 @@
 """Functionality for finding and sampling torsions in a molecule."""
 
+import copy
+
 from openff.toolkit.topology import Molecule
+
+from .utils.rdkit_toolkit import PermissiveAromaticityRDKitToolkitWrapper
+
+_rdkit_toolkit_wrapper = PermissiveAromaticityRDKitToolkitWrapper()
 
 # Default SMARTS patterns for identifying rotatable torsions
 DEFAULT_TORSIONS_TO_INCLUDE_SMARTS = [
@@ -16,10 +22,12 @@ DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS: list[str] = []
 def get_single_torsion_by_rot_bond(
     mol: Molecule,
     smarts: str,
+    aromaticity_model: str = "AROMATICITY_RDKIT",
 ) -> dict[tuple[int, int], tuple[int, int, int, int]]:
-    """
-    Get a single torsion for each rotatable bond matching the provided SMARTS pattern.
+    """Get a single torsion for each rotatable bond matching the provided SMARTS pattern.
 
+    Note that the RDKit aromaticity model is used by default rather than the MDL model, so that e.g.
+    pyrrole etc. are treated as aromatic.
     For each rotatable bond, selects the torsion where the end atoms (positions 0 and 3)
     have the most heavy-atom neighbors.
 
@@ -30,14 +38,21 @@ def get_single_torsion_by_rot_bond(
     smarts : str
         SMARTS pattern to match rotatable bonds. This should specify the entire
         torsion, not just the rotatable bond.
+    aromaticity_model : str, optional
+        The aromaticity model to use when matching SMARTS. Defaults to "AROMATICITY_RDKIT".
 
-    Returns
+    Returns:
     -------
     dict of tuple of int to tuple of int
         A dictionary mapping each rotatable bond (as a tuple of atom indices) to a single torsion
         (as a tuple of four atom indices).
     """
-    all_torsions = mol.chemical_environment_matches(smarts, unique=True)
+    # Avoid modifying the input molecule
+    mol = copy.deepcopy(mol)
+
+    all_torsions = _rdkit_toolkit_wrapper.find_smarts_matches(
+        mol, smarts, unique=True, aromaticity_model=aromaticity_model
+    )
 
     # Group torsions by their rotatable bond
     torsions_grouped: dict[tuple[int, int], list[tuple[int, int, int, int]]] = {}
@@ -74,9 +89,10 @@ def get_single_torsion_by_rot_bond(
     return torsions_by_rot_bonds
 
 
-def get_unwanted_bonds(mol: Molecule, smarts: str) -> set[tuple[int, int]]:
-    """
-    Get a set of unwanted bonds in the molecule based on the provided SMARTS patterns.
+def get_unwanted_bonds(
+    mol: Molecule, smarts: str, aromaticity_model: str = "AROMATICITY_RDKIT"
+) -> set[tuple[int, int]]:
+    """Get a set of unwanted bonds in the molecule based on the provided SMARTS patterns.
 
     Parameters
     ----------
@@ -85,14 +101,18 @@ def get_unwanted_bonds(mol: Molecule, smarts: str) -> set[tuple[int, int]]:
     smarts : str
         SMARTS pattern to match unwanted bonds. This should match only the rotatable bond,
         not the full torsion.
+    aromaticity_model : str, optional
+        The aromaticity model to use when matching SMARTS. Defaults to "AROMATICITY_RDKIT".
 
-    Returns
+    Returns:
     -------
     set of tuple of int
         A set of tuples representing the unwanted bonds, where each tuple contains the indices of the two
         atoms forming the bond.
     """
-    bonds = mol.chemical_environment_matches(smarts, unique=True)
+    bonds = _rdkit_toolkit_wrapper.find_smarts_matches(
+        mol, smarts, unique=True, aromaticity_model=aromaticity_model
+    )
     for bond in bonds:
         if len(bond) != 2:
             raise ValueError(
@@ -108,8 +128,7 @@ def get_rot_torsions_by_rot_bond(
     include_smarts: list[str] = DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     exclude_smarts: list[str] | None = None,
 ) -> dict[tuple[int, int], tuple[int, int, int, int]]:
-    """
-    Find rotatable torsions in the molecule based on SMARTS patterns.
+    """Find rotatable torsions in the molecule based on SMARTS patterns.
 
     Parameters
     ----------
@@ -122,7 +141,7 @@ def get_rot_torsions_by_rot_bond(
         List of SMARTS patterns to exclude. Defaults to empty list.
         These should match only the rotatable bond, not the full torsion.
 
-    Returns
+    Returns:
     -------
     dict of tuple of int to tuple of int
         A dictionary mapping each rotatable bond (as a tuple of atom indices) to a single torsion

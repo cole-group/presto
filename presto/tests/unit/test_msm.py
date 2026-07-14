@@ -1,14 +1,17 @@
-"""
-Unit tests for msm.py (for computing bond and angle parameters
-using the modified Seminario method -- see https://doi.org/10.1021/acs.jctc.7b00785).
+"""Unit tests for msm.py.
+
+msm.py implements the modified Seminario method (for computing bond and angle parameters).
+See https://doi.org/10.1021/acs.jctc.7b00785.
 """
 
 import json
 import math
 from importlib.resources import files
+from unittest.mock import patch
 
 import numpy as np
 import pytest
+import torch
 from openff.toolkit import ForceField, Molecule
 from openff.units import unit as off_unit
 
@@ -32,7 +35,7 @@ from presto.msm import (
     unit_vector_along_bond,
     unit_vector_normal_to_plane,
 )
-from presto.settings import MSMSettings
+from presto.settings import MLPSettings, MSMSettings
 
 # Unit constants for testing (kcal/mol is the standard energy unit throughout)
 _BOND_K_UNIT = off_unit.kilocalorie_per_mole / off_unit.nanometer**2
@@ -132,7 +135,10 @@ def base_forcefield():
 @pytest.fixture(scope="module")
 def msm_settings():
     """Default MSM settings for testing with minimal conformer count."""
-    return MSMSettings(n_conformers=1)
+    return MSMSettings(
+        n_conformers=1,
+        mlp_settings=MLPSettings(ml_potential="aimnet2"),
+    )
 
 
 # --- Unit Vector Tests ---
@@ -414,7 +420,7 @@ class TestCalculateAngleForceConstant:
 
         angle = (1, 0, 2)  # H1-O-H2
         scalings = (1.0, 1.0)
-        k_theta, theta_0 = calculate_angle_force_constant(
+        k_theta, _theta_0 = calculate_angle_force_constant(
             angle,
             decomposer.bond_lengths,
             decomposer.eigenvals,
@@ -443,7 +449,7 @@ class TestCalculateAngleForceConstant:
 
         angle = (1, 0, 2)
         scalings = (1.0, 1.0)
-        k_theta, theta_0 = calculate_angle_force_constant(
+        _k_theta, theta_0 = calculate_angle_force_constant(
             angle,
             decomposer.bond_lengths,
             decomposer.eigenvals,
@@ -772,7 +778,7 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         bond_params, angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, msm_settings
+            mol, bond_indices, angle_indices, msm_settings, device=torch.device("cpu")
         )
 
         # Check that we got parameters for all bonds and angles
@@ -797,7 +803,7 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         bond_params, angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, msm_settings
+            mol, bond_indices, angle_indices, msm_settings, device=torch.device("cpu")
         )
 
         assert isinstance(bond_params, dict)
@@ -815,10 +821,13 @@ class TestApplyMSMToMolecule:
         angle_indices = list(labels["Angles"].keys())
 
         # Test with 3 conformers
-        settings_multi = MSMSettings(n_conformers=2)
+        settings_multi = MSMSettings(
+            n_conformers=2,
+            mlp_settings=MLPSettings(ml_potential="aimnet2"),
+        )
 
         bond_params_multi, angle_params_multi = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, settings_multi
+            mol, bond_indices, angle_indices, settings_multi, device=torch.device("cpu")
         )
 
         # Check that we got parameters for all bonds and angles
@@ -834,6 +843,49 @@ class TestApplyMSMToMolecule:
             assert ap.force_constant.magnitude > 0
             assert 0 < ap.angle.m_as(_ANGLE_UNIT) < np.pi
 
+    def test_supplied_starting_conformers(
+        self, base_forcefield, tmp_path, write_multiconformer_sdf
+    ):
+        """MSM runs from a supplied conformer SDF, iterating the actual conformers."""
+        import presto.msm as msm_module
+
+        n_supplied = 3
+        source = Molecule.from_smiles("CCO")
+        source.generate_conformers(
+            n_conformers=n_supplied, rms_cutoff=0.0 * off_unit.angstrom
+        )
+        assert source.n_conformers == n_supplied
+        sdf = tmp_path / "confs.sdf"
+        write_multiconformer_sdf(source, sdf)
+
+        mol = Molecule.from_smiles("CCO")
+        ff = base_forcefield
+        labels = ff.label_molecules(mol.to_topology())[0]
+        bond_indices = list(labels["Bonds"].keys())
+        angle_indices = list(labels["Angles"].keys())
+
+        # n_conformers deliberately differs from the file's conformer count. The Hessian
+        # (computed once per conformer) is spied on to prove the loop iterates every
+        # supplied conformer rather than n_conformers of them.
+        settings = MSMSettings(
+            n_conformers=1,
+            mlp_settings=MLPSettings(ml_potential="aimnet2"),
+            starting_conformers=sdf,
+        )
+
+        real_calculate_hessian = msm_module.calculate_hessian
+        with patch.object(
+            msm_module, "calculate_hessian", side_effect=real_calculate_hessian
+        ) as spy_hessian:
+            bond_params, angle_params = apply_msm_to_molecule(
+                mol, bond_indices, angle_indices, settings, device=torch.device("cpu")
+            )
+
+        # One Hessian per supplied conformer, independent of n_conformers=1.
+        assert spy_hessian.call_count == n_supplied
+        assert len(bond_params) == len(bond_indices)
+        assert len(angle_params) == len(angle_indices)
+
 
 @pytest.mark.slow
 class TestApplyMSMToMolecules:
@@ -844,7 +896,9 @@ class TestApplyMSMToMolecules:
         mol = Molecule.from_smiles("CCO")
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         assert isinstance(modified_ff, ForceField)
 
@@ -856,7 +910,9 @@ class TestApplyMSMToMolecules:
         ]
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(mols, ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            mols, ff, msm_settings, device=torch.device("cpu")
+        )
 
         assert isinstance(modified_ff, ForceField)
 
@@ -869,7 +925,9 @@ class TestApplyMSMToMolecules:
         bond_handler = ff.get_parameter_handler("Bonds")
         original_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
 
-        _modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        _modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Check original is unchanged
         new_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
@@ -892,7 +950,9 @@ class TestApplyMSMToMolecules:
             if p.smirks in used_bond_smirks
         }
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Get modified parameters
         mod_bond_handler = modified_ff.get_parameter_handler("Bonds")
@@ -928,7 +988,9 @@ class TestApplyMSMToMolecules:
         original_angle_k_units = angle_handler.parameters[0].k.units
         original_angle_angle_units = angle_handler.parameters[0].angle.units
 
-        modified_ff = apply_msm_to_molecules([mol], ff, msm_settings)
+        modified_ff = apply_msm_to_molecules(
+            [mol], ff, msm_settings, device=torch.device("cpu")
+        )
 
         # Check units are compatible (dimensionally equivalent) in modified force field
         mod_bond_handler = modified_ff.get_parameter_handler("Bonds")
@@ -1161,7 +1223,7 @@ class TestMSMQubekitComparison:
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
 
             print(
-                f"{str(bond):<10} {calc_length:<9.5f}{ref_length:<9.5f} "
+                f"{bond!s:<10} {calc_length:<9.5f}{ref_length:<9.5f} "
                 f"{calc_k:<14.2f}{ref_k:<14.2f}{k_diff_pct:+.2f}%"
             )
 
@@ -1178,7 +1240,7 @@ class TestMSMQubekitComparison:
             k_diff_pct = 100 * (calc_k - ref_k) / ref_k
 
             print(
-                f"{str(angle):<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
+                f"{angle!s:<12} {calc_angle:<9.2f}{ref_angle:<9.2f} "
                 f"{calc_k:<13.2f}{ref_k:<13.2f}{k_diff_pct:+.2f}%"
             )
 

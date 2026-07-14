@@ -1,3 +1,5 @@
+"""Unit tests for convert.py."""
+
 import math
 
 import openff.interchange
@@ -19,7 +21,8 @@ from presto.convert import (
     linearise_harmonics_topology,
     parameterise,
 )
-from presto.settings import ParameterisationSettings
+from presto.settings import MLPSettings, MSMSettings, ParamSettings
+from presto.tests.conftest import skip_if_model_unavailable
 
 
 @pytest.mark.parametrize(
@@ -34,6 +37,7 @@ from presto.settings import ParameterisationSettings
     ],
 )
 def test_reflect_angle(angle, expected):
+    """Reflect angle."""
     if angle == 2 * math.pi:
         assert math.isclose(_reflect_angle(angle), expected, abs_tol=1e-9)
     else:
@@ -50,10 +54,12 @@ def test_reflect_angle(angle, expected):
     ],
 )
 def test_add_angle_within_range(angle1, angle2, expected):
+    """Add angle within range."""
     assert math.isclose(_add_angle_within_range(angle1, angle2), expected)
 
 
 def test_convert_to_smirnoff():
+    """Convert to smirnoff."""
     # Test Bonds, Angles, ProperTorsions
     bond_pot = smee.TensorPotential(
         type="Bonds",
@@ -127,6 +133,7 @@ def test_convert_to_smirnoff():
 
 
 def test_convert_to_smirnoff_linear():
+    """Convert to smirnoff linear."""
     # Test LinearBonds and LinearAngles
     linear_bond_pot = smee.TensorPotential(
         type="LinearBonds",
@@ -173,6 +180,7 @@ def test_convert_to_smirnoff_linear():
 
 
 def test_linearise_harmonics_force_field():
+    """Linearise harmonics force field."""
     bond_pot = smee.TensorPotential(
         type="Bonds",
         fn="Harmonic",
@@ -196,6 +204,7 @@ def test_linearise_harmonics_force_field():
 
 
 def test_linearise_harmonics_topology():
+    """Linearise harmonics topology."""
     top = smee.TensorTopology(
         atomic_nums=torch.tensor([6, 1, 1]),
         formal_charges=torch.tensor([0, 0, 0]),
@@ -221,8 +230,13 @@ def test_linearise_harmonics_topology():
 
 
 def test_parameterise(tmp_path):
-    settings = ParameterisationSettings(
-        smiles="CC", initial_force_field="openff-2.1.0.offxml"
+    """Parameterise."""
+    skip_if_model_unavailable("aimnet2")
+    settings = ParamSettings(
+        molecule_input_type="smiles",
+        molecules="CC",
+        initial_force_field="openff-2.1.0.offxml",
+        msm_settings=MSMSettings(mlp_settings=MLPSettings(ml_potential="aimnet2")),
     )
 
     # We can use small molecules and real FF for a fast enough test
@@ -236,10 +250,15 @@ def test_parameterise(tmp_path):
 
 
 def test_parameterise_linear(tmp_path):
-    settings = ParameterisationSettings(
-        smiles="C", initial_force_field="openff-2.1.0.offxml", linearise_harmonics=True
+    """Parameterise linear."""
+    settings = ParamSettings(
+        molecule_input_type="smiles",
+        molecules="C",
+        initial_force_field="openff-2.1.0.offxml",
+        linearise_harmonics=True,
+        msm_settings=None,
     )
-    mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+    _mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
     assert "LinearBonds" in tensor_ff.potentials_by_type
     assert "LinearBonds" in tensor_tops[0].parameters
 
@@ -640,13 +659,17 @@ class TestParameteriseExtended:
 
     def test_parameterise_with_expand_torsions(self):
         """Test parameterise with expand_torsions enabled."""
-        settings = ParameterisationSettings(
-            smiles="CCCC",
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules="CCCC",
             initial_force_field="openff_unconstrained-2.3.0.offxml",
             expand_torsions=True,
+            msm_settings=None,
         )
 
-        mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+        _mols, bespoke_ff, _tensor_tops, _tensor_ff = parameterise(
+            settings, device="cpu"
+        )
 
         # Check that torsions were expanded
         torsion_handler = bespoke_ff.get_parameter_handler("ProperTorsions")
@@ -661,18 +684,16 @@ class TestParameteriseExtended:
         # At least some parameters should have been expanded
         assert expanded_count > 0
 
-    def test_parameterise_with_msm(self):
-        """Test parameterise with MSM settings."""
-        pytest.skip("MSM test requires NNPOps which is not available")
-
     def test_parameterise_multiple_molecules(self):
         """Test parameterise with multiple molecules."""
-        settings = ParameterisationSettings(
-            smiles=["C", "CC"],
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["C", "CC"],
             initial_force_field="openff_unconstrained-2.3.0.offxml",
+            msm_settings=None,
         )
 
-        mols, bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
+        mols, _bespoke_ff, tensor_tops, tensor_ff = parameterise(settings, device="cpu")
 
         assert len(mols) == 2
         assert len(tensor_tops) == 2

@@ -12,10 +12,12 @@ from presto._cli import (
     WriteDefaultYAML,
 )
 from presto.settings import (
-    _DEFAULT_SMILES_PLACEHOLDER,
-    ParameterisationSettings,
+    _DEFAULT_INPUT_PLACEHOLDER,
+    ParamSettings,
     WorkflowSettings,
 )
+
+from ... import __version__
 
 
 class TestWriteDefaultYAML:
@@ -32,7 +34,7 @@ class TestWriteDefaultYAML:
         assert yaml_path.exists()
 
     def test_written_yaml_contains_placeholder(self, tmp_path, monkeypatch):
-        """Test that written YAML contains placeholder SMILES."""
+        """Test that written YAML contains placeholder input."""
         monkeypatch.chdir(tmp_path)
         yaml_path = tmp_path / "test_settings.yaml"
 
@@ -40,25 +42,25 @@ class TestWriteDefaultYAML:
         cmd.cli_cmd()
 
         content = yaml_path.read_text()
-        assert _DEFAULT_SMILES_PLACEHOLDER in content
+        assert _DEFAULT_INPUT_PLACEHOLDER in content
 
     def test_written_yaml_can_be_loaded(self, tmp_path, monkeypatch):
-        """Test that written YAML can be loaded (after fixing SMILES)."""
+        """Test that written YAML can be loaded (after fixing input)."""
         monkeypatch.chdir(tmp_path)
         yaml_path = tmp_path / "test_settings.yaml"
 
         cmd = WriteDefaultYAML(file_name=yaml_path)
         cmd.cli_cmd()
 
-        # Modify the SMILES to a valid one and set device_type to cpu
+        # Modify the input to a valid value and set device_type to cpu
         content = yaml_path.read_text()
-        content = content.replace(_DEFAULT_SMILES_PLACEHOLDER, "CCO")
+        content = content.replace(_DEFAULT_INPUT_PLACEHOLDER, "CCO")
         content = content.replace("device_type: cuda", "device_type: cpu")
         yaml_path.write_text(content)
 
         # Should be able to load now
         settings = WorkflowSettings.from_yaml(yaml_path)
-        assert settings.parameterisation_settings.smiles == ["CCO"]
+        assert settings.param_settings.molecules == ["CCO"]
 
 
 class TestTrainFromYAML:
@@ -87,7 +89,9 @@ class TestTrainFromCli:
         """Test that TrainFromCli calls get_bespoke_force_field with settings."""
         with patch("presto._cli.get_bespoke_force_field") as mock_get_ff:
             cmd = TrainFromCli(
-                parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+                param_settings=ParamSettings(
+                    molecule_input_type="smiles", molecules="CCO"
+                ),
                 device_type="cpu",
             )
             cmd.cli_cmd()
@@ -115,7 +119,7 @@ class TestClean:
 
         # Create a settings file and some output
         settings = WorkflowSettings(
-            parameterisation_settings=ParameterisationSettings(smiles="CCO"),
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             output_dir=tmp_path,
             device_type="cpu",
         )
@@ -163,6 +167,16 @@ class TestAnalyse:
 class TestCLISubprocess:
     """Test the CLI via subprocess calls."""
 
+    def test_cli_version(self):
+        """Test that CLI --version prints the package version and exits cleanly."""
+        result = subprocess.run(
+            ["presto", "version"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert __version__ in result.stdout
+
     def test_cli_help(self):
         """Test that CLI help works."""
         result = subprocess.run(
@@ -192,4 +206,4 @@ class TestCLISubprocess:
             text=True,
         )
         assert result.returncode == 0
-        assert "smiles" in result.stdout.lower()
+        assert "input" in result.stdout.lower()
