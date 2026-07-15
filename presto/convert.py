@@ -53,7 +53,11 @@ def convert_to_smirnoff(
     Returns:
         A SMIRNOFF force field containing the valence terms of the input force field.
     """
-    ff_smirnoff = openff.toolkit.ForceField() if base is None else copy.deepcopy(base)
+    ff_smirnoff = (
+        openff.toolkit.ForceField(load_plugins=True)
+        if base is None
+        else copy.deepcopy(base)
+    )
 
     for potential in ff.potentials:
         if potential.type in {"Bonds", "Angles", "ProperTorsions", "ImproperTorsions"}:
@@ -218,7 +222,9 @@ def parameterise(
     # Create molecules from SMILES
     mols = settings.openff_molecules
 
-    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
+    off_ff = openff.toolkit.ForceField(
+        settings.initial_force_field, load_plugins=True
+    )
 
     # First check required as Parsely does not contain constraints
     if "Constraints" in off_ff.registered_parameter_handlers:

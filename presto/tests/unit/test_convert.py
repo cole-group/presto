@@ -7,8 +7,10 @@ import openff.toolkit
 import pytest
 import smee
 import torch
+from openff.toolkit import ForceField
 from openff.units import unit as off_unit
 
+from presto.analyse import load_force_fields
 from presto.convert import (
     _add_angle_within_range,
     _compute_linear_harmonic_params,
@@ -699,3 +701,38 @@ class TestParameteriseExtended:
         assert len(tensor_tops) == 2
         # Force field should contain parameters for both molecules
         assert isinstance(tensor_ff, smee.TensorForceField)
+
+
+# Minimal double-exponential force field, using the DoubleExponential vdW handler
+# provided by smirnoff-plugins (as in https://github.com/jthorton/de-forcefields).
+# This section can only be parsed when the force field is loaded with plugins enabled.
+DE_OFFXML = """<?xml version="1.0" encoding="utf-8"?>
+<SMIRNOFF version="0.3" aromaticity_model="OEAroModel_MDL">
+  <DoubleExponential version="0.3" alpha="18.7" beta="3.3" scale14="0.5" scale15="1.0"
+      cutoff="9.0 * angstrom" switch_width="1.0 * angstrom"
+      periodic_method="cutoff" nonperiodic_method="no-cutoff">
+    <Atom smirks="[#1:1]" r_min="1.2 * angstrom" epsilon="0.06 * kilocalorie_per_mole"/>
+    <Atom smirks="[#6:1]" r_min="1.9 * angstrom" epsilon="0.1 * kilocalorie_per_mole"/>
+    <Atom smirks="[#8:1]" r_min="1.7 * angstrom" epsilon="0.2 * kilocalorie_per_mole"/>
+  </DoubleExponential>
+</SMIRNOFF>
+"""
+
+
+def test_load_double_exponential_force_field(tmp_path):
+    """A force field with a double-exponential functional form loads via plugins.
+
+    Loading such a force field only works when ``load_plugins=True`` is passed, which
+    is what PRESTO's force field loading now does. As a control, loading the same file
+    without plugins must fail.
+    """
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML)
+
+    # Control: without plugins the DoubleExponential section is unrecognised.
+    with pytest.raises(KeyError):
+        ForceField(de_path)
+
+    # PRESTO loads with plugins enabled, so the handler is registered.
+    force_fields = load_force_fields({0: de_path})
+    assert "DoubleExponential" in force_fields[0].registered_parameter_handlers
