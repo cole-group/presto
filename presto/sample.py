@@ -169,6 +169,18 @@ def _build_ml_simulation(
     )
 
 
+def _interchange_to_openmm_system(
+    interchange: openff.interchange.Interchange,
+) -> openmm.System:
+    """Create an OpenMM system from an Interchange object.
+
+    vdW and electrostatics are kept in separate forces, as custom vdW forms from
+    SMIRNOFF plugins (e.g. double exponential) cannot be represented by a single
+    combined ``NonbondedForce``.
+    """
+    return interchange.to_openmm_system(combine_nonbonded_forces=False)
+
+
 def _build_mm_simulation(
     interchange: openff.interchange.Interchange,
     temperature: openmm.unit.Quantity,
@@ -176,7 +188,7 @@ def _build_mm_simulation(
     device: torch.device,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an MM system from an Interchange object."""
-    mm_system = interchange.to_openmm_system()
+    mm_system = _interchange_to_openmm_system(interchange)
     mm_topology = interchange.topology.to_openmm()
     return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
 
@@ -631,7 +643,7 @@ def sample_mmmd_metadynamics(
                 bias_width=settings.bias_width,
             )
 
-            system = interchange.to_openmm_system()
+            system = _interchange_to_openmm_system(interchange)
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
@@ -1214,7 +1226,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             include_smarts=settings.torsions_to_include_smarts,
             exclude_smarts=settings.torsions_to_exclude_smarts,
         )
-        system = interchange.to_openmm_system()
+        system = _interchange_to_openmm_system(interchange)
 
         if not torsions:
             logger.warning(

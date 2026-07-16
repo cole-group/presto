@@ -29,7 +29,11 @@ from openff.toolkit import ForceField, Molecule
 
 ff = ForceField("training_iteration_2/bespoke_ff.offxml")
 mol = Molecule.from_smiles("CCO")
-system = ff.create_interchange(mol.to_topology()).to_openmm()
+# combine_nonbonded_forces=False is only required for double-exponential (dexp)
+# force fields, whose vdW form has no combined NonbondedForce equivalent.
+system = ff.create_interchange(mol.to_topology()).to_openmm(
+    combine_nonbonded_forces=False
+)
 ```
 
 ## Run from a YAML file instead

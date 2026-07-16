@@ -136,9 +136,9 @@ datasets = "*"
 jupyter = "*"
 nglview = "*"
 "smirnoff-plugins" = ">=0.0.4"
-"openff-toolkit" = ">=0.17.0"
+"openff-toolkit" = ">=0.18.0"
 "openff-units" = "*"
-"openff-interchange" = ">=0.4.11" # Required for numpy 2.4 compatibility
+"openff-interchange" = ">=0.5.3" # Required for numpy 2.4 compatibility
 "openff-forcefields" = ">=2026.01.0"
 openmm-ml = ">=1.6"
 tensorboardX = "*"

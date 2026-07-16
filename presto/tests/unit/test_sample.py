@@ -366,6 +366,11 @@ def test_build_mm_simulation_creates_system_and_simulation():
     assert simulation.system.getNumParticles() == mol.n_atoms
     assert simulation.context.getPlatform().getName() == "CPU"
 
+    # vdW and electrostatics must stay in separate forces, or force fields with a
+    # custom vdW form (e.g. double exponential) cannot be exported to OpenMM.
+    force_types = {type(force).__name__ for force in simulation.system.getForces()}
+    assert "CustomNonbondedForce" in force_types
+
 
 class TestTorsionRestraints:
     """Tests for TestTorsionRestraints."""
