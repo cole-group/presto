@@ -46,6 +46,11 @@ try:
 except ImportError:
     pass
 
+# OpenMM hard-limits a single CustomCVForce to 32 collective variables. When
+# biasing more torsions than this in independentCVs mode, the CVs are split
+# across several CustomCVForce objects (the per-CV biases are additive anyway).
+_MAX_CVS_PER_FORCE = 32
+
 
 class Metadynamics:
     """Performs metadynamics.
@@ -165,15 +170,6 @@ class Metadynamics:
         self._loadedBiases = {}
         self._syncWithDisk()
         self._deltaT = temperature * (biasFactor - 1)
-        varNames = [f"cv{i}" for i in range(len(variables))]
-        if self._independentCVs:
-            self._force = mm.CustomCVForce(
-                " + ".join(f"table{i}({name})" for i, name in enumerate(varNames))
-            )
-        else:
-            self._force = mm.CustomCVForce("table({})".format(", ".join(varNames)))
-        for name, var in zip(varNames, variables, strict=False):
-            self._force.addCollectiveVariable(name, var.force)
         self._widths = [v.gridWidth for v in variables]
         self._limits = reduce(
             operator.iadd, ([v.minValue, v.maxValue] for v in variables), []
@@ -186,21 +182,37 @@ class Metadynamics:
         periodic = numPeriodics == len(variables)
 
         if self._independentCVs:
+            # Each CV contributes a separable, additive 1D bias, so the CVs can be
+            # spread across several CustomCVForces to stay under OpenMM's limit of
+            # 32 collective variables per force. OpenMM sums the energy of all
+            # forces, and they share one force group (see below), so the total bias
+            # is unchanged regardless of how the CVs are chunked.
             self._tables = []
-
-            for i, _ in enumerate(variables):
-                table = mm.Continuous1DFunction(
-                    self._totalBias[i].flatten(),
-                    self._limits[i * 2],
-                    self._limits[i * 2 + 1],
-                    periodic,
+            self._forces = []
+            for start in range(0, len(variables), _MAX_CVS_PER_FORCE):
+                chunk = variables[start : start + _MAX_CVS_PER_FORCE]
+                # Names are local to each force; tables use the same local index.
+                force = mm.CustomCVForce(
+                    " + ".join(f"table{j}(cv{j})" for j in range(len(chunk)))
                 )
-
-                self._tables.append(table)
-
-                self._force.addTabulatedFunction(f"table{i}", table)
+                for j, var in enumerate(chunk):
+                    i = start + j  # global CV index into self._limits / self._totalBias
+                    force.addCollectiveVariable(f"cv{j}", var.force)
+                    table = mm.Continuous1DFunction(
+                        self._totalBias[i].flatten(),
+                        self._limits[i * 2],
+                        self._limits[i * 2 + 1],
+                        periodic,
+                    )
+                    self._tables.append(table)
+                    force.addTabulatedFunction(f"table{j}", table)
+                self._forces.append(force)
 
         else:
+            varNames = [f"cv{i}" for i in range(len(variables))]
+            self._force = mm.CustomCVForce("table({})".format(", ".join(varNames)))
+            for name, var in zip(varNames, variables, strict=False):
+                self._force.addCollectiveVariable(name, var.force)
             if len(variables) == 1:
                 self._table = mm.Continuous1DFunction(
                     self._totalBias.flatten(), *self._limits, periodic
@@ -219,6 +231,7 @@ class Metadynamics:
                 )
 
             self._force.addTabulatedFunction("table", self._table)
+            self._forces = [self._force]
 
         freeGroups = set(range(32)) - {
             force.getForceGroup() for force in system.getForces()
@@ -228,8 +241,12 @@ class Metadynamics:
                 "Cannot assign a force group to the metadynamics force. "
                 "The maximum number (32) of the force groups is already used."
             )
-        self._force.setForceGroup(max(freeGroups))
-        system.addForce(self._force)
+        # All metadynamics forces share a single force group so that querying its
+        # energy sums the total bias across every chunk.
+        forceGroup = max(freeGroups)
+        for force in self._forces:
+            force.setForceGroup(forceGroup)
+            system.addForce(force)
 
     def step(self, simulation, steps):
         """Advance the simulation by integrating a specified number of time steps.
@@ -242,7 +259,7 @@ class Metadynamics:
             the number of time steps to integrate
         """
         stepsToGo = steps
-        forceGroup = self._force.getForceGroup()
+        forceGroup = self._forces[0].getForceGroup()
         while stepsToGo > 0:
             nextSteps = stepsToGo
             if simulation.currentStep % self.frequency == 0:
@@ -253,7 +270,7 @@ class Metadynamics:
                 )
             simulation.step(nextSteps)
             if simulation.currentStep % self.frequency == 0:
-                position = self._force.getCollectiveVariableValues(simulation.context)
+                position = self._getCollectiveVariableValues(simulation.context)
                 energy = simulation.context.getState(
                     energy=True, groups={forceGroup}
                 ).getPotentialEnergy()
@@ -283,7 +300,14 @@ class Metadynamics:
 
     def getCollectiveVariables(self, simulation):
         """Get the current values of all collective variables in a Simulation."""
-        return self._force.getCollectiveVariableValues(simulation.context)
+        return self._getCollectiveVariableValues(simulation.context)
+
+    def _getCollectiveVariableValues(self, context):
+        """Gather CV values across all bias forces, in global CV order."""
+        position = []
+        for force in self._forces:
+            position.extend(force.getCollectiveVariableValues(context))
+        return position
 
     def _addGaussian(self, position, height, context):
         """Add a Gaussian to the bias function."""
@@ -329,7 +353,8 @@ class Metadynamics:
                 self._table.setFunctionParameters(
                     *self._widths, self._totalBias.flatten(), *self._limits
                 )
-        self._force.updateParametersInContext(context)
+        for force in self._forces:
+            force.updateParametersInContext(context)
 
     def _syncWithDisk(self):
         """Save biases to disk, and check for updated files created by other processes."""

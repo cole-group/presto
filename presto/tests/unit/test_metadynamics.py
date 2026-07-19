@@ -119,6 +119,50 @@ def test_independent_cvs():
     meta.step(simulation, 10)
     assert np.any(meta._selfBias > 0)
     assert len(meta._tables) == 2
+    # Two CVs fit in a single CustomCVForce.
+    assert len(meta._forces) == 1
+
+
+def test_more_than_32_independent_cvs():
+    """>32 independent CVs are split across multiple CustomCVForces.
+
+    A single CustomCVForce cannot hold more than 32 collective variables, so
+    presto chunks them. The biases are additive and the forces share one force
+    group, so the physics is unchanged.
+    """
+    n_cvs = 40
+    system = System()
+    for _ in range(n_cvs + 1):
+        system.addParticle(1.0)
+
+    variables = []
+    for i in range(n_cvs):
+        cv = CustomBondForce("r")
+        cv.addBond(i, i + 1)
+        variables.append(BiasVariable(cv, 0.9, 1.1, 0.01, gridWidth=21))
+
+    # Construction must not raise "CustomCVForce cannot have more than 32 ...".
+    meta = Metadynamics(
+        system, variables, 300 * kelvin, 3.0, 5.0, 10, independentCVs=True
+    )
+
+    # CVs are chunked: 40 CVs -> two forces (32 + 8), none exceeding the limit.
+    assert len(meta._forces) == 2
+    assert all(f.getNumCollectiveVariables() <= 32 for f in meta._forces)
+    assert sum(f.getNumCollectiveVariables() for f in meta._forces) == n_cvs
+    assert len(meta._tables) == n_cvs
+    # All bias forces share a single force group.
+    assert len({f.getForceGroup() for f in meta._forces}) == 1
+
+    integrator = LangevinIntegrator(300 * kelvin, 10 / picosecond, 0.001 * picosecond)
+    simulation = Simulation(
+        Topology(), system, integrator, Platform.getPlatform("Reference")
+    )
+    simulation.context.setPositions([Vec3(0, 0, i) for i in range(n_cvs + 1)])
+
+    meta.step(simulation, 10)
+    assert np.any(meta._selfBias > 0)
+    assert len(meta.getCollectiveVariables(simulation)) == n_cvs
 
 
 def test_sync_with_disk(tmp_path):
