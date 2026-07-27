@@ -736,3 +736,59 @@ def test_load_double_exponential_force_field(tmp_path):
     # PRESTO loads with plugins enabled, so the handler is registered.
     force_fields = load_force_fields({0: de_path})
     assert "DoubleExponential" in force_fields[0].registered_parameter_handlers
+
+
+def test_convert_to_smirnoff_double_exponential(tmp_path):
+    """Trained DoubleExponential r_min/epsilon are written back to the handler.
+
+    smee gives a DoubleExponential potential the type "vdW", so it flows through
+    the shared ``potential.type == "vdW"`` branch in ``convert_to_smirnoff``. The
+    real handler is resolved from ``parameter_key.associated_handler``
+    ("DoubleExponential") and the trained columns come from
+    ``potential.parameter_cols`` (here ``("epsilon", "r_min")``).
+    """
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML)
+    base_ff = load_force_fields({0: de_path})[0]
+
+    # Original epsilon values (kcal/mol) from DE_OFFXML, kept unchanged below.
+    original_epsilon = {
+        "[#1:1]": 0.06,
+        "[#6:1]": 0.1,
+        "[#8:1]": 0.2,
+    }
+    # New r_min values (angstrom) distinct from the originals (1.2, 1.9, 1.7).
+    new_r_min = {
+        "[#1:1]": 1.5,
+        "[#6:1]": 2.1,
+        "[#8:1]": 1.85,
+    }
+    smirks = ["[#1:1]", "[#6:1]", "[#8:1]"]
+
+    de_pot = smee.TensorPotential(
+        type="vdW",
+        fn=str(smee.EnergyFn.VDW_DEXP),
+        # smee orders DoubleExponential parameters as (epsilon, r_min).
+        parameter_cols=("epsilon", "r_min"),
+        parameter_units=(off_unit.kilocalorie_per_mole, off_unit.angstrom),
+        parameters=torch.tensor([[original_epsilon[s], new_r_min[s]] for s in smirks]),
+        parameter_keys=[
+            openff.interchange.models.PotentialKey(
+                id=s, mult=None, associated_handler="DoubleExponential"
+            )
+            for s in smirks
+        ],
+    )
+
+    ff = smee.TensorForceField(potentials=[de_pot])
+    off_ff = convert_to_smirnoff(ff, base=base_ff)
+
+    updated_handler = off_ff.get_parameter_handler("DoubleExponential")
+    for s in smirks:
+        parameter = updated_handler[s]
+        # r_min was trained and should be written back.
+        assert parameter.r_min.m_as(off_unit.angstrom) == pytest.approx(new_r_min[s])
+        # epsilon was passed through unchanged.
+        assert parameter.epsilon.m_as(off_unit.kilocalorie_per_mole) == pytest.approx(
+            original_epsilon[s]
+        )

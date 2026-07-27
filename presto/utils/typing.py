@@ -19,6 +19,9 @@ ValenceType = Literal[
     "LinearAngles",
     "ProperTorsions",
     "ImproperTorsions",
+    # smee labels both Lennard-Jones and DoubleExponential potentials with type
+    # "vdW", so this is the training-config key for either nonbonded form.
+    "vdW",
 ]
 
 NonLinearValenceType = Literal[
@@ -26,6 +29,10 @@ NonLinearValenceType = Literal[
     "Angles",
     "ProperTorsions",
     "ImproperTorsions",
+    # OpenFF handler names used for bespoke type generation. "DoubleExponential"
+    # is the plugin nonbonded handler; "vdW" is standard Lennard-Jones.
+    "vdW",
+    "DoubleExponential",
 ]
 
 AllowedAttributeType = Literal[

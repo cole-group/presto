@@ -41,7 +41,13 @@ def _add_legend_if_labels(ax: Axes, **kwargs: Any) -> None:
 
 
 POTENTIAL_KEYS = Literal[
-    "Bonds", "Angles", "ProperTorsions", "ImproperTorsions", "vdW", "Electrostatics"
+    "Bonds",
+    "Angles",
+    "ProperTorsions",
+    "ImproperTorsions",
+    "vdW",
+    "DoubleExponential",
+    "Electrostatics",
 ]
 
 
@@ -383,8 +389,10 @@ def plot_ff_differences(
     labeled_start = force_fields[iterations[0]].label_molecules(topology)[0]
     labeled_end = force_fields[iterations[-1]].label_molecules(topology)[0]
 
-    objects_start = set(labeled_start[potential_type].values())
-    objects_end = set(labeled_end[potential_type].values())
+    # The handler may be absent (e.g. a standard force field has no
+    # "DoubleExponential", a double-exponential force field has no "vdW").
+    objects_start = set(labeled_start.get(potential_type, {}).values())
+    objects_end = set(labeled_end.get(potential_type, {}).values())
 
     if not objects_start and not objects_end:
         return {}
@@ -453,13 +461,17 @@ def plot_ff_values(
     # Get the desired ids
     first_ff = force_fields[next(iter(force_fields.keys()))]
     labeled = first_ff.label_molecules(molecule.to_topology())[0]
+    # The handler may be absent (e.g. a standard force field has no
+    # "DoubleExponential", a double-exponential force field has no "vdW").
+    if potential_type not in labeled:
+        return
     potentials_set = set(labeled[potential_type].values())
     param_ids = sorted([p.id for p in potentials_set])
 
     for i, ff in force_fields.items():
         # Get the initial and final potentials
         labeled = ff.label_molecules(molecule.to_topology())[0]
-        objects = set(labeled[potential_type].values())
+        objects = set(labeled.get(potential_type, {}).values())
 
         if not objects:
             return
@@ -519,6 +531,8 @@ pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
         "k4",
     ],  # "phase1", "phase2", "phase3", "phase4"],
     "ImproperTorsions": ["k1"],  # "phase1"],
+    "vdW": ["epsilon", "sigma"],
+    "DoubleExponential": ["r_min", "epsilon"],
 }
 
 
