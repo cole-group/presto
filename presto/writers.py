@@ -231,7 +231,7 @@ def get_potential_comparison(
     )
     output.append(f"fn={pot1.fn}")
 
-    if pot1.attributes is not None:
+    if pot1.attributes is not None and pot2.attributes is not None:
         assert pot1.attribute_units is not None, (
             "Attribute units are None even though attributes are not None"
         )
@@ -241,7 +241,8 @@ def get_potential_comparison(
         attribute_rows = [
             {
                 f"{col}{pot1.attribute_units[idx]}": (
-                    f"{pot1.attributes[idx].item():.4f} "
+                    f"{pot1.attributes[idx].item():.4f} --> "
+                    f"{pot2.attributes[idx].item():.4f}"
                 )
                 for idx, col in enumerate(pot1.attribute_cols)
             }

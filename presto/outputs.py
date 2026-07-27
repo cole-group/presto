@@ -75,6 +75,12 @@ class OutputType(Enum):
     """Plot of parameter differences (fitted - initial) after fitting. Note that the 'initial' force field
     is the one used for the initial sampling, after the MSM step."""
 
+    HANDLER_ATTRIBUTES_PLOT = "handler_attributes.png"
+    """Plot of handler-level attribute values across fitting iterations, e.g. the
+    'alpha' and 'beta' shape parameters of a double-exponential vdW potential. Unlike
+    the per-parameter plots these are global to the force field, so a single plot
+    covers all molecules."""
+
     # PDB outputs for torsion-minimised structures
     ML_MINIMISED_PDB = "ml_minimised.pdb"
     """PDB file containing structures minimised using the machine-learned potential."""
@@ -180,6 +186,7 @@ class WorkflowPathManager:
                 OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
                 OutputType.PARAMETER_VALUES_PLOT,
                 OutputType.PARAMETER_DIFFERENCES_PLOT,
+                OutputType.HANDLER_ATTRIBUTES_PLOT,
                 OutputType.TORSION_SAMPLING_PLOT,
             },
         }

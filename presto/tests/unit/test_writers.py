@@ -129,8 +129,11 @@ def test_get_potential_comparison_with_attributes():
     pot2 = MagicMock(spec=smee.TensorPotential)
     pot2.type = "vdW"
     pot2.parameters = torch.tensor([[1.1, 2.1]])
+    pot2.attributes = torch.tensor([0.6])
 
     comparison = get_potential_comparison(pot1, pot2)
     assert "vdW" in comparison
     assert "attributes=" in comparison
-    assert "0.5000" in comparison
+    # Attributes are reported as a before -> after change, like the parameters, so
+    # that trained values (e.g. double-exponential alpha/beta) are visible.
+    assert "0.5000 --> 0.6000" in comparison

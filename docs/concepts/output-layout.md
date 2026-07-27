@@ -53,6 +53,7 @@ Aggregated diagnostic plots across all iterations.
 - `force_error_by_atom_index_mol<n>.png` — force error broken down by atom.
 - `parameter_values_mol<n>.png` — fitted parameter values vs the starting force field.
 - `parameter_differences_mol<n>.png` — change in each parameter from the starting force field.
+- `handler_attributes.png` — handler-level attributes (e.g. double-exponential `alpha`/`beta`) across iterations. These are global to the force field, so there is one plot rather than one per molecule.
 - `torsion_sampling_mol<n>.png` — dihedral coverage during training trajectories.
 
 ## Per-molecule outputs

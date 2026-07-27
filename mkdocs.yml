@@ -34,6 +34,7 @@ nav:
   - Fit a congeneric series: how-to/fit-congeneric-series.md
   - Use SDF inputs: how-to/use-sdf-inputs.md
   - Use custom charges: how-to/use-custom-charges.md
+  - Train double-exponential vdW parameters: how-to/train-double-exponential.md
   - Clean and rerun a fit: how-to/clean-rerun.md
   - Choose an MLP: how-to/choose-an-mlp.md
   - Use an ASE calculator: how-to/use-ase-calculator.md

@@ -11,6 +11,8 @@ import openff.toolkit
 import smee
 import smee.converters
 import torch
+from openff.toolkit.typing.engines.smirnoff.parameters import ParameterAttribute
+from openff.toolkit.utils.exceptions import ParameterLookupError
 from openff.units import Quantity
 from openff.units import unit as off_unit
 
@@ -30,6 +32,17 @@ _RADIANS = off_unit.radians
 _KCAL_PER_MOL = off_unit.kilocalories_per_mole
 _KCAL_PER_MOL_ANGSQ = off_unit.kilocalories_per_mole / off_unit.angstrom**2
 _KCAL_PER_MOL_RADSQ = off_unit.kilocalories_per_mole / off_unit.radians**2
+
+# smee names the 1-n exclusion scales with an underscore, whereas the OpenFF (and
+# smirnoff-plugins) parameter handlers declare them without one. Without this mapping
+# ``setattr`` would quietly create a dead instance attribute and the trained scale
+# would never reach the written force field.
+_SMEE_TO_HANDLER_ATTR = {
+    "scale_12": "scale12",
+    "scale_13": "scale13",
+    "scale_14": "scale14",
+    "scale_15": "scale15",
+}
 
 
 def _reflect_angle(angle: float) -> float:
@@ -206,7 +219,14 @@ def convert_to_smirnoff(
                         strict=True,
                     )
                 ):
-                    setattr(handler, attr_name, float(opt_attributes[j]) * unit)
+                    handler_attr = _SMEE_TO_HANDLER_ATTR.get(attr_name, attr_name)
+                    if not hasattr(type(handler), handler_attr):
+                        logger.warning(
+                            f"Handler {type(handler).__name__} has no attribute "
+                            f"{handler_attr}, so it cannot be written back"
+                        )
+                        continue
+                    setattr(handler, handler_attr, float(opt_attributes[j]) * unit)
 
             # Update per-atom parameters, matched by SMIRKS
             for parameter, parameter_key in zip(
@@ -231,12 +251,45 @@ def convert_to_smirnoff(
                         setattr(
                             ff_parameter, param_name, float(opt_parameters[j]) * unit
                         )
-                except KeyError:
+                except (ParameterLookupError, KeyError):
                     logger.warning(
                         f"Parameter with SMIRKS {smirks} not found in handler"
                     )
 
     return ff_smirnoff
+
+
+def coerce_dimensionless_attributes(off_ff: openff.toolkit.ForceField) -> None:
+    """Restore ``Quantity`` typing for dimensionless handler attributes, in place.
+
+    The toolkit skips the ``ParameterAttribute`` setter when a value read from an
+    offxml already equals the declared default, so the raw ``float`` parsed from the
+    XML survives. ``openff-interchange`` then rejects it, because the corresponding
+    collection field is typed as a ``Quantity``. This only bites for dimensionless
+    attributes (a value with units is always parsed into a ``Quantity``), the
+    ``DoubleExponential`` ``alpha``/``beta`` pair being the case that matters here.
+
+    Args:
+        off_ff: The force field to fix up. Modified in place.
+    """
+    for handler_name in off_ff.registered_parameter_handlers:
+        handler = off_ff.get_parameter_handler(handler_name)
+
+        for attr_name, attribute in type(handler)._get_parameter_attributes().items():
+            if (
+                not isinstance(attribute, ParameterAttribute)
+                or getattr(attribute, "_unit", None) != _UNITLESS
+            ):
+                continue
+
+            value = getattr(handler, attr_name)
+            if isinstance(value, Quantity):
+                continue
+
+            logger.debug(
+                f"Coercing {handler_name}.{attr_name} to a dimensionless Quantity"
+            )
+            setattr(handler, attr_name, float(value) * _UNITLESS)
 
 
 def parameterise(
@@ -276,6 +329,7 @@ def parameterise(
     mols = settings.openff_molecules
 
     off_ff = openff.toolkit.ForceField(settings.initial_force_field, load_plugins=True)
+    coerce_dimensionless_attributes(off_ff)
 
     # First check required as Parsely does not contain constraints
     if "Constraints" in off_ff.registered_parameter_handlers:

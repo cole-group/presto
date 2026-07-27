@@ -19,6 +19,7 @@ from presto.analyse import (
     plot_distributions_of_errors,
     plot_energy_correlation,
     plot_error_statistics,
+    plot_ff_attributes,
     plot_ff_differences,
     plot_ff_values,
     plot_force_error_by_atom_idx,
@@ -31,6 +32,7 @@ from presto.analyse import (
 )
 from presto.outputs import OutputStage, OutputType, StageKind
 from presto.settings import WorkflowSettings
+from presto.tests.unit.test_convert import _de_offxml
 
 # Use non-interactive backend for tests
 matplotlib.use("Agg")
@@ -501,6 +503,74 @@ class TestPlotAllFfs:
         fig, axs = plot_all_ffs(force_fields, test_molecule, "differences")
         assert fig is not None
         assert axs is not None
+        plt.close(fig)
+
+
+class TestPlotFFAttributes:
+    """Tests for plot_ff_attributes.
+
+    Handler-level attributes such as the double-exponential alpha/beta are global to
+    the force field, so they never show up in the per-SMIRKS parameter plots.
+    """
+
+    def _double_exponential_ffs(self, tmp_path: Path) -> dict[int, ForceField]:
+        paths = {}
+
+        for i, (alpha, beta) in enumerate([("16.8", "4.4"), ("18.2", "4.9")]):
+            path = tmp_path / f"de_{i}.offxml"
+            path.write_text(_de_offxml(alpha=alpha, beta=beta))
+            paths[i] = path
+
+        return load_force_fields(paths)
+
+    def test_plots_alpha_and_beta(self, tmp_path: Path) -> None:
+        """Both alpha and beta are plotted against iteration with their force field values."""
+        force_fields = self._double_exponential_ffs(tmp_path)
+
+        fig, axs = plt.subplots(1, 4)
+        plot_ff_attributes(fig, axs, force_fields)
+
+        alpha_ax, beta_ax = axs[0], axs[1]
+        assert alpha_ax.get_title() == "DoubleExponential alpha"
+        assert beta_ax.get_title() == "DoubleExponential beta"
+
+        alpha_line = alpha_ax.get_lines()[0]
+        assert list(alpha_line.get_xdata()) == [0, 1]
+        assert list(alpha_line.get_ydata()) == pytest.approx([16.8, 18.2])
+
+        beta_line = beta_ax.get_lines()[0]
+        assert list(beta_line.get_ydata()) == pytest.approx([4.4, 4.9])
+
+        # The remaining handlers are absent from this force field, so their axes are
+        # left blank rather than raising.
+        assert not axs[2].axison
+        plt.close(fig)
+
+    def test_skips_missing_handlers(self, force_fields: dict[int, ForceField]) -> None:
+        """A force field with no DoubleExponential handler is silently skipped."""
+        fig, axs = plt.subplots(1, 4)
+        plot_ff_attributes(fig, axs, force_fields)
+
+        titles = [ax.get_title() for ax in axs if ax.axison]
+        assert not any("DoubleExponential" in title for title in titles)
+        plt.close(fig)
+
+    @pytest.mark.parametrize("plot_fn", [plot_ff_values, plot_ff_differences])
+    def test_parameter_plots_handle_missing_ids(self, tmp_path: Path, plot_fn) -> None:
+        """Parameters without an id are plotted by SMIRKS instead.
+
+        The stock parameters of a plugin handler such as DoubleExponential carry no
+        id, and ``None`` is neither sortable against other ``None``s nor unique as a
+        dict key.
+        """
+        force_fields = self._double_exponential_ffs(tmp_path)
+        molecule = Molecule.from_smiles("CCO")
+
+        fig, ax = plt.subplots()
+        plot_fn(fig, ax, force_fields, molecule, "DoubleExponential", "r_min")
+
+        labels = {label.get_text() for label in ax.get_xticklabels()}
+        assert labels == {"[#1:1]", "[#6:1]", "[#8:1]"}
         plt.close(fig)
 
 

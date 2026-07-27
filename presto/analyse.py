@@ -19,6 +19,7 @@ from PIL import Image
 from rdkit.Chem import Draw
 from rich.progress import track
 
+from .convert import coerce_dimensionless_attributes
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
@@ -104,9 +105,16 @@ def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
     return pd.concat(df_rows, ignore_index=True)
 
 
-def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
+def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, ForceField]:
     """Load the .offxml files from the given paths."""
-    return {i: ForceField(p, load_plugins=True) for i, p in paths_by_iter.items()}
+    force_fields = {}
+
+    for i, path in paths_by_iter.items():
+        force_field = ForceField(path, load_plugins=True)
+        coerce_dimensionless_attributes(force_field)
+        force_fields[i] = force_field
+
+    return force_fields
 
 
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
@@ -374,6 +382,17 @@ def plot_error_statistics(
     # plot_mean_errors(fig, axs[5], errors, "force")
 
 
+def _parameter_label(parameter: Any) -> str:
+    """Label a force field parameter for plotting.
+
+    Not every parameter carries an ``id``: the stock parameters of a plugin handler
+    such as ``DoubleExponential`` have none, and ``None`` is neither sortable against
+    other ``None``s nor unique as a dict key. Fall back to the SMIRKS, which is always
+    present and unique within a handler.
+    """
+    return parameter.id if parameter.id is not None else parameter.smirks
+
+
 def plot_ff_differences(
     fig: Figure,
     ax: Axes,
@@ -398,8 +417,8 @@ def plot_ff_differences(
         return {}
 
     # Convert to dicts with the id as the key
-    potentials_start = {p.id: p.to_dict() for p in objects_start}
-    potentials_end = {p.id: p.to_dict() for p in objects_end}
+    potentials_start = {_parameter_label(p): p.to_dict() for p in objects_start}
+    potentials_end = {_parameter_label(p): p.to_dict() for p in objects_end}
 
     # Param ids
     if set(potentials_start.keys()) != set(potentials_end.keys()):
@@ -466,7 +485,7 @@ def plot_ff_values(
     if potential_type not in labeled:
         return
     potentials_set = set(labeled[potential_type].values())
-    param_ids = sorted([p.id for p in potentials_set])
+    param_ids = sorted(_parameter_label(p) for p in potentials_set)
 
     for i, ff in force_fields.items():
         # Get the initial and final potentials
@@ -477,7 +496,7 @@ def plot_ff_values(
             return
 
         # Convert to dicts with the id as the key
-        potentials = {p.id: p.to_dict() for p in objects}
+        potentials = {_parameter_label(p): p.to_dict() for p in objects}
         # Make sure that we have exactly the same ids as the first ff
         if set(potentials.keys()) != set(param_ids):
             raise ValueError(
@@ -519,6 +538,79 @@ def plot_ff_values(
     ax.set_ylabel(f"{parameter_key} / {q_units}")
     ax.set_xlabel("Key ID")
     ax.set_title(f"{potential_type} {parameter_key}")
+
+
+handler_attribute_keys: dict[POTENTIAL_KEYS, list[str]] = {
+    # Handler-level attributes worth tracking across iterations. These are global
+    # to the force field rather than per-SMIRKS, so they never appear in the
+    # label_molecules-based parameter plots. "alpha" and "beta" are the shape
+    # parameters of the double-exponential vdW form.
+    "DoubleExponential": ["alpha", "beta"],
+    "vdW": ["scale14"],
+    "Electrostatics": ["scale14"],
+}
+
+
+def plot_ff_attributes(
+    fig: Figure,
+    axs: npt.NDArray[Any],
+    force_fields: dict[int, ForceField],
+    attribute_keys: dict[POTENTIAL_KEYS, list[str]] | None = None,
+) -> None:
+    """Plot handler-level force field attributes across all fitting iterations.
+
+    Args:
+        fig: The figure to plot onto.
+        axs: A flat array of axes, at least as long as the total number of
+            attributes in ``attribute_keys``. Unused axes are hidden.
+        force_fields: The force field for each fitting iteration.
+        attribute_keys: The attributes to plot for each handler. Defaults to
+            ``handler_attribute_keys``. Handlers absent from a force field, and
+            attributes absent from a handler, are skipped.
+    """
+    attribute_keys = (
+        handler_attribute_keys if attribute_keys is None else attribute_keys
+    )
+    iterations = sorted(force_fields)
+
+    axs_flat = np.asarray(axs).flatten()
+    ax_idx = 0
+
+    for handler_name, attr_names in attribute_keys.items():
+        for attr_name in attr_names:
+            values = []
+
+            for i in iterations:
+                force_field = force_fields[i]
+                if handler_name not in force_field.registered_parameter_handlers:
+                    break
+
+                handler = force_field.get_parameter_handler(handler_name)
+                if not hasattr(handler, attr_name):
+                    break
+
+                value = getattr(handler, attr_name)
+                # Attributes may be plain floats or (possibly dimensionless)
+                # Quantities depending on how the offxml was written.
+                values.append(
+                    value.m if isinstance(value, units.Quantity) else float(value)
+                )
+
+            if len(values) != len(iterations):
+                continue
+
+            ax = axs_flat[ax_idx]
+            ax_idx += 1
+            ax.plot(iterations, values, marker="o")
+            ax.set_xlabel("Iteration")
+            ax.set_ylabel(attr_name)
+            ax.set_title(f"{handler_name} {attr_name}")
+            ax.set_xticks(iterations)
+
+    for ax in axs_flat[ax_idx:]:
+        ax.axis("off")
+
+    fig.tight_layout()
 
 
 pot_types_and_param_keys: dict[POTENTIAL_KEYS, list[str]] = {
@@ -892,3 +984,17 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             param_diff_plot_path_mol = get_mol_path(param_diff_plot_path, mol_idx)
             fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
             plt.close(fig)
+
+        # Handler-level attributes (e.g. double-exponential alpha/beta) are global to
+        # the force field, so a single plot covers all molecules.
+        n_attributes = sum(len(keys) for keys in handler_attribute_keys.values())
+        fig, axs = plt.subplots(1, n_attributes, figsize=(n_attributes * 5, 5))
+        plot_ff_attributes(fig, np.atleast_1d(axs), ff_paths)
+        fig.savefig(
+            str(
+                path_manager.get_output_path(stage, OutputType.HANDLER_ATTRIBUTES_PLOT)
+            ),
+            dpi=300,
+            bbox_inches="tight",
+        )
+        plt.close(fig)

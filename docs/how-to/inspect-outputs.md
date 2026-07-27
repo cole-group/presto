@@ -36,6 +36,12 @@ Fitted parameter values, and the change from the starting force field. The "init
 
 - **Use**: look for individual parameters that have moved unreasonably far from their starting value. The regularisation penalty on torsion `k` biases torsions towards to their starting point, but is fairly weak by default.
 
+### `plots/handler_attributes.png`
+
+Handler-level attributes across fitting iterations, such as the `alpha` and `beta` shape parameters of a double-exponential vdW potential. These are global to the force field rather than per-SMIRKS, so there is a single plot covering all molecules. Axes are left blank for handlers your force field does not use.
+
+- **Use**: check that any [trained attributes](train-double-exponential.md) are moving smoothly and staying inside their configured `limits`.
+
 ### `plots/torsion_sampling_mol<n>.png`
 
 Dihedral angle coverage during training trajectories.

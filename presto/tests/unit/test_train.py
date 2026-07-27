@@ -7,13 +7,16 @@ import pytest
 import smee
 import smee.converters
 import torch
-from descent.train import ParameterConfig, Trainable
+from descent.train import AttributeConfig, ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 from openff.units import unit
 
+from presto.analyse import load_force_fields
+from presto.convert import convert_to_smirnoff
 from presto.data_utils import create_dataset_with_uniform_weights
 from presto.outputs import OutputType
 from presto.settings import TrainingSettings
+from presto.tests.unit.test_convert import DE_OFFXML
 from presto.train import train_adam, train_levenberg_marquardt
 
 
@@ -788,3 +791,120 @@ class TestExcludedTorsionsNotTrained:
                 assert not torch.allclose(
                     initial_k[idx], modified_k[idx], atol=1e-10
                 ), f"Non-excluded torsion {key.id} did not change as expected."
+
+
+class TestDoubleExponentialAttributes:
+    """Tests for training the alpha and beta attributes of the double-exponential vdW form.
+
+    ``alpha`` and ``beta`` are global to the force field rather than per-atom, so smee
+    stores them in ``potential.attributes`` and the training hook is descent's
+    ``AttributeConfig`` (via ``TrainingSettings.attribute_configs``) rather than a
+    ``ParameterConfig``. Note that smee relabels the DoubleExponential potential type
+    as "vdW", which is why that is the config key.
+    """
+
+    @pytest.fixture
+    def dexp_setup(self, tmp_path):
+        """Build a double-exponential force field, tensor force field and conformer."""
+        de_path = tmp_path / "double_exponential.offxml"
+        de_path.write_text(DE_OFFXML)
+        off_ff = load_force_fields({0: de_path})[0]
+
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=1)
+
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            off_ff, mol.to_topology()
+        )
+        tensor_ff, [tensor_top] = smee.converters.convert_interchange([interchange])
+
+        coords = torch.tensor(
+            mol.conformers[0].m_as("angstrom"), dtype=torch.float64
+        ).unsqueeze(0)
+
+        return {
+            "off_ff": off_ff,
+            "tensor_ff": tensor_ff,
+            "tensor_top": tensor_top,
+            "coords": coords,
+        }
+
+    @staticmethod
+    def _attribute_config() -> AttributeConfig:
+        return AttributeConfig(
+            cols=["alpha", "beta"],
+            # The double-exponential energy contains 1 / (alpha - beta), so the two
+            # ranges must stay well separated to avoid a singularity.
+            limits={"alpha": (8.0, 40.0), "beta": (1.0, 8.0)},
+            scales={"alpha": 1.0, "beta": 1.0},
+        )
+
+    def test_alpha_beta_are_trainable_values(self, dexp_setup):
+        """Both alpha and beta appear in the trainable vector with their force field values."""
+        trainable = Trainable(
+            dexp_setup["tensor_ff"], {}, {"vdW": self._attribute_config()}
+        )
+        values = trainable.to_values()
+
+        assert values.shape == (2,)
+        assert values[0].item() == pytest.approx(16.8)
+        assert values[1].item() == pytest.approx(4.4)
+        assert values.requires_grad
+
+    def test_alpha_beta_receive_gradients(self, dexp_setup):
+        """Energies computed through the trained force field are differentiable in alpha/beta."""
+        trainable = Trainable(
+            dexp_setup["tensor_ff"], {}, {"vdW": self._attribute_config()}
+        )
+        values = trainable.to_values()
+
+        energy = smee.compute_energy(
+            dexp_setup["tensor_top"],
+            trainable.to_force_field(values),
+            dexp_setup["coords"],
+        )
+        energy.sum().backward()
+
+        assert values.grad is not None
+        assert torch.all(values.grad != 0.0)
+        assert torch.all(torch.isfinite(values.grad))
+
+    def test_alpha_beta_are_clamped_to_limits(self, dexp_setup):
+        """The configured limits keep alpha above beta, avoiding the 1 / (alpha - beta) singularity."""
+        trainable = Trainable(
+            dexp_setup["tensor_ff"], {}, {"vdW": self._attribute_config()}
+        )
+
+        clamped = trainable.clamp(torch.tensor([1.0, 100.0], dtype=torch.float64))
+
+        assert clamped[0].item() == pytest.approx(8.0)
+        assert clamped[1].item() == pytest.approx(8.0)
+
+    def test_trained_alpha_beta_round_trip_to_smirnoff(self, dexp_setup):
+        """Trained alpha/beta are written back and survive a reload and re-parameterisation."""
+        trainable = Trainable(
+            dexp_setup["tensor_ff"], {}, {"vdW": self._attribute_config()}
+        )
+        values = trainable.to_values()
+
+        with torch.no_grad():
+            values[0] = 20.0
+            values[1] = 5.0
+
+        off_ff = convert_to_smirnoff(
+            trainable.to_force_field(values), base=dexp_setup["off_ff"]
+        )
+        handler = off_ff.get_parameter_handler("DoubleExponential")
+        assert handler.alpha.m_as(unit.dimensionless) == pytest.approx(20.0)
+        assert handler.beta.m_as(unit.dimensionless) == pytest.approx(5.0)
+
+        # The written force field must still be usable for the next sampling round.
+        mol = Molecule.from_smiles("CCO")
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            off_ff, mol.to_topology()
+        )
+        reloaded_ff, _ = smee.converters.convert_interchange([interchange])
+        potential = reloaded_ff.potentials_by_type["vdW"]
+        assert potential.attributes[
+            potential.attribute_cols.index("alpha")
+        ].item() == pytest.approx(20.0)

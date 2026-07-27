@@ -6,7 +6,9 @@ import openff.interchange
 import openff.toolkit
 import pytest
 import smee
+import smee.converters
 import torch
+from loguru import logger
 from openff.toolkit import ForceField
 from openff.units import unit as off_unit
 
@@ -706,9 +708,12 @@ class TestParameteriseExtended:
 # Minimal double-exponential force field, using the DoubleExponential vdW handler
 # provided by smirnoff-plugins (as in https://github.com/jthorton/de-forcefields).
 # This section can only be parsed when the force field is loaded with plugins enabled.
-DE_OFFXML = """<?xml version="1.0" encoding="utf-8"?>
+# alpha and beta deliberately match the published de-force values rather than the
+# handler defaults; see DE_OFFXML_DEFAULT_ALPHA_BETA below for why that matters.
+def _de_offxml(alpha: str = "16.8", beta: str = "4.4") -> str:
+    return f"""<?xml version="1.0" encoding="utf-8"?>
 <SMIRNOFF version="0.3" aromaticity_model="OEAroModel_MDL">
-  <DoubleExponential version="0.3" alpha="18.7" beta="3.3" scale14="0.5" scale15="1.0"
+  <DoubleExponential version="0.3" alpha="{alpha}" beta="{beta}" scale14="0.5" scale15="1.0"
       cutoff="9.0 * angstrom" switch_width="1.0 * angstrom"
       periodic_method="cutoff" nonperiodic_method="no-cutoff">
     <Atom smirks="[#1:1]" r_min="1.2 * angstrom" epsilon="0.06 * kilocalorie_per_mole"/>
@@ -717,6 +722,15 @@ DE_OFFXML = """<?xml version="1.0" encoding="utf-8"?>
   </DoubleExponential>
 </SMIRNOFF>
 """
+
+
+DE_OFFXML = _de_offxml()
+
+# The same force field with alpha and beta at the handler's declared defaults. The
+# toolkit skips the ParameterAttribute setter when a parsed value already equals the
+# default, leaving a bare float where openff-interchange requires a Quantity, so this
+# force field only parameterises once ``coerce_dimensionless_attributes`` has run.
+DE_OFFXML_DEFAULT_ALPHA_BETA = _de_offxml(alpha="18.7", beta="3.3")
 
 
 def test_load_double_exponential_force_field(tmp_path):
@@ -792,3 +806,165 @@ def test_convert_to_smirnoff_double_exponential(tmp_path):
         assert parameter.epsilon.m_as(off_unit.kilocalorie_per_mole) == pytest.approx(
             original_epsilon[s]
         )
+
+
+def _de_attribute_potential(**overrides: float) -> smee.TensorPotential:
+    """Build a DoubleExponential potential with smee's full set of attributes."""
+    attributes = {
+        "scale_12": 0.0,
+        "scale_13": 0.0,
+        "scale_14": 0.5,
+        "scale_15": 1.0,
+        "cutoff": 9.0,
+        "switch_width": 1.0,
+        "alpha": 16.8,
+        "beta": 4.4,
+    }
+    attributes.update(overrides)
+
+    smirks = ["[#1:1]", "[#6:1]", "[#8:1]"]
+
+    return smee.TensorPotential(
+        type="vdW",
+        fn=str(smee.EnergyFn.VDW_DEXP),
+        parameter_cols=("epsilon", "r_min"),
+        parameter_units=(off_unit.kilocalorie_per_mole, off_unit.angstrom),
+        parameters=torch.tensor([[0.06, 1.2], [0.1, 1.9], [0.2, 1.7]]),
+        parameter_keys=[
+            openff.interchange.models.PotentialKey(
+                id=s, mult=None, associated_handler="DoubleExponential"
+            )
+            for s in smirks
+        ],
+        attribute_cols=tuple(attributes),
+        attribute_units=(
+            off_unit.dimensionless,
+            off_unit.dimensionless,
+            off_unit.dimensionless,
+            off_unit.dimensionless,
+            off_unit.angstrom,
+            off_unit.angstrom,
+            off_unit.dimensionless,
+            off_unit.dimensionless,
+        ),
+        attributes=torch.tensor(list(attributes.values())),
+    )
+
+
+def test_convert_to_smirnoff_writes_dexp_attributes(tmp_path):
+    """Trained handler-level attributes are written back to the DoubleExponential handler.
+
+    ``alpha`` and ``beta`` are not per-atom rows; smee stores them (alongside the
+    exclusion scales, the cutoff and the switch width) in ``potential.attributes``.
+    smee names the exclusion scales ``scale_1X`` whereas the handler declares
+    ``scale1X``, so the write-back has to map between the two.
+    """
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML)
+    base_ff = load_force_fields({0: de_path})[0]
+
+    potential = _de_attribute_potential(
+        alpha=20.0, beta=5.0, scale_14=0.75, cutoff=10.0, switch_width=1.5
+    )
+    off_ff = convert_to_smirnoff(
+        smee.TensorForceField(potentials=[potential]), base=base_ff
+    )
+
+    handler = off_ff.get_parameter_handler("DoubleExponential")
+    assert handler.alpha.m_as(off_unit.dimensionless) == pytest.approx(20.0)
+    assert handler.beta.m_as(off_unit.dimensionless) == pytest.approx(5.0)
+    assert handler.cutoff.m_as(off_unit.angstrom) == pytest.approx(10.0)
+    assert handler.switch_width.m_as(off_unit.angstrom) == pytest.approx(1.5)
+    # The exclusion scale must land on the handler's own attribute, not on a stray
+    # instance attribute using smee's underscored name.
+    assert handler.scale14 == pytest.approx(0.75)
+    assert "scale_14" not in vars(handler)
+
+
+def test_convert_to_smirnoff_dexp_attributes_survive_round_trip(tmp_path):
+    """A written force field reloads and re-parameterises with the trained attributes."""
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML)
+    base_ff = load_force_fields({0: de_path})[0]
+
+    potential = _de_attribute_potential(alpha=20.0, beta=5.0)
+    off_ff = convert_to_smirnoff(
+        smee.TensorForceField(potentials=[potential]), base=base_ff
+    )
+
+    written_path = tmp_path / "trained.offxml"
+    off_ff.to_file(str(written_path))
+
+    reloaded = load_force_fields({0: written_path})[0]
+    handler = reloaded.get_parameter_handler("DoubleExponential")
+    assert handler.alpha.m_as(off_unit.dimensionless) == pytest.approx(20.0)
+    assert handler.beta.m_as(off_unit.dimensionless) == pytest.approx(5.0)
+
+    molecule = openff.toolkit.Molecule.from_smiles("CCO")
+    interchange = openff.interchange.Interchange.from_smirnoff(
+        reloaded, molecule.to_topology()
+    )
+    tensor_ff, _ = smee.converters.convert_interchange([interchange])
+    tensor_potential = tensor_ff.potentials_by_type["vdW"]
+    alpha_idx = tensor_potential.attribute_cols.index("alpha")
+    beta_idx = tensor_potential.attribute_cols.index("beta")
+    assert tensor_potential.attributes[alpha_idx].item() == pytest.approx(20.0)
+    assert tensor_potential.attributes[beta_idx].item() == pytest.approx(5.0)
+
+
+def test_parameterise_dexp_with_default_alpha_beta(tmp_path):
+    """A force field with alpha/beta at the plugin defaults still parameterises.
+
+    Without ``coerce_dimensionless_attributes`` the toolkit leaves the raw floats
+    parsed from the XML in place and openff-interchange rejects them with an opaque
+    "Invalid type <class 'float'> for Quantity" validation error.
+    """
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML_DEFAULT_ALPHA_BETA)
+
+    # Control: loading without the coercion leaves bare floats behind.
+    raw_handler = ForceField(de_path, load_plugins=True).get_parameter_handler(
+        "DoubleExponential"
+    )
+    assert not isinstance(raw_handler.alpha, off_unit.Quantity)
+
+    force_field = load_force_fields({0: de_path})[0]
+    handler = force_field.get_parameter_handler("DoubleExponential")
+    assert handler.alpha.m_as(off_unit.dimensionless) == pytest.approx(18.7)
+    assert handler.beta.m_as(off_unit.dimensionless) == pytest.approx(3.3)
+
+    molecule = openff.toolkit.Molecule.from_smiles("CCO")
+    openff.interchange.Interchange.from_smirnoff(force_field, molecule.to_topology())
+
+
+def test_convert_to_smirnoff_missing_smirks_warns(tmp_path):
+    """A SMIRKS absent from the handler is warned about rather than raising.
+
+    ``handler[smirks]`` raises ``ParameterLookupError``, not ``KeyError``, so catching
+    only the latter would let the error escape.
+    """
+    de_path = tmp_path / "double_exponential.offxml"
+    de_path.write_text(DE_OFFXML)
+    base_ff = load_force_fields({0: de_path})[0]
+
+    potential = smee.TensorPotential(
+        type="vdW",
+        fn=str(smee.EnergyFn.VDW_DEXP),
+        parameter_cols=("epsilon", "r_min"),
+        parameter_units=(off_unit.kilocalorie_per_mole, off_unit.angstrom),
+        parameters=torch.tensor([[0.06, 1.2]]),
+        parameter_keys=[
+            openff.interchange.models.PotentialKey(
+                id="[#7:1]", mult=None, associated_handler="DoubleExponential"
+            )
+        ],
+    )
+
+    messages = []
+    handle = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        convert_to_smirnoff(smee.TensorForceField(potentials=[potential]), base=base_ff)
+    finally:
+        logger.remove(handle)
+
+    assert any("[#7:1] not found in handler" in message for message in messages)

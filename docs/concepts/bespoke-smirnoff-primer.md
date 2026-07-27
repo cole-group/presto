@@ -14,7 +14,7 @@ SMIRNOFF (SMIRKS Native Open Force Field) is OpenFF's force field format. A few 
 
 `presto` starts from a SMIRNOFF force field (default: `openff_unconstrained-2.3.0.offxml`) and appends a small set of (usually) highly specific SMIRKS parameters tailored to your molecule. Because later parameters take precedence, the bespoke parameters take precedence over the generic ones whenever they match.
 
-Only the **valence** parameters are bespoke: bonds, angles, proper torsions, improper torsions. The vdW and electrostatic parameters from the input force field are left alone — see "What `presto` doesn't do" below.
+By default only the **valence** parameters are bespoke: bonds, angles, proper torsions, improper torsions. The vdW and electrostatic parameters from the input force field are left alone unless you opt in — see **[Train double-exponential vdW parameters](../how-to/train-double-exponential.md)**.
 
 ## What an MLP gives you here
 
@@ -43,7 +43,8 @@ For more algorithmic detail, see **[Method overview](method-overview.md)**.
 
 ## What presto does not do
 
-- **Fit charges or vdW parameters.** Only valence terms are bespoke. If your molecule has unusual electrostatic or non-bonded behaviour, that's outside `presto`'s scope.
+- **Fit charges.** `presto` never refits the charges assigned by the input force field.
+- **Fit vdW parameters by default.** Only valence terms are bespoke out of the box. vdW fitting is opt-in and off unless you configure it — see **[Train double-exponential vdW parameters](../how-to/train-double-exponential.md)**.
 - **Add polarisability.** SMIRNOFF is a fixed-charge format.
 - **Provide transferable parameters.** The bespoke parameters are tuned to *your* molecules.
 - **Check you've selected a suitable MLP for your system.** The MLP's accuracy ceiling is the QM method it was trained on, and your molecule(s) of interest may be dissimilar to the MLP training set (e.g. your molecule is charged but the MLP training set is neutral). Picking the right MLP for your chemistry matters — see **[MLPs in presto](mlps.md)**.

@@ -4,15 +4,25 @@
 
 ### Features
 
+- Support training the `alpha` and `beta` shape parameters of the double-exponential vdW potential via `TrainingSettings.attribute_configs`, e.g. `{"vdW": AttributeConfig(cols=["alpha", "beta"], limits={"alpha": (8.0, 40.0), "beta": (1.0, 8.0)})}`. This is opt-in; the default remains valence-only fitting.
+- Add a `plots/handler_attributes.png` output (`OutputType.HANDLER_ATTRIBUTES_PLOT`) tracking handler-level attributes across fitting iterations. Unlike the parameter plots this is a single figure, since these attributes are global to the force field.
+- Report handler attributes as a before → after change in `writers.get_potential_comparison`, matching how parameters are already reported.
+
 - Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
 ### Fixes
 
 - Fix a latent `IndexError` in the MSM step when fewer conformers were available than `n_conformers`; the conformer loop now iterates the conformers actually present.
+- Write trained 1-n exclusion scales back to the correct handler attribute. `smee` names these `scale_12`…`scale_15` whereas the OpenFF handlers declare `scale12`…`scale15`, so the trained values were previously discarded silently. Attributes a handler does not declare are now warned about rather than written to a dead instance attribute.
+- Catch `ParameterLookupError` (not just `KeyError`) when a trained SMIRKS is absent from the target handler, so the intended warning is actually emitted instead of the error propagating.
+- Prune `TrainingSettings.attribute_configs` against the loaded force field, as was already done for `parameter_configs`. A config for an absent potential type is now warned about and skipped rather than raising a bare `KeyError` inside `descent`.
+- Label parameters by SMIRKS when they carry no `id` in the parameter value/difference plots. The stock parameters of a plugin handler such as `DoubleExponential` have no `id`, which previously crashed the analysis stage with `TypeError: '<' not supported between instances of 'NoneType' and 'NoneType'` and collapsed every such parameter onto one plotted point.
+- Restore `Quantity` typing for dimensionless handler attributes when loading a force field. The toolkit skips the attribute setter when a parsed value equals the declared default, which left e.g. a `DoubleExponential` section with `alpha="18.7" beta="3.3"` failing to parameterise with an opaque pydantic validation error.
 
 ### Documentation
 
+- Add [Train double-exponential vdW parameters](how-to/train-double-exponential.md) how-to guide, and correct the claim in the SMIRNOFF primer that vdW parameters are never fitted.
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).

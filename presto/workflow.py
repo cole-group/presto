@@ -2,10 +2,13 @@
 
 import copy
 import pathlib
+from collections.abc import Mapping
+from typing import TypeVar
 
 import datasets
 import loguru
-from descent.train import Trainable
+import smee
+from descent.train import AttributeConfig, Trainable
 from openff.toolkit import ForceField
 from rich.console import Console
 from rich.progress import (
@@ -29,6 +32,34 @@ from .writers import write_scatter
 
 logger = loguru.logger
 console = Console()
+
+KeyT = TypeVar("KeyT", bound=str)
+ConfigT = TypeVar("ConfigT", bound=AttributeConfig)
+
+
+def _prune_configs(
+    configs: Mapping[KeyT, ConfigT], tensor_ff: smee.TensorForceField
+) -> dict[KeyT, ConfigT]:
+    """Drop training configs for potential types the force field does not contain.
+
+    Both ``parameter_configs`` and ``attribute_configs`` are keyed by potential type,
+    and ``Trainable`` raises a bare ``KeyError`` for a type that is absent from the
+    force field. For example a Lennard-Jones force field has no "LinearBonds" potential
+    unless harmonics were linearised.
+    """
+    pruned = {
+        p_type: config
+        for p_type, config in configs.items()
+        if p_type in tensor_ff.potentials_by_type
+    }
+
+    for p_type in configs.keys() - pruned.keys():
+        logger.warning(
+            f"Ignoring training config for {p_type} as the force field has no "
+            f"potential of that type"
+        )
+
+    return pruned
 
 
 def get_bespoke_force_field(
@@ -77,16 +108,10 @@ def get_bespoke_force_field(
         settings.param_settings, device=settings.device_type
     )
 
-    pruned_parameter_configs = {
-        p_type: p_config
-        for p_type, p_config in settings.training_settings.parameter_configs.items()
-        if p_type in tensor_ff.potentials_by_type
-    }
-
     trainable = Trainable(
         tensor_ff,
-        pruned_parameter_configs,
-        settings.training_settings.attribute_configs,
+        _prune_configs(settings.training_settings.parameter_configs, tensor_ff),
+        _prune_configs(settings.training_settings.attribute_configs, tensor_ff),
     )
 
     trainable_parameters = trainable.to_values().to(settings.device)
