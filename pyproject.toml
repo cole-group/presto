@@ -162,10 +162,10 @@ descent = ">=0.6.0"
 # Install packages via pip: GitHub smee + mace-torch
 [tool.pixi.feature.common.pypi-dependencies]
 presto ={ path = ".", editable = true }
-# openmm-ml from a fork that lets a custom AIMNet2 model be supplied via the
-# `modelPath` kwarg (see https://github.com/cole-group/presto/issues/75).
+# Latest version of OpenMM-ML (unreleased) which provides more flexibility for using AIMNet2 models
+# See https://github.com/cole-group/presto/issues/75).
 # TODO: revert to the conda-forge `openmm-ml` release once the change is merged upstream.
-openmmml = { git = "https://github.com/fjclark/openmm-ml.git", branch = "feature-supply-aimnet2-model" }
+openmmml = { git = "https://github.com/openmm/openmm-ml.git", rev = "1d564a0543779d5c9ea5b297750bede38577978e" }
 
 # -----------------------------
 # GPU vs CPU toggle

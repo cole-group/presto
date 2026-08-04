@@ -435,7 +435,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py312h5253ce2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/7c/2f/f91e4eee21585ff548e83358332d5632ee49f6b2dcd96cb5dca4e0468951/pandas_stubs-3.0.0.260204-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/e0/767be6b60859fd2edc4512fabdedbce703fc8d4ec5007b31abaf37a51c6c/types_cachetools-7.0.0.20260518-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/33/a3449e3e93c43861b92d0a93ed4ea5505756463e507625812cfb29c91c7a/types_colorama-0.4.15.20260508-py3-none-any.whl
@@ -888,7 +888,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py313h54dd161_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/7c/2f/f91e4eee21585ff548e83358332d5632ee49f6b2dcd96cb5dca4e0468951/pandas_stubs-3.0.0.260204-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/e0/767be6b60859fd2edc4512fabdedbce703fc8d4ec5007b31abaf37a51c6c/types_cachetools-7.0.0.20260518-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/33/a3449e3e93c43861b92d0a93ed4ea5505756463e507625812cfb29c91c7a/types_colorama-0.4.15.20260508-py3-none-any.whl
@@ -1376,7 +1376,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py312h5253ce2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/7c/2f/f91e4eee21585ff548e83358332d5632ee49f6b2dcd96cb5dca4e0468951/pandas_stubs-3.0.0.260204-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/e0/767be6b60859fd2edc4512fabdedbce703fc8d4ec5007b31abaf37a51c6c/types_cachetools-7.0.0.20260518-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/33/a3449e3e93c43861b92d0a93ed4ea5505756463e507625812cfb29c91c7a/types_colorama-0.4.15.20260508-py3-none-any.whl
@@ -1862,7 +1862,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.3.3-hceb46e0_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py313h54dd161_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/7c/2f/f91e4eee21585ff548e83358332d5632ee49f6b2dcd96cb5dca4e0468951/pandas_stubs-3.0.0.260204-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/e0/767be6b60859fd2edc4512fabdedbce703fc8d4ec5007b31abaf37a51c6c/types_cachetools-7.0.0.20260518-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/56/33/a3449e3e93c43861b92d0a93ed4ea5505756463e507625812cfb29c91c7a/types_colorama-0.4.15.20260508-py3-none-any.whl
@@ -2384,7 +2384,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3c/ba/79020348dbdaa6786ff2162e11bc56095e0b949e8bb9813dee12ccc1f567/matscipy-1.2.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/97/9f57af74dd92fc5c0af6f8d5a7b8459c103e318d16f3d9dbd863826fccf8/nvalchemi_toolkit_ops-0.2.0-py3-none-any.whl
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/39/c72a8bd8b1244fadec43e756d3eb39e33d2b37405004d45a0eddcca96c6e/orb_models-0.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/91/98a52415059db3f374757d0b7f0f16e3b5cd5976c90d1c2b56acaea039e6/orjson-3.11.7-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -2919,7 +2919,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/74/f6/9862b530ed2df9a4e45bcd468c93b6d39b0c764000f00137ebd63c4404cf/matscipy-1.2.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/97/9f57af74dd92fc5c0af6f8d5a7b8459c103e318d16f3d9dbd863826fccf8/nvalchemi_toolkit_ops-0.2.0-py3-none-any.whl
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/39/c72a8bd8b1244fadec43e756d3eb39e33d2b37405004d45a0eddcca96c6e/orb_models-0.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c9/ec/c68e3b9021a31d9ec15a94931db1410136af862955854ed5dd7e7e4f5bff/orjson-3.11.7-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
@@ -3487,7 +3487,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3c/ba/79020348dbdaa6786ff2162e11bc56095e0b949e8bb9813dee12ccc1f567/matscipy-1.2.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/97/9f57af74dd92fc5c0af6f8d5a7b8459c103e318d16f3d9dbd863826fccf8/nvalchemi_toolkit_ops-0.2.0-py3-none-any.whl
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/39/c72a8bd8b1244fadec43e756d3eb39e33d2b37405004d45a0eddcca96c6e/orb_models-0.6.1-py3-none-any.whl
@@ -4056,7 +4056,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3c/ba/79020348dbdaa6786ff2162e11bc56095e0b949e8bb9813dee12ccc1f567/matscipy-1.2.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/97/9f57af74dd92fc5c0af6f8d5a7b8459c103e318d16f3d9dbd863826fccf8/nvalchemi_toolkit_ops-0.2.0-py3-none-any.whl
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/39/c72a8bd8b1244fadec43e756d3eb39e33d2b37405004d45a0eddcca96c6e/orb_models-0.6.1-py3-none-any.whl
@@ -4623,7 +4623,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/74/f6/9862b530ed2df9a4e45bcd468c93b6d39b0c764000f00137ebd63c4404cf/matscipy-1.2.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e6/ef/2a0971707b21f5490a557c9e1b0ac428d5d47e7ef604536d092ca186a28c/mkdocs_bibtex-4.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/63/97/9f57af74dd92fc5c0af6f8d5a7b8459c103e318d16f3d9dbd863826fccf8/nvalchemi_toolkit_ops-0.2.0-py3-none-any.whl
-      - pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+      - pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
       - pypi: https://files.pythonhosted.org/packages/23/cd/066e86230ae37ed0be70aae89aabf03ca8d9f39c8aea0dec8029455b5540/opt_einsum-3.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8d/4c/e0370709aaf9d7ceb68f975cac559751e75954429a77e83202e680606560/opt_einsum_fx-0.1.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/39/c72a8bd8b1244fadec43e756d3eb39e33d2b37405004d45a0eddcca96c6e/orb_models-0.6.1-py3-none-any.whl
@@ -12081,7 +12081,7 @@ packages:
   - pkg:pypi/openmm?source=hash-mapping
   size: 14918512
   timestamp: 1780943152525
-- pypi: git+https://github.com/fjclark/openmm-ml.git?branch=feature-supply-aimnet2-model#fa8b1ec289a938e252f381623b45d47c2d878447
+- pypi: git+https://github.com/openmm/openmm-ml.git?rev=1d564a0543779d5c9ea5b297750bede38577978e#1d564a0543779d5c9ea5b297750bede38577978e
   name: openmmml
   version: '1.7'
   requires_dist:
@@ -12815,8 +12815,8 @@ packages:
   timestamp: 1776858157327
 - pypi: ./
   name: presto
-  version: 0.8.2.dev7+geff6a3e2c.d20260706
-  sha256: 7ba91143935efaddd9c34a3f6914caa91aa98b229e12f6b2ce6081b9cf050f6c
+  version: 0.8.2.dev13+g76c169ccf.d20260804
+  sha256: 5c2d7d18133e256905a17ef09a48167705b7d9f8139a862ee556083230250e9b
   requires_python: '>=3.11,<3.15'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
   name: prettytable
