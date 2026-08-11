@@ -19,6 +19,11 @@ settings = WorkflowSettings(
 bespoke_ff = get_bespoke_force_field(settings)
 ```
 
+!!! note "`device_type` currently only affects sampling"
+
+    As a temporary measure, parameter training always runs on the CPU. `device_type`
+    selects the device used for MD sampling and ML potential evaluation only.
+
 `get_bespoke_force_field` returns the final fitted `openff.toolkit.ForceField` and writes the same output tree the CLI would. Pass `write_settings=False` to skip writing `workflow_settings.yaml` (useful when you've loaded settings from a YAML file already).
 
 ## Override individual fields after load

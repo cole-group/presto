@@ -48,6 +48,11 @@ from .utils.typing import (
 _DEFAULT_INPUT_PLACEHOLDER = "CHANGEME"
 _RUNTIME_OBJECT_PLACEHOLDER = "__PRESTO_RUNTIME_OBJECT_PLACEHOLDER__"
 
+# HACK (temporary): parameter training is pinned to the CPU regardless of the
+# configured ``device_type``; MD sampling still honours it. Remove this and the
+# ``WorkflowSettings.training_device*`` properties to restore single-device behaviour.
+_TRAINING_DEVICE_TYPE: TorchDevice = "cpu"
+
 
 def _replace_non_serializable(obj: dict[str, Any]) -> dict[str, Any]:
     """Recursively replace non-JSON-serializable values with the runtime placeholder."""
@@ -892,9 +897,11 @@ class WorkflowSettings(_DefaultSettings):
 
     device_type: TorchDevice = Field(
         "cuda",
-        description="Device type for training and sampling, either 'cpu' or 'cuda'. "
-        "Using 'cuda' requires an NVIDIA driver compatible with CUDA >= 12.9 "
-        "(required by OpenMM 8.5's PythonForce). 'cpu' is supported but very slow.",
+        description="Device type for sampling and ML potential evaluation, either 'cpu' "
+        "or 'cuda'. Using 'cuda' requires an NVIDIA driver compatible with CUDA >= 12.9 "
+        "(required by OpenMM 8.5's PythonForce). 'cpu' is supported but very slow. Note "
+        "that parameter training is temporarily forced onto the CPU regardless of this "
+        "setting.",
     )
 
     n_iterations: int = Field(
@@ -973,7 +980,7 @@ class WorkflowSettings(_DefaultSettings):
 
         if value == "cpu":
             warnings.warn(
-                "Using CPU for training and sampling. This may be slow. Consider using CUDA if available.",
+                "Using CPU for sampling. This may be slow. Consider using CUDA if available.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -1046,6 +1053,20 @@ class WorkflowSettings(_DefaultSettings):
     def device(self) -> torch.device:
         """Return a torch.device corresponding to the configured device_type."""
         return torch.device(self.device_type)
+
+    @property
+    def training_device_type(self) -> TorchDevice:
+        """Return the device type used for parameter training.
+
+        See ``_TRAINING_DEVICE_TYPE`` - training is currently pinned to the CPU
+        regardless of ``device_type``.
+        """
+        return _TRAINING_DEVICE_TYPE
+
+    @property
+    def training_device(self) -> torch.device:
+        """Return a torch.device corresponding to training_device_type."""
+        return torch.device(self.training_device_type)
 
     def get_path_manager(self) -> WorkflowPathManager:
         """Get the output paths manager for this workflow settings object."""

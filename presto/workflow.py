@@ -103,9 +103,20 @@ def get_bespoke_force_field(
         output_settings.output_dir = pathlib.Path(".")
         output_settings.to_yaml(settings_output_path)
 
-    # Parameterise the base force field for all molecules
+    # Parameterise the base force field for all molecules. This keeps the sampling
+    # device so that any MSM ML potential Hessians are computed there.
     off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
         settings.param_settings, device=settings.device_type
+    )
+
+    # HACK (temporary): training runs on the CPU, so move the tensor force field and
+    # topologies off the sampling device before the Trainable captures them.
+    tensor_ff = tensor_ff.to(settings.training_device_type)
+    tensor_tops = [top.to(settings.training_device_type) for top in tensor_tops]
+
+    logger.info(
+        f"Sampling on {settings.device_type}; training on "
+        f"{settings.training_device_type} (temporary)."
     )
 
     trainable = Trainable(
@@ -114,7 +125,7 @@ def get_bespoke_force_field(
         _prune_configs(settings.training_settings.attribute_configs, tensor_ff),
     )
 
-    trainable_parameters = trainable.to_values().to(settings.device)
+    trainable_parameters = trainable.to_values().to(settings.training_device)
 
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()
@@ -159,7 +170,7 @@ def get_bespoke_force_field(
             dataset_test,
             tensor_ff,
             tensor_top,
-            settings.device,
+            settings.training_device,
             str(scatter_path_mol),
         )
         logger.info(
@@ -213,7 +224,7 @@ def get_bespoke_force_field(
                         force_field=tensor_ff,
                         topology=tensor_top,
                         settings=settings.outlier_filter_settings,
-                        device=settings.device,
+                        device=settings.training_device,
                     )
                     for ds, tensor_top in zip(
                         datasets_train_new, tensor_tops, strict=True
@@ -253,7 +264,7 @@ def get_bespoke_force_field(
                 datasets_test=datasets_test,
                 settings=settings.training_settings,
                 output_paths=train_output_paths,
-                device=settings.device,
+                device=settings.training_device,
             )
 
             for potential_type in trainable._param_types:
@@ -280,7 +291,7 @@ def get_bespoke_force_field(
                         dataset_test,
                         tensor_ff,
                         tensor_top,
-                        settings.device,
+                        settings.training_device,
                         str(scatter_path_mol),
                     )
                 )

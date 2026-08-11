@@ -741,6 +741,22 @@ class TestWorkflowSettings:
         assert isinstance(device, torch.device)
         assert device.type == "cpu"
 
+    def test_training_device_property(self, valid_workflow_settings):
+        """Test that the training device properties report the CPU."""
+        assert valid_workflow_settings.training_device_type == "cpu"
+        assert isinstance(valid_workflow_settings.training_device, torch.device)
+        assert valid_workflow_settings.training_device.type == "cpu"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_training_device_is_cpu_when_cuda_requested(self):
+        """Training is temporarily pinned to the CPU even when CUDA is requested."""
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+            device_type="cuda",
+        )
+        assert settings.device.type == "cuda"
+        assert settings.training_device.type == "cpu"
+
     def test_get_path_manager(self, valid_workflow_settings):
         """Test that path manager is created correctly."""
         path_manager = valid_workflow_settings.get_path_manager()
