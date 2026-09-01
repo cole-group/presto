@@ -32,6 +32,7 @@ from .find_torsions import (
 from .load_molecules import (
     MOLECULE_LOADERS,
     MoleculeInputType,
+    find_conformer_generation_failures,
     load_conformers_for_molecule,
 )
 from .outputs import OutputType, WorkflowPathManager
@@ -864,11 +865,38 @@ class ParamSettings(_DefaultSettings):
 
     @model_validator(mode="after")
     def _check_molecule_loading(self) -> Self:
-        """Check that molecules can be loaded."""
+        """Check that molecules can be loaded and that conformers can be generated.
+
+        Conformer generation is checked here, rather than being left to fail part way
+        through the modified Seminario method, because a molecule ETKDG cannot embed
+        cannot be parameterised at all. Every offending molecule is reported at once so
+        a whole input set can be fixed in a single pass.
+        """
         # It's a waste reloading every time, but this is pretty cheap,
         # and avoids issues with appending to `molecules` not-causing re-validation
         # if caching. Setting `molecules` to a tuple messes with the CLI.
-        _ = self._load_molecules()
+        molecules = self._load_molecules()
+
+        failures = find_conformer_generation_failures(molecules)
+        if failures:
+            for description, error in failures.values():
+                logger.error(f"Conformer generation failed for {description}: {error}")
+
+            failure_lines = "\n".join(
+                f"  - {description}: {error}"
+                for description, error in failures.values()
+            )
+            raise InvalidSettingsError(
+                f"Conformer generation failed for {len(failures)} of "
+                f"{len(molecules)} molecules:\n{failure_lines}\n"
+                "These molecules cannot be parameterised. Either remove them, or supply "
+                "conformers for them via the `starting_conformers` setting (see the "
+                "'Use your own starting conformers' how-to guide). Note that a molecule "
+                "ETKDG cannot embed will also fail AM1BCC charge assignment, so supplying "
+                "starting conformers additionally requires library charges (see "
+                "`presto.create_types.add_library_charges_to_forcefield`)."
+            )
+
         return self
 
     @property

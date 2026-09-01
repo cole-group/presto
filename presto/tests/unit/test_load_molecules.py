@@ -1,12 +1,17 @@
 """Unit tests for load_molecules.py, focusing on starting-conformer loading."""
 
+from unittest import mock
+
 import numpy as np
 import pytest
 from openff.toolkit import Molecule
 from openff.units import unit
 from scipy.spatial.distance import pdist
 
-from presto.load_molecules import load_conformers_for_molecule
+from presto.load_molecules import (
+    find_conformer_generation_failures,
+    load_conformers_for_molecule,
+)
 
 
 def _sorted_pairwise_distances(conformer: unit.Quantity) -> np.ndarray:
@@ -115,3 +120,89 @@ def test_non_sdf_suffix_raises(tmp_path):
     other.write_text("")
     with pytest.raises(ValueError, match=r"ending in \.sdf"):
         load_conformers_for_molecule(target, other)
+
+
+class TestFindConformerGenerationFailures:
+    """Tests for the up-front ETKDG check used by ``ParamSettings`` validation."""
+
+    def test_no_failures_for_embeddable_molecules(self):
+        """Molecules RDKit can embed are not reported."""
+        molecules = [
+            Molecule.from_smiles("CCO"),
+            # ``allow_undefined_stereo`` mirrors ``load_smiles_molecules``.
+            Molecule.from_smiles(
+                "CC(C)Cc1ccc(cc1)C(C)C(=O)O", allow_undefined_stereo=True
+            ),
+        ]
+
+        assert find_conformer_generation_failures(molecules) == {}
+
+    def test_callers_molecules_are_not_given_conformers(self):
+        """The check works on copies, so the caller's molecules are untouched."""
+        molecule = Molecule.from_smiles("CCO")
+
+        find_conformer_generation_failures([molecule])
+
+        assert molecule.n_conformers == 0
+
+    def test_reports_only_the_failing_molecule(self):
+        """A raising molecule is reported by index, with its error preserved."""
+        molecules = [
+            Molecule.from_smiles("CCO"),
+            Molecule.from_smiles("CCC"),
+            Molecule.from_smiles("CCCC"),
+        ]
+
+        def fake_generate_conformers(self, *args, **kwargs):
+            if self.n_atoms == molecules[1].n_atoms:
+                raise ValueError("RDKit conformer generation failed.")
+            self._conformers = [np.zeros((self.n_atoms, 3)) * unit.angstrom]
+
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = fake_generate_conformers
+            failures = find_conformer_generation_failures(molecules)
+
+        assert list(failures) == [1]
+        description, error = failures[1]
+        assert "molecule 1" in description
+        assert "RDKit conformer generation failed." in error
+
+    def test_reports_every_failing_molecule(self):
+        """All offenders are collected, not just the first."""
+        molecules = [Molecule.from_smiles(smiles) for smiles in ("CCO", "CCC", "CCCC")]
+
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = ValueError("nope")
+            failures = find_conformer_generation_failures(molecules)
+
+        assert list(failures) == [0, 1, 2]
+
+    def test_reports_silent_failure_to_produce_conformers(self):
+        """Returning without error but with no conformers is still a failure."""
+        molecule = Molecule.from_smiles("CCO")
+
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = lambda self, *args, **kwargs: None
+            failures = find_conformer_generation_failures([molecule])
+
+        assert list(failures) == [0]
+        assert "no conformers" in failures[0][1]
+
+    def test_description_includes_molecule_name_when_set(self):
+        """SDF inputs carry names, which users rely on to identify ligands."""
+        molecule = Molecule.from_smiles("CCO")
+        molecule.name = "ligand-42"
+
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = ValueError("nope")
+            failures = find_conformer_generation_failures([molecule])
+
+        assert "ligand-42" in failures[0][0]

@@ -1,6 +1,7 @@
 """Unit tests for settings module."""
 
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -579,6 +580,40 @@ class TestParamSettings:
             ParamSettings(
                 molecule_input_type="smiles", molecules=_DEFAULT_INPUT_PLACEHOLDER
             )
+
+    def test_conformer_generation_failure_raises_error(self):
+        """Molecules ETKDG cannot embed are rejected during validation."""
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = ValueError("RDKit conformer generation failed.")
+            with pytest.raises(ValidationError, match="Conformer generation failed"):
+                ParamSettings(molecule_input_type="smiles", molecules="CCO")
+
+    def test_conformer_generation_failure_reports_every_molecule(self):
+        """All offending molecules are listed, not just the first."""
+        with mock.patch.object(
+            Molecule, "generate_conformers", autospec=True
+        ) as mock_generate:
+            mock_generate.side_effect = ValueError("RDKit conformer generation failed.")
+            with pytest.raises(ValidationError) as exc_info:
+                ParamSettings(
+                    molecule_input_type="smiles", molecules=["CCO", "CCC", "CCCC"]
+                )
+
+        message = str(exc_info.value)
+        assert "3 of 3 molecules" in message
+        for index in range(3):
+            assert f"molecule {index} " in message
+
+    def test_conformer_generation_check_does_not_reject_valid_molecules(self):
+        """The check leaves ordinary molecules alone."""
+        settings = ParamSettings(
+            molecule_input_type="smiles", molecules=["CCO", "c1ccccc1"]
+        )
+
+        assert len(settings.openff_molecules) == 2
+        assert all(mol.n_conformers == 0 for mol in settings.openff_molecules)
 
     def test_valid_single_molecule_sdf(self, tmp_path):
         """Test that valid SDF paths are accepted."""
