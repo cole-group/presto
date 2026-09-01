@@ -65,37 +65,6 @@ Filtering would remove too many conformations: ... below min_conformations=...
 **Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
 
 
-## Conformer generation fails for some molecules
-
-**Symptom**: settings validation fails immediately, before any fitting starts:
-
-```
-InvalidSettingsError: Conformer generation failed for 2 of 40 molecules:
-  - molecule 12 (ligand-13, CC(C)...): ... ConformerGenerationError : RDKit conformer generation failed.
-  - molecule 27 (ligand-28, c1ccc...): ... ConformerGenerationError : RDKit conformer generation failed.
-```
-
-**Cause**: RDKit's ETKDG cannot embed those molecules. `presto` checks this up front, for every
-molecule at once, because a molecule that cannot be embedded cannot be parameterised: the modified
-Seminario method and every sampling stage need a starting conformer, and AM1BCC charge assignment
-generates conformers internally too. Without the check, the failure would only surface part way
-through the MSM stage, after the expensive ML potential work had already run for every earlier
-molecule.
-
-**Fixes**:
-
-- Remove the offending molecules from `param_settings.molecules`. The error lists every one of
-  them, so a whole input set can be fixed in a single pass.
-- Or supply geometries for them yourself. Set `starting_conformers` on the relevant stages (see
-  **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**). Note this
-  is not sufficient on its own: AM1BCC will still try to embed the molecule during charge
-  assignment, so you also need to bypass that with library charges (see
-  **[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
-
-Note that `presto clean` and `presto analyse` validate settings too, so they will also refuse to
-run on a configuration containing an unembeddable molecule.
-
-
 ## Version mismatch warning on YAML load
 
 **Symptom**:

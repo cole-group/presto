@@ -6,7 +6,6 @@
 
 - Warn without rejecting or changing settings when input molecules contain phosphorus or sulfonamide environments known to cause MLP-minimisation or modified Seminario initialisation failures. The warnings identify every matching molecule and recommend safer sampling/MSM settings. Addresses [#63](https://github.com/cole-group/presto/issues/63).
 - Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
-- Validate up front that a conformer can be generated for every input molecule, rather than failing part way through the modified Seminario method once the ML potential work for earlier molecules has already run. Every offending molecule is reported at once, so a whole input set can be fixed in a single pass. Note that `presto clean` and `presto analyse` validate settings too, so they will also refuse to run on a configuration containing an unembeddable molecule. Addresses [#80](https://github.com/cole-group/presto/issues/80).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
 ### Fixes
@@ -15,7 +14,6 @@
 
 ### Documentation
 
-- Document the new conformer-generation validation error in [Troubleshooting](reference/troubleshooting.md).
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).

@@ -1,13 +1,11 @@
 """Helpers for loading molecules from parameterisation inputs."""
 
-import copy
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Literal
 
 from openff.toolkit import Molecule
 from openff.units import Quantity
-from openff.units import unit as off_unit
 from rdkit import Chem
 
 from .utils.typing import PathLike
@@ -202,70 +200,3 @@ def find_problematic_functional_groups(
         if descriptions:
             matches[smarts] = descriptions
     return matches
-
-
-def _summarise_toolkit_error(exc: Exception) -> str:
-    """Condense a toolkit error to its most informative line.
-
-    ``ToolkitRegistry`` re-raises the underlying failure with the full call signature
-    and a list of every registered toolkit appended, which buries the actual cause. The
-    last non-empty line holds the wrapped exception, which is what a user needs.
-    """
-    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[-1] if lines else type(exc).__name__
-
-
-def find_conformer_generation_failures(
-    molecules: Sequence[Molecule],
-) -> dict[int, tuple[str, str]]:
-    """Find molecules for which ETKDG cannot generate a conformer.
-
-    Every stage of the workflow that does not use supplied starting conformers needs
-    at least one ETKDG conformer, as does AM1BCC charge assignment (which embeds
-    conformers internally). A molecule that cannot be embedded therefore cannot be
-    parameterised, and it is far cheaper to find that out here than part way through
-    the modified Seminario method.
-
-    A single conformer is a sufficient probe. ``RDKitToolkitWrapper.generate_conformers``
-    embeds with ``randomSeed=1`` (so the result is deterministic) and only raises when
-    embedding yields *zero* conformers, so success here guarantees the real call will
-    not raise however many conformers it asks for.
-
-    Parameters
-    ----------
-    molecules : Sequence[openff.toolkit.Molecule]
-        The molecules to check. They are not modified.
-
-    Returns:
-    -------
-    dict[int, tuple[str, str]]
-        Mapping of index in ``molecules`` to ``(description, error)`` for each molecule
-        whose conformer generation failed. Empty if every molecule can be embedded.
-    """
-    failures: dict[int, tuple[str, str]] = {}
-
-    for index, molecule in enumerate(molecules):
-        # Work on a copy so the caller's molecules do not gain an incidental conformer.
-        candidate = copy.deepcopy(molecule)
-
-        try:
-            candidate.generate_conformers(
-                n_conformers=1, rms_cutoff=0.0 * off_unit.angstrom
-            )
-        except Exception as exc:
-            # The RDKit wrapper raises ConformerGenerationError, but the toolkit
-            # registry re-wraps it as a plain ValueError, so neither type alone is
-            # enough to catch.
-            failures[index] = (
-                _molecule_description(molecule, index),
-                _summarise_toolkit_error(exc),
-            )
-            continue
-
-        if not candidate.conformers:
-            failures[index] = (
-                _molecule_description(molecule, index),
-                "conformer generation returned no conformers",
-            )
-
-    return failures
