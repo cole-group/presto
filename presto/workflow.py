@@ -1,7 +1,9 @@
 """Implements the overall workflow for fitting a bespoke force field."""
 
 import copy
+import os
 import pathlib
+import uuid
 
 import datasets
 import loguru
@@ -21,7 +23,7 @@ from presto.convert import convert_to_smirnoff
 from .analyse import analyse_workflow
 from .convert import parameterise
 from .data_utils import filter_dataset_outliers
-from .outputs import OutputStage, OutputType, StageKind
+from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
 from .sampling_coordinator import sample_ligands
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
@@ -29,6 +31,21 @@ from .writers import write_scatter
 
 logger = loguru.logger
 console = Console()
+
+
+def _atomic_write_force_field(
+    force_field: ForceField, destination: pathlib.Path
+) -> None:
+    """Write a force field without exposing a partial destination file."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(
+        f".{destination.stem}.tmp-{uuid.uuid4().hex}{destination.suffix}"
+    )
+    try:
+        force_field.to_file(str(temporary))
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def get_bespoke_force_field(
@@ -57,6 +74,10 @@ def get_bespoke_force_field(
     ForceField
         The fitted bespoke force field.
     """
+    WorkflowPathManager(
+        output_dir=settings.output_dir,
+        n_iterations=settings.n_iterations,
+    ).require_clean()
     path_manager = settings.get_path_manager()
     stage = OutputStage(StageKind.BASE)
     path_manager.mk_stage_dir(stage)
@@ -99,16 +120,16 @@ def get_bespoke_force_field(
     initial_stage = OutputStage(StageKind.INITIAL_STATISTICS)
     path_manager.mk_stage_dir(initial_stage)
     initial_offxml_path = path_manager.get_output_path(initial_stage, OutputType.OFFXML)
-    initial_off_ff.to_file(str(initial_offxml_path))
+    _atomic_write_force_field(initial_off_ff, initial_offxml_path)
 
     # Generate the test data for all molecules
     stage = OutputStage(StageKind.TESTING)
     path_manager.mk_stage_dir(stage)
     logger.info("Generating test data")
     test_output_paths = {
-            output_type: path_manager.get_output_path(stage, output_type)
-            for output_type in settings.testing_sampling_settings.output_types
-        }
+        output_type: path_manager.get_output_path(stage, output_type)
+        for output_type in settings.testing_sampling_settings.output_types
+    }
     datasets_test = sample_ligands(
         mols=off_mols,
         offxml_path=initial_offxml_path,
@@ -116,7 +137,9 @@ def get_bespoke_force_field(
         sampling_settings=settings.testing_sampling_settings,
         output_paths=test_output_paths,
         canonical_paths=[
-            path_manager.get_output_path_for_mol(stage, OutputType.ENERGIES_AND_FORCES, i)
+            path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, i
+            )
             for i in range(len(off_mols))
         ],
         n_processes=settings.n_sampling_processes,
@@ -147,7 +170,9 @@ def get_bespoke_force_field(
     off_ff = convert_to_smirnoff(
         trainable.to_force_field(trainable_parameters), base=initial_off_ff
     )
-    off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
+    _atomic_write_force_field(
+        off_ff, path_manager.get_output_path(stage, OutputType.OFFXML)
+    )
 
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
 
@@ -170,9 +195,9 @@ def get_bespoke_force_field(
             path_manager.mk_stage_dir(stage)
 
             train_output_paths_sampling = {
-                    output_type: path_manager.get_output_path(stage, output_type)
-                    for output_type in settings.training_sampling_settings.output_types
-                }
+                output_type: path_manager.get_output_path(stage, output_type)
+                for output_type in settings.training_sampling_settings.output_types
+            }
             previous_datasets = datasets_train
 
             def process_training_dataset(
@@ -181,7 +206,9 @@ def get_bespoke_force_field(
                 previous_datasets: list[datasets.Dataset] | None = previous_datasets,
             ) -> datasets.Dataset:
                 if settings.outlier_filter_settings is not None:
-                    logger.info(f"Applying outlier filtering to molecule {mol_idx} training data")
+                    logger.info(
+                        f"Applying outlier filtering to molecule {mol_idx} training data"
+                    )
                     dataset = filter_dataset_outliers(
                         dataset=dataset,
                         force_field=tensor_ff,
@@ -210,7 +237,9 @@ def get_bespoke_force_field(
                 sampling_settings=settings.training_sampling_settings,
                 output_paths=train_output_paths_sampling,
                 canonical_paths=[
-                    path_manager.get_output_path_for_mol(stage, OutputType.ENERGIES_AND_FORCES, i)
+                    path_manager.get_output_path_for_mol(
+                        stage, OutputType.ENERGIES_AND_FORCES, i
+                    )
                     for i in range(len(off_mols))
                 ],
                 n_processes=settings.n_sampling_processes,
@@ -244,7 +273,9 @@ def get_bespoke_force_field(
             off_ff = convert_to_smirnoff(
                 trainable.to_force_field(trainable_parameters), base=initial_off_ff
             )
-            off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
+            _atomic_write_force_field(
+                off_ff, path_manager.get_output_path(stage, OutputType.OFFXML)
+            )
 
             # Write scatter plots for each molecule
             for mol_idx, (dataset_test, tensor_top) in enumerate(

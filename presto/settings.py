@@ -914,6 +914,7 @@ class WorkflowSettings(_DefaultSettings):
 
     n_iterations: int = Field(
         2,
+        ge=1,
         description="Number of (sample, train) iterations to run. Iteration 1 samples "
         "with the initial force field; later iterations sample with the bespoke force "
         "field produced by the previous iteration, which usually improves test loss.",

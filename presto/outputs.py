@@ -1,5 +1,6 @@
 """Functionality for handling the outputs of a workflow."""
 
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, StrEnum
@@ -113,6 +114,14 @@ class StageKind(StrEnum):
     PLOTS = "plots"
 
 
+class WorkflowStatus(StrEnum):
+    """The state of generated output for a workflow fit."""
+
+    CLEAN = "clean"
+    PARTIAL = "partial"
+    COMPLETE = "complete"
+
+
 @dataclass(frozen=True)
 class OutputStage:
     """A specific stage in the workflow output directory structure."""
@@ -139,6 +148,42 @@ class WorkflowPathManager:
     training_settings: "TrainingSettings | None" = None
     training_sampling_settings: "SamplingSettings | None" = None
     testing_sampling_settings: "SamplingSettings | None" = None
+
+    def _generated_stage_paths(self) -> list[Path]:
+        """Return all existing Presto-owned generated stage paths."""
+        fixed_paths = [
+            self.output_dir / StageKind.INITIAL_STATISTICS.value,
+            self.output_dir / StageKind.TESTING.value,
+            self.output_dir / StageKind.PLOTS.value,
+        ]
+        paths = [path for path in fixed_paths if os.path.lexists(path)]
+        if self.output_dir.exists():
+            paths.extend(self.output_dir.glob(f"{StageKind.TRAINING.value}_*"))
+        return sorted(set(paths), key=str)
+
+    @property
+    def status(self) -> WorkflowStatus:
+        """Return whether generated fit output is clean, partial, or complete."""
+        final_force_field = (
+            self.output_dir
+            / f"{StageKind.TRAINING.value}_{self.n_iterations}"
+            / OutputType.OFFXML.value
+        )
+        if os.path.lexists(final_force_field):
+            return WorkflowStatus.COMPLETE
+        if self._generated_stage_paths():
+            return WorkflowStatus.PARTIAL
+        return WorkflowStatus.CLEAN
+
+    def require_clean(self) -> None:
+        """Raise if generated output must be cleaned before starting a fit."""
+        status = self.status
+        if status != WorkflowStatus.CLEAN:
+            raise RuntimeError(
+                f"The output directory {self.output_dir} contains a {status.value} "
+                "Presto fit. Run `presto clean` or use a new output directory before "
+                "starting another fit."
+            )
 
     @property
     def outputs_by_stage(self) -> dict[OutputStage, set[OutputType]]:
@@ -375,30 +420,9 @@ class WorkflowPathManager:
         return 0  # Default for backward compatibility
 
     def clean(self) -> None:
-        """Remove all output files and empty stage directories."""
-        # Delete all output files
-        all_paths = self.get_all_output_paths(only_if_exists=True)
-
-        for paths in all_paths.values():
-            for output_type, path_or_paths in paths.items():
-                if output_type == OutputType.WORKFLOW_SETTINGS:
-                    continue  # Don't delete workflow settings
-                if isinstance(path_or_paths, list):
-                    for path in path_or_paths:
-                        delete_path(path, recursive=True)
-                else:
-                    delete_path(path_or_paths, recursive=True)
-
-        # Remove empty stage directories
-        for stage in self.outputs_by_stage.keys():
-            if stage.kind == StageKind.BASE:
-                continue
-            stage_path = self.get_stage_path(stage)
-            if stage_path.exists():
-                from .sampling_coordinator import remove_sampling_temporary_paths
-
-                remove_sampling_temporary_paths(stage_path)
-            delete_path(self.get_stage_path(stage), recursive=False)
+        """Remove every Presto-owned generated stage directory."""
+        for stage_path in self._generated_stage_paths():
+            delete_path(stage_path, recursive=True)
 
 
 def delete_path(path: Path, recursive: bool = False) -> None:
@@ -415,10 +439,12 @@ def delete_path(path: Path, recursive: bool = False) -> None:
         Whether to delete directories recursively, by default False. If False, only
         empty directories will be deleted.
     """
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return
 
-    if path.is_dir():
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
         if recursive:
             for child in path.iterdir():
                 delete_path(child, recursive=True)

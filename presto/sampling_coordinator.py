@@ -1,4 +1,4 @@
-"""Coordinate resumable, molecule-level sampling on one node."""
+"""Coordinate non-resumable, molecule-level sampling on one node."""
 
 from __future__ import annotations
 
@@ -26,7 +26,11 @@ def sampling_devices(device_type: str, n_workers: int) -> list[str]:
     if device_type != "cuda":
         return ["cpu"] * n_workers
     visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    n_devices = len([item for item in visible.split(",") if item.strip()]) if visible else torch.cuda.device_count()
+    n_devices = (
+        len([item for item in visible.split(",") if item.strip()])
+        if visible
+        else torch.cuda.device_count()
+    )
     n_devices = max(1, n_devices)
     return [f"cuda:{i % n_devices}" for i in range(n_workers)]
 
@@ -52,8 +56,41 @@ def _load_dataset(path: Path, description: str) -> datasets.Dataset:
         ) from exc
 
 
-def _side_outputs_exist(output_paths: dict[OutputType, Path], mol_idx: int) -> bool:
-    return all(get_mol_path(path, mol_idx).exists() for path in output_paths.values())
+def _validate_sampling_inputs(
+    *,
+    mols: list[Molecule],
+    sampling_settings: SamplingSettings,
+    output_paths: dict[OutputType, Path],
+    canonical_paths: list[Path],
+    n_processes: int,
+) -> None:
+    """Validate the structure of generated-sampling inputs."""
+    if not mols:
+        raise ValueError("At least one molecule is required for generated sampling.")
+    if len(canonical_paths) != len(mols):
+        raise ValueError(
+            "Generated sampling requires exactly one canonical dataset path per "
+            f"molecule; received {len(canonical_paths)} paths for {len(mols)} molecules."
+        )
+    if len(set(canonical_paths)) != len(canonical_paths):
+        raise ValueError("Canonical dataset paths must be unique for each molecule.")
+    if set(output_paths) != sampling_settings.output_types:
+        raise ValueError(
+            "Sampling output paths must contain exactly the output types configured "
+            f"for the protocol: {sampling_settings.output_types}."
+        )
+    if n_processes < 1:
+        raise ValueError("n_processes must be at least 1.")
+    side_output_paths = [
+        get_mol_path(base_path, mol_idx)
+        for base_path in output_paths.values()
+        for mol_idx in range(len(mols))
+    ]
+    all_output_paths = [*canonical_paths, *side_output_paths]
+    if len(set(all_output_paths)) != len(all_output_paths):
+        raise ValueError(
+            "Canonical dataset and molecule-specific output paths must be unique."
+        )
 
 
 def _sample_worker(
@@ -102,9 +139,15 @@ def sample_ligands(
     n_processes: int,
     process_dataset: Callable[[int, datasets.Dataset], datasets.Dataset] | None = None,
 ) -> list[datasets.Dataset]:
-    """Sample missing ligands, process them in the parent, and commit atomically."""
+    """Sample every ligand, process it in the parent, and commit atomically.
+
+    Generated sampling is an internal workflow operation. Its destinations must be
+    absent because the workflow rejects non-clean output before calling it.
+    """
     sample_fn = _SAMPLING_FNS_REGISTRY[type(sampling_settings)]
-    if sample_fn is load_precomputed_dataset or isinstance(sampling_settings, PreComputedDatasetSettings):
+    if sample_fn is load_precomputed_dataset or isinstance(
+        sampling_settings, PreComputedDatasetSettings
+    ):
         loaded_datasets = sample_fn(
             mols=mols,
             off_ff=ForceField(str(offxml_path)),
@@ -119,87 +162,90 @@ def sample_ligands(
             ]
         return loaded_datasets
 
+    _validate_sampling_inputs(
+        mols=mols,
+        sampling_settings=sampling_settings,
+        output_paths=output_paths,
+        canonical_paths=canonical_paths,
+        n_processes=n_processes,
+    )
     cache_dir = canonical_paths[0].parent / ".sampling_cache"
     cache_paths = [cache_dir / f"raw_mol{i}" for i in range(len(mols))]
-    results: list[datasets.Dataset | None] = [None] * len(mols)
-    missing: list[int] = []
-    for i, canonical in enumerate(canonical_paths):
-        if canonical.exists():
-            if not _side_outputs_exist(output_paths, i):
-                raise RuntimeError(
-                    f"Dataset {canonical} exists but required sampling side outputs are missing. "
-                    "Run `presto clean` or use a new output directory."
-                )
-            results[i] = _load_dataset(canonical, "committed sampling dataset")
-        else:
-            missing.append(i)
-
-    if not missing:
-        return [item for item in results if item is not None]
-
-    # A cache is reusable only after protocol side outputs were completed.
-    to_sample: list[int] = []
-    raw: dict[int, datasets.Dataset] = {}
-    for i in missing:
-        if cache_paths[i].exists() and _side_outputs_exist(output_paths, i):
-            raw[i] = _load_dataset(cache_paths[i], "sampling cache")
-        else:
-            if cache_paths[i].exists():
-                shutil.rmtree(cache_paths[i])
-            to_sample.append(i)
-
-    workers = min(n_processes, len(to_sample))
+    workers = min(n_processes, len(mols))
     if workers > 1:
         try:
-            pickle.dumps((sampling_settings, [mols[i].to_json() for i in to_sample]))
+            pickle.dumps((sampling_settings, [molecule.to_json() for molecule in mols]))
         except Exception as exc:
             raise RuntimeError(
                 "Parallel sampling requires spawn-serializable sampling settings and molecules. "
                 "Runtime objects such as custom ASE calculators require n_sampling_processes: 1."
             ) from exc
 
-    failures: dict[int, BaseException] = {}
-    devices = sampling_devices(device_type, max(1, workers))
-    if workers <= 1:
-        for i in to_sample:
-            try:
-                _sample_worker(mols[i].to_json(), i, str(offxml_path), devices[0], sampling_settings, output_paths, cache_paths[i])
-                raw[i] = _load_dataset(cache_paths[i], "sampling cache")
-            except BaseException as exc:
-                failures[i] = exc
-    else:
-        context = multiprocessing.get_context("spawn")
-        with ProcessPoolExecutor(max_workers=workers, mp_context=context) as executor:
-            futures = {
-                executor.submit(
-                    _sample_worker, mols[i].to_json(), i, str(offxml_path),
-                    devices[position % len(devices)], sampling_settings, output_paths, cache_paths[i]
-                ): i
-                for position, i in enumerate(to_sample)
-            }
-            for future in track(as_completed(futures), total=len(futures), description="Ligands completed"):
-                i = futures[future]
+    raw: dict[int, datasets.Dataset] = {}
+    cache_dir.mkdir(parents=True)
+    try:
+        failures: dict[int, BaseException] = {}
+        devices = sampling_devices(device_type, workers)
+        if workers == 1:
+            for i, molecule in enumerate(mols):
                 try:
-                    future.result()
+                    _sample_worker(
+                        molecule.to_json(),
+                        i,
+                        str(offxml_path),
+                        devices[0],
+                        sampling_settings,
+                        output_paths,
+                        cache_paths[i],
+                    )
                     raw[i] = _load_dataset(cache_paths[i], "sampling cache")
                 except BaseException as exc:
                     failures[i] = exc
+        else:
+            context = multiprocessing.get_context("spawn")
+            with ProcessPoolExecutor(
+                max_workers=workers, mp_context=context
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        _sample_worker,
+                        molecule.to_json(),
+                        i,
+                        str(offxml_path),
+                        devices[i % len(devices)],
+                        sampling_settings,
+                        output_paths,
+                        cache_paths[i],
+                    ): i
+                    for i, molecule in enumerate(mols)
+                }
+                for future in track(
+                    as_completed(futures),
+                    total=len(futures),
+                    description="Ligands completed",
+                ):
+                    i = futures[future]
+                    try:
+                        future.result()
+                        raw[i] = _load_dataset(cache_paths[i], "sampling cache")
+                    except BaseException as exc:
+                        failures[i] = exc
 
-    if failures:
-        details = "; ".join(f"molecule {i}: {exc}" for i, exc in sorted(failures.items()))
-        raise RuntimeError(f"Sampling failed for {len(failures)} ligand(s): {details}")
+        if failures:
+            details = "; ".join(
+                f"molecule {i}: {exc}" for i, exc in sorted(failures.items())
+            )
+            raise RuntimeError(
+                f"Sampling failed for {len(failures)} ligand(s): {details}"
+            )
 
-    for i in missing:
-        dataset = raw[i]
-        if process_dataset is not None:
-            dataset = process_dataset(i, dataset)
-        _atomic_save(dataset, canonical_paths[i])
-        results[i] = dataset
-    return [item for item in results if item is not None]
-
-
-def remove_sampling_temporary_paths(stage_path: Path) -> None:
-    """Remove coordinator caches and interrupted atomic-save paths."""
-    shutil.rmtree(stage_path / ".sampling_cache", ignore_errors=True)
-    for path in stage_path.glob(".*.tmp-*"):
-        shutil.rmtree(path, ignore_errors=True)
+        results = []
+        for i in range(len(mols)):
+            dataset = raw[i]
+            if process_dataset is not None:
+                dataset = process_dataset(i, dataset)
+            _atomic_save(dataset, canonical_paths[i])
+            results.append(dataset)
+        return results
+    finally:
+        shutil.rmtree(cache_dir, ignore_errors=True)

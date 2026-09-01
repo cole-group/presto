@@ -11,11 +11,13 @@ from presto.outputs import (
     OutputType,
     StageKind,
     WorkflowPathManager,
+    WorkflowStatus,
     delete_path,
     get_mol_path,
 )
 from presto.settings import (
     MMMDSamplingSettings,
+    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     TrainingSettings,
 )
 
@@ -138,6 +140,38 @@ class TestWorkflowPathManager:
         pm = WorkflowPathManager(output_dir=tmp_path)
         assert pm.output_dir == tmp_path
         assert pm.n_iterations == 1
+
+    def test_status_clean_for_settings_only(self, tmp_path):
+        """The preserved workflow settings file is not generated fit output."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=2)
+        assert path_manager.status == WorkflowStatus.CLEAN
+
+        (tmp_path / OutputType.WORKFLOW_SETTINGS.value).write_text("settings")
+        assert path_manager.status == WorkflowStatus.CLEAN
+
+    @pytest.mark.parametrize(
+        "stage_name",
+        ["initial_statistics", "test_data", "plots", "training_iteration_7"],
+    )
+    def test_status_partial_for_any_generated_stage(self, tmp_path, stage_name):
+        """Empty, fixed, and obsolete generated stages all mark a partial fit."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=2)
+        (tmp_path / stage_name).mkdir()
+
+        assert path_manager.status == WorkflowStatus.PARTIAL
+        with pytest.raises(RuntimeError, match=r"partial.*presto clean"):
+            path_manager.require_clean()
+
+    def test_status_complete_for_final_force_field(self, tmp_path):
+        """The expected final force field marks fitting as complete."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=2)
+        final_force_field = tmp_path / "training_iteration_2" / "bespoke_ff.offxml"
+        final_force_field.parent.mkdir()
+        final_force_field.write_text("force field")
+
+        assert path_manager.status == WorkflowStatus.COMPLETE
+        with pytest.raises(RuntimeError, match=r"complete.*presto clean"):
+            path_manager.require_clean()
 
     def test_outputs_by_stage_structure(self, path_manager):
         """Test that outputs_by_stage has correct structure."""
@@ -304,6 +338,65 @@ class TestWorkflowPathManager:
         path_manager.clean()
 
         assert not stage_path.exists()
+
+    def test_clean_removes_all_sampling_preflight_artifacts(self, tmp_path):
+        """Clean removes canonical, side, cache, and interrupted atomic outputs."""
+        sampling_settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
+        path_manager = WorkflowPathManager(
+            output_dir=tmp_path,
+            n_mols=1,
+            training_sampling_settings=sampling_settings,
+        )
+        stage = OutputStage(StageKind.TRAINING, 1)
+        path_manager.mk_stage_dir(stage)
+        stage_path = path_manager.get_stage_path(stage)
+
+        paths = [
+            path_manager.get_output_path_for_mol(stage, output_type, 0)
+            for output_type in sampling_settings.output_types
+        ]
+        paths.append(
+            path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, 0
+            )
+        )
+        for path in paths:
+            if path.suffix:
+                path.write_text("sampling output")
+            else:
+                path.mkdir()
+        cache_path = stage_path / ".sampling_cache" / "raw_mol0"
+        cache_path.mkdir(parents=True)
+        atomic_path = stage_path / ".energy_and_force_data_mol0.tmp-interrupted"
+        atomic_path.mkdir()
+
+        path_manager.clean()
+
+        assert all(not path.exists() for path in paths)
+        assert not cache_path.parent.exists()
+        assert not atomic_path.exists()
+        assert not stage_path.exists()
+
+    def test_clean_removes_stages_independent_of_current_settings(self, tmp_path):
+        """Cleanup discovers old iterations without relying on current settings."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=1)
+        settings_path = tmp_path / OutputType.WORKFLOW_SETTINGS.value
+        notes_path = tmp_path / "notes.txt"
+        settings_path.write_text("settings")
+        notes_path.write_text("keep me")
+        old_cache = tmp_path / "training_iteration_9" / ".sampling_cache"
+        old_cache.mkdir(parents=True)
+        (old_cache / "raw_mol0").mkdir()
+        (tmp_path / "training_iteration_9" / "trajectory_mol0.pdb").write_text(
+            "trajectory"
+        )
+
+        path_manager.clean()
+
+        assert path_manager.status == WorkflowStatus.CLEAN
+        assert settings_path.exists()
+        assert notes_path.exists()
+        assert not (tmp_path / "training_iteration_9").exists()
 
 
 class TestDeletePath:
