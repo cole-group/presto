@@ -16,6 +16,27 @@ MoleculeInputType = Literal["smiles", "sdf"]
 
 MoleculeLoader = Callable[[str], list[Molecule]]
 
+PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS: dict[str, str] = {
+    "[#15]": (
+        "Phosphorus-containing molecules may undergo connectivity changes or proton "
+        "hopping during MLP minimisations. Set "
+        "`training_sampling_settings.sampling_protocol` to `mm_md_metadynamics` to "
+        "avoid minimisation-enabled training sampling, and disable MSM by setting "
+        "`param_settings.msm_settings` to `null` (YAML) or `None` (Python), because "
+        "MSM also performs MLP minimisation."
+    ),
+    "[SX4](=[OX1])(=[OX1])[NX3]": (
+        "Sulfonamides with this environment may have problematic S-N bond "
+        "initialisation during MSM. Disable MSM by setting "
+        "`param_settings.msm_settings` to `null` (YAML) or `None` (Python)."
+    ),
+    "[SX4](=[OX1])(=[OX1])[NX2]": (
+        "Sulfonamides with this environment may have problematic S-N bond "
+        "initialisation during MSM. Disable MSM by setting "
+        "`param_settings.msm_settings` to `null` (YAML) or `None` (Python)."
+    ),
+}
+
 
 def _molecule_identity(molecule: Chem.Mol) -> str:
     return Chem.MolToSmiles(molecule, isomericSmiles=True, canonical=True)
@@ -230,3 +251,19 @@ def find_conformer_generation_failures(
             )
 
     return failures
+
+
+def find_problematic_functional_groups(
+    molecules: Sequence[Molecule],
+) -> dict[str, list[str]]:
+    """Collect molecule descriptions for each known problematic SMARTS."""
+    matches: dict[str, list[str]] = {}
+    for smarts in PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS:
+        descriptions = [
+            molecule_description(molecule, index)
+            for index, molecule in enumerate(molecules)
+            if molecule.chemical_environment_matches(smarts)
+        ]
+        if descriptions:
+            matches[smarts] = descriptions
+    return matches
