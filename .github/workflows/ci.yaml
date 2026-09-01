@@ -41,7 +41,7 @@ jobs:
           df -h
           ulimit -a
 
-      - uses: prefix-dev/setup-pixi@v0.10.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           pixi-version: v0.67.2
           cache: true
