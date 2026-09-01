@@ -31,8 +31,10 @@ from .find_torsions import (
 )
 from .load_molecules import (
     MOLECULE_LOADERS,
+    PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS,
     MoleculeInputType,
     find_conformer_generation_failures,
+    find_problematic_functional_groups,
     load_conformers_for_molecule,
 )
 from .outputs import OutputType, WorkflowPathManager
@@ -876,6 +878,18 @@ class ParamSettings(_DefaultSettings):
         # and avoids issues with appending to `molecules` not-causing re-validation
         # if caching. Setting `molecules` to a tuple messes with the CLI.
         molecules = self._load_molecules()
+
+        for smarts, descriptions in find_problematic_functional_groups(
+            molecules
+        ).items():
+            molecule_lines = "\n".join(f"  - {item}" for item in descriptions)
+            warnings.warn(
+                f"Molecules matching known problematic SMARTS `{smarts}` were "
+                f"found:\n{molecule_lines}\n"
+                f"{PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS[smarts]}",
+                UserWarning,
+                stacklevel=2,
+            )
 
         failures = find_conformer_generation_failures(molecules)
         if failures:
