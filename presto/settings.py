@@ -912,6 +912,13 @@ class WorkflowSettings(_DefaultSettings):
         "increases peak GPU memory usage with each iteration.",
     )
 
+    n_sampling_processes: int = Field(
+        1,
+        ge=1,
+        description="Number of spawned worker processes used to sample independent "
+        "ligands on this node.",
+    )
+
     param_settings: ParamSettings = Field(
         description="Settings controlling the initial parameterisation",
     )

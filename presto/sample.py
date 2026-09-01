@@ -3,7 +3,7 @@
 import copy
 import functools
 import pathlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Protocol, TypedDict, Unpack
 
 import datasets
@@ -74,6 +74,17 @@ _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
 
 _register_sampling_fn = get_registry_decorator(_SAMPLING_FNS_REGISTRY)
 
+# Set only by a molecule-isolated coordinator worker. Keeping this detail outside
+# the public sampling signature preserves compatibility for direct callers.
+_COORDINATED_MOLECULE_INDEX: int | None = None
+
+
+def _indexed_molecules(
+    mols: list[openff.toolkit.Molecule],
+) -> Iterable[tuple[int, openff.toolkit.Molecule]]:
+    start = _COORDINATED_MOLECULE_INDEX
+    return enumerate(mols) if start is None else ((start, mols[0]),)
+
 
 def _copy_mol_and_add_conformers(
     mol: openff.toolkit.Molecule,
@@ -127,11 +138,11 @@ def _create_simulation(
     """Create an OpenMM simulation with a standard Langevin integrator."""
     integrator = _get_integrator(temperature, timestep)
     platform = _get_openmm_platform(device)
+    properties = None
+    if device.type == "cuda" and device.index is not None:
+        properties = {"DeviceIndex": str(device.index)}
     simulation = Simulation(
-        topology,
-        system,
-        integrator,
-        platform=platform,
+        topology, system, integrator, platform=platform, platformProperties=properties
     )
     return simulation, integrator
 
@@ -358,7 +369,7 @@ def sample_mmmd(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in _indexed_molecules(mols):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -455,7 +466,7 @@ def sample_mlmd(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in _indexed_molecules(mols):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -583,7 +594,7 @@ def sample_mmmd_metadynamics(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in _indexed_molecules(mols):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -1201,7 +1212,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in _indexed_molecules(mols):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )

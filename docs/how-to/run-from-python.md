@@ -37,3 +37,20 @@ This is the recommended way to inject runtime objects (e.g. an ASE calculator) t
 ## Reference
 
 - API reference: [`WorkflowSettings`](../reference/api/settings.md#presto.settings.WorkflowSettings), [`get_bespoke_force_field`](../reference/api/workflow.md#presto.workflow.get_bespoke_force_field).
+# Parallel ligand sampling
+
+Independent ligands can be sampled concurrently on one node by setting
+`n_sampling_processes` on `WorkflowSettings` (or passing
+`--n-sampling-processes` to `presto train`). The default is one process and keeps
+the serial behaviour.
+
+For CUDA runs, Presto assigns workers round-robin to the logical devices exposed
+by `CUDA_VISIBLE_DEVICES`. For example, `CUDA_VISIBLE_DEVICES=0,2` exposes two
+logical devices to the workers. If only one device is visible, every worker uses
+it; NVIDIA MPS must be started and configured outside Presto if concurrent GPU
+execution is desired.
+
+Each process loads its own force field and ML model, so model and CUDA memory use
+is multiplied by the number of workers. More processes can be slower when one
+process already saturates a GPU. This option parallelizes ligands within a single
+node only; parameterization, fitting, and analysis remain in the parent process.

@@ -393,6 +393,11 @@ class WorkflowPathManager:
         for stage in self.outputs_by_stage.keys():
             if stage.kind == StageKind.BASE:
                 continue
+            stage_path = self.get_stage_path(stage)
+            if stage_path.exists():
+                from .sampling_coordinator import remove_sampling_temporary_paths
+
+                remove_sampling_temporary_paths(stage_path)
             delete_path(self.get_stage_path(stage), recursive=False)
 
 
