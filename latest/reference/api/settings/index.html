@@ -7633,6 +7633,10 @@ in each class for the string identifier which should be supplied to
 </span></code></pre></div>
       </details>
     
+      <p>Config:</p>
+      <ul>
+          <li><code>default</code>: <code class="highlight language-python"><span class="n">_DEFAULT_MODEL_CONFIG</span></code></li>
+      </ul>
 
 
 
@@ -17139,7 +17143,7 @@ the molecular Hessian — here computed using the reference MLP. See
 </span><span id="__span-0-995"><a id="__codelineno-0-995" name="__codelineno-0-995" href="#__codelineno-0-995"></a><span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Overall settings for the full fitting workflow.&quot;</span><span class="p">,</span>
 </span><span id="__span-0-996"><a id="__codelineno-0-996" name="__codelineno-0-996" href="#__codelineno-0-996"></a><span class="w">  </span><span class="nt">&quot;properties&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 </span><span id="__span-0-997"><a id="__codelineno-0-997" name="__codelineno-0-997" href="#__codelineno-0-997"></a><span class="w">    </span><span class="nt">&quot;version&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-998"><a id="__codelineno-0-998" name="__codelineno-0-998" href="#__codelineno-0-998"></a><span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.dev1+g74d5c7ffe&quot;</span><span class="p">,</span>
+</span><span id="__span-0-998"><a id="__codelineno-0-998" name="__codelineno-0-998" href="#__codelineno-0-998"></a><span class="w">      </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.1.dev1+g7d52c938b&quot;</span><span class="p">,</span>
 </span><span id="__span-0-999"><a id="__codelineno-0-999" name="__codelineno-0-999" href="#__codelineno-0-999"></a><span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Version of presto used to create these settings&quot;</span><span class="p">,</span>
 </span><span id="__span-0-1000"><a id="__codelineno-0-1000" name="__codelineno-0-1000" href="#__codelineno-0-1000"></a><span class="w">      </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Version&quot;</span><span class="p">,</span>
 </span><span id="__span-0-1001"><a id="__codelineno-0-1001" name="__codelineno-0-1001" href="#__codelineno-0-1001"></a><span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span>
@@ -17384,6 +17388,53 @@ the molecular Hessian — here computed using the reference MLP. See
             </li>
         </ul>
 
+        <p>Validators:</p>
+        <ul>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_version&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_version&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_version">validate_version</a></code>
+                &rarr;
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;version&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-field&quot;&gt;&lt;code&gt;pydantic-field&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.version&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.version">version</a></code>            </li>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_device_type&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_device_type&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_device_type">validate_device_type</a></code>
+                &rarr;
+                  <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-attribute&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;device_type&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-field&quot;&gt;&lt;code&gt;pydantic-field&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.device_type&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.device_type">device_type</a></code>            </li>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_parameterisation_training_consistency&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_parameterisation_training_consistency&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_parameterisation_training_consistency">validate_parameterisation_training_consistency</a></code>
+            </li>
+            <li>
+              <code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;doc-symbol doc-symbol-heading doc-symbol-method&quot;&gt;&lt;/code&gt;            &lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;validate_starting_conformers_match_molecules&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-pydantic-validator&quot;&gt;&lt;code&gt;pydantic-validator&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;presto.settings.WorkflowSettings.validate_starting_conformers_match_molecules&lt;/code&gt;)" href="#presto.settings.WorkflowSettings.validate_starting_conformers_match_molecules">validate_starting_conformers_match_molecules</a></code>
+            </li>
+        </ul>
 
 
 
@@ -17720,7 +17771,7 @@ the molecular Hessian — here computed using the reference MLP. See
 
 
   <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
   </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_version" class="headerlink" title="Permanent link">#</a></h3>
@@ -17783,7 +17834,7 @@ the molecular Hessian — here computed using the reference MLP. See
 
 
   <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
   </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_device_type" class="headerlink" title="Permanent link">#</a></h3>
@@ -17838,6 +17889,10 @@ the molecular Hessian — here computed using the reference MLP. See
 <h3 id="presto.settings.WorkflowSettings.validate_parameterisation_training_consistency" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">validate_parameterisation_training_consistency</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
+  </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_parameterisation_training_consistency" class="headerlink" title="Permanent link">#</a></h3>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">validate_parameterisation_training_consistency</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
@@ -17899,6 +17954,10 @@ the molecular Hessian — here computed using the reference MLP. See
 <h3 id="presto.settings.WorkflowSettings.validate_starting_conformers_match_molecules" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">validate_starting_conformers_match_molecules</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-pydantic-validator"><code>pydantic-validator</code></small>
+  </span>
 
 <a href="#presto.settings.WorkflowSettings.validate_starting_conformers_match_molecules" class="headerlink" title="Permanent link">#</a></h3>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">validate_starting_conformers_match_molecules</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Self">Self</span></span>
