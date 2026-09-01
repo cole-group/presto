@@ -32,8 +32,6 @@ from .find_torsions import (
 from .load_molecules import (
     MOLECULE_LOADERS,
     MoleculeInputType,
-    find_conformer_generation_failures,
-    load_conformers_for_molecule,
 )
 from .outputs import OutputType, WorkflowPathManager
 from .utils.dicts import deep_update
@@ -865,37 +863,11 @@ class ParamSettings(_DefaultSettings):
 
     @model_validator(mode="after")
     def _check_molecule_loading(self) -> Self:
-        """Check that molecules can be loaded and that conformers can be generated.
-
-        Conformer generation is checked here, rather than being left to fail part way
-        through the modified Seminario method, because a molecule ETKDG cannot embed
-        cannot be parameterised at all. Every offending molecule is reported at once so
-        a whole input set can be fixed in a single pass.
-        """
+        """Check that molecules can be loaded."""
         # It's a waste reloading every time, but this is pretty cheap,
         # and avoids issues with appending to `molecules` not-causing re-validation
         # if caching. Setting `molecules` to a tuple messes with the CLI.
-        molecules = self._load_molecules()
-
-        failures = find_conformer_generation_failures(molecules)
-        if failures:
-            for description, error in failures.values():
-                logger.error(f"Conformer generation failed for {description}: {error}")
-
-            failure_lines = "\n".join(
-                f"  - {description}: {error}"
-                for description, error in failures.values()
-            )
-            raise InvalidSettingsError(
-                f"Conformer generation failed for {len(failures)} of "
-                f"{len(molecules)} molecules:\n{failure_lines}\n"
-                "These molecules cannot be parameterised. Either remove them, or supply "
-                "conformers for them via the `starting_conformers` setting (see the "
-                "'Use your own starting conformers' how-to guide). Note that a molecule "
-                "ETKDG cannot embed will also fail AM1BCC charge assignment, so supplying "
-                "starting conformers additionally requires library charges (see "
-                "`presto.create_types.add_library_charges_to_forcefield`)."
-            )
+        self._load_molecules()
 
         return self
 
@@ -1027,46 +999,6 @@ class WorkflowSettings(_DefaultSettings):
                 f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
-
-        return self
-
-    @model_validator(mode="after")
-    def validate_starting_conformers_match_molecules(self) -> Self:
-        """Fail fast if a configured starting-conformers SDF lacks a molecule being fitted.
-
-        This runs before the (slow) parameterisation stage so a mismatch between the
-        supplied conformers and the fitted molecules surfaces immediately rather than
-        mid-run.
-        """
-        msm_settings = self.param_settings.msm_settings
-        stages: list[tuple[str, Path | None]] = [
-            (
-                "training_sampling_settings",
-                getattr(self.training_sampling_settings, "starting_conformers", None),
-            ),
-            (
-                "testing_sampling_settings",
-                getattr(self.testing_sampling_settings, "starting_conformers", None),
-            ),
-            (
-                "param_settings.msm_settings",
-                None if msm_settings is None else msm_settings.starting_conformers,
-            ),
-        ]
-
-        configured = [(name, path) for name, path in stages if path is not None]
-        if not configured:
-            return self
-
-        molecules = self.param_settings.openff_molecules
-        for name, path in configured:
-            for molecule in molecules:
-                try:
-                    load_conformers_for_molecule(molecule, path)
-                except ValueError as exc:
-                    raise InvalidSettingsError(
-                        f"{name}.starting_conformers ({path}) is invalid: {exc}"
-                    ) from exc
 
         return self
 

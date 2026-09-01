@@ -581,33 +581,19 @@ class TestParamSettings:
                 molecule_input_type="smiles", molecules=_DEFAULT_INPUT_PLACEHOLDER
             )
 
-    def test_conformer_generation_failure_raises_error(self):
-        """Molecules ETKDG cannot embed are rejected during validation."""
+    def test_conformer_generation_is_not_run_during_validation(self):
+        """ParamSettings only validates molecule loading, not workflow geometry."""
         with mock.patch.object(
             Molecule, "generate_conformers", autospec=True
         ) as mock_generate:
             mock_generate.side_effect = ValueError("RDKit conformer generation failed.")
-            with pytest.raises(ValidationError, match="Conformer generation failed"):
-                ParamSettings(molecule_input_type="smiles", molecules="CCO")
+            settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
 
-    def test_conformer_generation_failure_reports_every_molecule(self):
-        """All offending molecules are listed, not just the first."""
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = ValueError("RDKit conformer generation failed.")
-            with pytest.raises(ValidationError) as exc_info:
-                ParamSettings(
-                    molecule_input_type="smiles", molecules=["CCO", "CCC", "CCCC"]
-                )
-
-        message = str(exc_info.value)
-        assert "3 of 3 molecules" in message
-        for index in range(3):
-            assert f"molecule {index} " in message
+        assert settings.molecules == ["CCO"]
+        mock_generate.assert_not_called()
 
     def test_conformer_generation_check_does_not_reject_valid_molecules(self):
-        """The check leaves ordinary molecules alone."""
+        """Loading settings leaves molecules without incidental conformers."""
         settings = ParamSettings(
             molecule_input_type="smiles", molecules=["CCO", "c1ccccc1"]
         )
@@ -983,32 +969,31 @@ class TestStartingConformersField:
         assert settings.training_sampling_settings.starting_conformers == sdf
 
     def test_workflow_rejects_missing_molecule(self, tmp_path):
-        """WorkflowSettings fails fast when a fitted molecule is absent from the SDF."""
+        """SDF graph matching is deferred until the training preflight."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)
 
-        with pytest.raises(ValidationError, match="starting_conformers"):
-            WorkflowSettings(
-                param_settings=ParamSettings(
-                    molecule_input_type="smiles", molecules="c1ccccc1"
-                ),
-                device_type="cpu",
-                training_sampling_settings=MMMDSamplingSettings(
-                    starting_conformers=sdf
-                ),
-            )
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(
+                molecule_input_type="smiles", molecules="c1ccccc1"
+            ),
+            device_type="cpu",
+            training_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
+        )
+        assert settings.training_sampling_settings.starting_conformers == sdf
 
     def test_workflow_validates_msm_conformers(self, tmp_path):
-        """The MSM starting_conformers path is also cross-checked against molecules."""
+        """MSM SDF graph matching is deferred until the training preflight."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)
 
-        with pytest.raises(ValidationError, match=r"msm_settings\.starting_conformers"):
-            WorkflowSettings(
-                param_settings=ParamSettings(
-                    molecule_input_type="smiles",
-                    molecules="c1ccccc1",
-                    msm_settings=MSMSettings(starting_conformers=sdf),
-                ),
-                device_type="cpu",
-            )
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(
+                molecule_input_type="smiles",
+                molecules="c1ccccc1",
+                msm_settings=MSMSettings(starting_conformers=sdf),
+            ),
+            device_type="cpu",
+        )
+        assert settings.param_settings.msm_settings is not None
+        assert settings.param_settings.msm_settings.starting_conformers == sdf

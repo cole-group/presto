@@ -75,25 +75,24 @@ InvalidSettingsError: Conformer generation failed for 2 of 40 molecules:
   - molecule 27 (ligand-28, c1ccc...): ... ConformerGenerationError : RDKit conformer generation failed.
 ```
 
-**Cause**: RDKit's ETKDG cannot embed those molecules. `presto` checks this up front, for every
-molecule at once, because a molecule that cannot be embedded cannot be parameterised: the modified
-Seminario method and every sampling stage need a starting conformer, and AM1BCC charge assignment
-generates conformers internally too. Without the check, the failure would only surface part way
-through the MSM stage, after the expensive ML potential work had already run for every earlier
-molecule.
+**Cause**: RDKit's ETKDG cannot embed those molecules, and at least one configured workflow stage
+needs to generate a starting conformer. `presto` checks this at the start of training and reports
+every affected molecule before the modified Seminario method or sampling begins.
 
 **Fixes**:
 
 - Remove the offending molecules from `param_settings.molecules`. The error lists every one of
   them, so a whole input set can be fixed in a single pass.
-- Or supply geometries for them yourself. Set `starting_conformers` on the relevant stages (see
-  **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**). Note this
-  is not sufficient on its own: AM1BCC will still try to embed the molecule during charge
-  assignment, so you also need to bypass that with library charges (see
-  **[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
+- Or supply geometries for them yourself. Set `starting_conformers` on every active geometry stage
+  listed in the error (see **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
 
-Note that `presto clean` and `presto analyse` validate settings too, so they will also refuse to
-run on a configuration containing an unembeddable molecule.
+Charge assignment is validated separately by OpenFF during parameterisation. The default Sage 2.3
+force field uses the graph-based Ash–GC model and does not need conformers. Older force fields using
+AM1-BCC can still fail to parameterise an unembeddable molecule; when this happens, `presto` reports
+all molecules that fail the OpenFF parameterisation phase. Supplying library charges is one way to
+bypass AM1-BCC (see **[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
+
+`presto clean` and `presto analyse` do not execute this training-only geometry check.
 
 
 ## Version mismatch warning on YAML load

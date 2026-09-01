@@ -157,7 +157,7 @@ def load_conformers_for_molecule(
     return conformers
 
 
-def _molecule_description(molecule: Molecule, index: int) -> str:
+def molecule_description(molecule: Molecule, index: int) -> str:
     """Describe a molecule for user-facing error messages."""
     # Implicit hydrogens keep this close to what the user wrote in their input.
     smiles = molecule.to_smiles(explicit_hydrogens=False)
@@ -183,11 +183,9 @@ def find_conformer_generation_failures(
 ) -> dict[int, tuple[str, str]]:
     """Find molecules for which ETKDG cannot generate a conformer.
 
-    Every stage of the workflow that does not use supplied starting conformers needs
-    at least one ETKDG conformer, as does AM1BCC charge assignment (which embeds
-    conformers internally). A molecule that cannot be embedded therefore cannot be
-    parameterised, and it is far cheaper to find that out here than part way through
-    the modified Seminario method.
+    Workflow stages that do not use supplied starting conformers need at least one
+    ETKDG conformer. Charge assignment is deliberately outside this helper: modern
+    graph-based models do not need coordinates, while methods such as AM1BCC do.
 
     A single conformer is a sufficient probe. ``RDKitToolkitWrapper.generate_conformers``
     embeds with ``randomSeed=1`` (so the result is deterministic) and only raises when
@@ -220,14 +218,14 @@ def find_conformer_generation_failures(
             # registry re-wraps it as a plain ValueError, so neither type alone is
             # enough to catch.
             failures[index] = (
-                _molecule_description(molecule, index),
+                molecule_description(molecule, index),
                 _summarise_toolkit_error(exc),
             )
             continue
 
         if not candidate.conformers:
             failures[index] = (
-                _molecule_description(molecule, index),
+                molecule_description(molecule, index),
                 "conformer generation returned no conformers",
             )
 

@@ -22,8 +22,8 @@ Any stage left unset keeps generating conformers with ETKDG.
   fitted by graph isomorphism, and its atom ordering is **remapped automatically** to match.
   You do not need to worry about atom ordering, and a single SDF can hold conformers for
   several molecules in a multi-molecule fit — each molecule picks up only its own records.
-- **Missing molecules fail fast.** If a configured SDF contains no conformer for a molecule
-  being fitted, the run stops during settings validation, before any expensive work.
+- **Missing molecules fail fast.** When training starts, every configured SDF is checked against
+  every fitted molecule. All mismatches are reported together before any output or expensive work.
 
 ## CLI form
 

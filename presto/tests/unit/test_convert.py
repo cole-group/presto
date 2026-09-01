@@ -1,6 +1,7 @@
 """Unit tests for convert.py."""
 
 import math
+from unittest import mock
 
 import openff.interchange
 import openff.toolkit
@@ -9,6 +10,7 @@ import smee
 import torch
 from openff.units import unit as off_unit
 
+from presto._exceptions import MoleculeParameterisationError
 from presto.convert import (
     _add_angle_within_range,
     _compute_linear_harmonic_params,
@@ -699,3 +701,34 @@ class TestParameteriseExtended:
         assert len(tensor_tops) == 2
         # Force field should contain parameters for both molecules
         assert isinstance(tensor_ff, smee.TensorForceField)
+
+    def test_parameterise_reports_all_interchange_failures(self):
+        """OpenFF failures are collected for every molecule in input order."""
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["C", "CC", "CCC"],
+            initial_force_field="openff_unconstrained-2.3.0.offxml",
+            expand_torsions=False,
+            msm_settings=None,
+        )
+
+        with mock.patch.object(
+            openff.interchange.Interchange,
+            "from_smirnoff",
+            side_effect=[
+                ValueError("charge failure"),
+                mock.sentinel.ok,
+                RuntimeError("typing failure"),
+            ],
+        ) as from_smirnoff:
+            with pytest.raises(MoleculeParameterisationError) as exc_info:
+                parameterise(settings, device="cpu")
+
+        assert from_smirnoff.call_count == 3
+        message = str(exc_info.value)
+        assert "2 of 3 molecules" in message
+        assert "molecule 0 (C)" in message
+        assert "ValueError: charge failure" in message
+        assert "molecule 2 (CCC)" in message
+        assert "RuntimeError: typing failure" in message
+        assert "molecule 1 " not in message

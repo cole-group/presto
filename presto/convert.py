@@ -14,10 +14,16 @@ import torch
 from openff.units import Quantity
 from openff.units import unit as off_unit
 
+from ._exceptions import (
+    MoleculeIssue,
+    MoleculeParameterisationError,
+    format_molecule_issues,
+)
 from .create_types import (
     _add_parameter_with_overwrite,
     add_types_to_forcefield,
 )
+from .load_molecules import _summarise_toolkit_error, molecule_description
 from .msm import apply_msm_to_molecules
 from .settings import ParamSettings
 from .utils.typing import TorchDevice
@@ -215,9 +221,20 @@ def parameterise(
         The force field with unique parameters for each topologically
         symmetric term.
     """
-    # Create molecules from SMILES
-    mols = settings.openff_molecules
+    return _parameterise_loaded(settings, settings.openff_molecules, device)
 
+
+def _parameterise_loaded(
+    settings: ParamSettings,
+    mols: list[openff.toolkit.Molecule],
+    device: TorchDevice = "cuda",
+) -> tuple[
+    list[openff.toolkit.Molecule],
+    openff.toolkit.ForceField,
+    list[smee.TensorTopology],
+    smee.TensorForceField,
+]:
+    """Parameterise an already-loaded molecule list."""
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
     # First check required as Parsely does not contain constraints
@@ -255,11 +272,35 @@ def parameterise(
             device=torch.device(device),
         )
 
-    # Create separate Interchange objects for each molecule
-    interchanges = [
-        openff.interchange.Interchange.from_smirnoff(bespoke_ff, mol.to_topology())
-        for mol in mols
-    ]
+    # Create separate Interchange objects for each molecule. This is also where
+    # OpenFF applies its configured charge model, so use the real operation instead
+    # of trying to predict which models require conformers.
+    interchanges = []
+    issues: list[MoleculeIssue] = []
+    for index, mol in enumerate(mols):
+        try:
+            interchanges.append(
+                openff.interchange.Interchange.from_smirnoff(
+                    bespoke_ff, mol.to_topology()
+                )
+            )
+        except Exception as exc:
+            description = molecule_description(mol, index)
+            error = f"{type(exc).__name__}: {_summarise_toolkit_error(exc)}"
+            logger.error(f"OpenFF parameterisation failed for {description}: {error}")
+            issues.append(
+                MoleculeIssue(
+                    index=index,
+                    description=description,
+                    phase="OpenFF parameterisation/charge assignment",
+                    error=error,
+                )
+            )
+
+    if issues:
+        raise MoleculeParameterisationError(
+            format_molecule_issues("OpenFF parameterisation failed", issues, len(mols))
+        )
 
     # Convert all interchanges at once to get a shared force field
     # and separate topologies that all reference the same parameters

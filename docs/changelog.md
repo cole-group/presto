@@ -5,7 +5,7 @@
 ### Features
 
 - Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
-- Validate up front that a conformer can be generated for every input molecule, rather than failing part way through the modified Seminario method once the ML potential work for earlier molecules has already run. Every offending molecule is reported at once, so a whole input set can be fixed in a single pass. Note that `presto clean` and `presto analyse` validate settings too, so they will also refuse to run on a configuration containing an unembeddable molecule. Addresses [#80](https://github.com/cole-group/presto/issues/80).
+- Validate at the start of training that ETKDG can generate a conformer for every molecule used by a stage without supplied starting conformers. Every offending molecule is reported at once, while configurations that supply all required geometries remain valid. `presto clean` and `presto analyse` do not run this training-only check. Addresses [#80](https://github.com/cole-group/presto/issues/80).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
 ### Fixes
