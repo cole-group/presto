@@ -3431,6 +3431,7 @@
 <h2 id="090">0.9.0<a class="headerlink" href="#090" title="Permanent link">#</a></h2>
 <h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">#</a></h3>
 <ul>
+<li>Warn without rejecting or changing settings when input molecules contain phosphorus or sulfonamide environments known to cause MLP-minimisation or modified Seminario initialisation failures. The warnings identify every matching molecule and recommend safer sampling/MSM settings. Addresses <a href="https://github.com/cole-group/presto/issues/63">#63</a>.</li>
 <li>Add an optional <code>starting_conformers</code> setting to each sampling stage (<code>training_sampling_settings</code>, <code>testing_sampling_settings</code>) and to <code>msm_settings</code>. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; <code>n_conformers</code> is ignored for that stage. The default remains ETKDG.In <a href="https://github.com/cole-group/presto/pull/78">#78</a>.</li>
 <li>Add <code>presto.create_types.add_library_charges_to_forcefield</code> to write custom partial charges from OpenFF <code>Molecule</code> objects into a force field as library charges, addressing <a href="https://github.com/cole-group/presto/issues/64">#64</a>.</li>
 </ul>
