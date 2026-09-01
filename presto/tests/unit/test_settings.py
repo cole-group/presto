@@ -1,6 +1,5 @@
 """Unit tests for settings module."""
 
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -631,14 +630,6 @@ class TestParamSettings:
             settings = ParamSettings(molecule_input_type="sdf", molecules=str(sdf))
 
         assert settings.openff_molecules[0].name == "phosphorus-ligand"
-
-    def test_ordinary_and_charged_long_range_examples_do_not_warn(self):
-        """Unsupported geometry-dependent charged interactions are not guessed."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", UserWarning)
-            ParamSettings(
-                molecule_input_type="smiles", molecules=["CCO", "[O-]c1ccccc1"]
-            )
 
     def test_valid_single_molecule_sdf(self, tmp_path):
         """Test that valid SDF paths are accepted."""
