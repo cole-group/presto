@@ -3437,10 +3437,12 @@
 </ul>
 <h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">#</a></h3>
 <ul>
+<li>Attempt parameterisation for every molecule instead of aborting on the first failure, then raise a single <code>MoleculeParameterisationError</code> listing every molecule which could not be parameterised (whether the modified Seminario step could not generate a conformer for it, or OpenFF could not assign its charges/parameters). Addresses <a href="https://github.com/cole-group/presto/issues/80">#80</a>.</li>
 <li>Fix a latent <code>IndexError</code> in the MSM step when fewer conformers were available than <code>n_conformers</code>; the conformer loop now iterates the conformers actually present.</li>
 </ul>
 <h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">#</a></h3>
 <ul>
+<li>Document the aggregated parameterisation error in <a href="../reference/troubleshooting/">Troubleshooting</a>.</li>
 <li>Add <a href="../how-to/use-custom-charges/">Use custom charges</a> how-to guide.</li>
 <li>Add <a href="../how-to/use-starting-conformers/">Use your own starting conformers</a> how-to guide.</li>
 <li>Add a <code>CITATION.cff</code> file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in <a href="https://github.com/cole-group/presto/pull/76">#76</a>.</li>
