@@ -4,59 +4,20 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from openff.toolkit import ForceField
 
 from presto.outputs import WorkflowPathManager, WorkflowStatus
 from presto.settings import MMMDSamplingSettings, TrainingSettings
-from presto.workflow import _atomic_write_force_field, get_bespoke_force_field
+from presto.workflow import get_bespoke_force_field
 
 
 class _WritingForceField:
-    """Minimal force-field writer used to exercise atomic filesystem behavior."""
+    """Minimal force-field writer standing in for a parameterised force field."""
 
-    def __init__(self, contents: str, error: Exception | None = None):
+    def __init__(self, contents: str):
         self.contents = contents
-        self.error = error
 
     def to_file(self, path: str) -> None:
         Path(path).write_text(self.contents)
-        if self.error is not None:
-            raise self.error
-
-
-def test_atomic_force_field_write_replaces_destination(tmp_path):
-    """A successful write atomically exposes the new force field."""
-    destination = tmp_path / "stage" / "bespoke_ff.offxml"
-    destination.parent.mkdir()
-    destination.write_text("old force field")
-
-    _atomic_write_force_field(ForceField(), destination)
-
-    assert isinstance(ForceField(str(destination)), ForceField)
-    assert not list(destination.parent.glob(".*.tmp-*.offxml"))
-
-
-@pytest.mark.parametrize("destination_exists", [False, True])
-def test_atomic_force_field_write_failure_preserves_destination(
-    tmp_path, destination_exists
-):
-    """A failed serialization never exposes partial force-field contents."""
-    destination = tmp_path / "stage" / "bespoke_ff.offxml"
-    destination.parent.mkdir()
-    if destination_exists:
-        destination.write_text("old force field")
-
-    with pytest.raises(RuntimeError, match="serialization failed"):
-        _atomic_write_force_field(
-            _WritingForceField("partial", RuntimeError("serialization failed")),
-            destination,
-        )
-
-    if destination_exists:
-        assert destination.read_text() == "old force field"
-    else:
-        assert not destination.exists()
-    assert not list(destination.parent.glob(".*.tmp-*.offxml"))
 
 
 @pytest.mark.parametrize(

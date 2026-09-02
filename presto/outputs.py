@@ -151,19 +151,19 @@ class WorkflowPathManager:
 
     def _generated_stage_paths(self) -> list[Path]:
         """Return all existing Presto-owned generated stage paths."""
-        fixed_paths = [
-            self.output_dir / StageKind.INITIAL_STATISTICS.value,
-            self.output_dir / StageKind.TESTING.value,
-            self.output_dir / StageKind.PLOTS.value,
-        ]
-        paths = [path for path in fixed_paths if path.is_dir() or path.is_symlink()]
-        if self.output_dir.exists():
-            paths.extend(
-                path
-                for path in self.output_dir.glob(f"{StageKind.TRAINING.value}_*")
-                if path.is_dir() or path.is_symlink()
+        candidates = [
+            self.output_dir / kind.value
+            for kind in (
+                StageKind.INITIAL_STATISTICS,
+                StageKind.TESTING,
+                StageKind.PLOTS,
             )
-        return sorted(set(paths), key=str)
+        ]
+        # Globbing a missing directory yields nothing, so needs no existence check.
+        candidates += self.output_dir.glob(f"{StageKind.TRAINING.value}_*")
+        return sorted(
+            {path for path in candidates if path.is_dir() or path.is_symlink()}, key=str
+        )
 
     @property
     def status(self) -> WorkflowStatus:
@@ -181,8 +181,7 @@ class WorkflowPathManager:
 
     def require_clean(self) -> None:
         """Raise if generated output must be cleaned before starting a fit."""
-        status = self.status
-        if status != WorkflowStatus.CLEAN:
+        if (status := self.status) is not WorkflowStatus.CLEAN:
             raise RuntimeError(
                 f"The output directory {self.output_dir} contains a {status.value} "
                 "Presto fit. Run `presto clean` or use a new output directory before "

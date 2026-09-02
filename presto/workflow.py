@@ -1,9 +1,7 @@
 """Implements the overall workflow for fitting a bespoke force field."""
 
 import copy
-import os
 import pathlib
-import uuid
 
 import datasets
 import loguru
@@ -31,21 +29,6 @@ from .writers import write_scatter
 
 logger = loguru.logger
 console = Console()
-
-
-def _atomic_write_force_field(
-    force_field: ForceField, destination: pathlib.Path
-) -> None:
-    """Write a force field without exposing a partial destination file."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(
-        f".{destination.stem}.tmp-{uuid.uuid4().hex}{destination.suffix}"
-    )
-    try:
-        force_field.to_file(str(temporary))
-        os.replace(temporary, destination)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def get_bespoke_force_field(
@@ -120,7 +103,7 @@ def get_bespoke_force_field(
     initial_stage = OutputStage(StageKind.INITIAL_STATISTICS)
     path_manager.mk_stage_dir(initial_stage)
     initial_offxml_path = path_manager.get_output_path(initial_stage, OutputType.OFFXML)
-    _atomic_write_force_field(initial_off_ff, initial_offxml_path)
+    initial_off_ff.to_file(str(initial_offxml_path))
 
     # Generate the test data for all molecules
     stage = OutputStage(StageKind.TESTING)
@@ -170,9 +153,7 @@ def get_bespoke_force_field(
     off_ff = convert_to_smirnoff(
         trainable.to_force_field(trainable_parameters), base=initial_off_ff
     )
-    _atomic_write_force_field(
-        off_ff, path_manager.get_output_path(stage, OutputType.OFFXML)
-    )
+    off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
 
@@ -198,12 +179,12 @@ def get_bespoke_force_field(
                 output_type: path_manager.get_output_path(stage, output_type)
                 for output_type in settings.training_sampling_settings.output_types
             }
-            previous_datasets = datasets_train
 
             def process_training_dataset(
                 mol_idx: int,
                 dataset: datasets.Dataset,
-                previous_datasets: list[datasets.Dataset] | None = previous_datasets,
+                # Bound now, before `datasets_train` is rebound by the call below.
+                previous_datasets: list[datasets.Dataset] | None = datasets_train,
             ) -> datasets.Dataset:
                 if settings.outlier_filter_settings is not None:
                     logger.info(
@@ -273,9 +254,7 @@ def get_bespoke_force_field(
             off_ff = convert_to_smirnoff(
                 trainable.to_force_field(trainable_parameters), base=initial_off_ff
             )
-            _atomic_write_force_field(
-                off_ff, path_manager.get_output_path(stage, OutputType.OFFXML)
-            )
+            off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
             # Write scatter plots for each molecule
             for mol_idx, (dataset_test, tensor_top) in enumerate(

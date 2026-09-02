@@ -8,7 +8,7 @@ The CLI is an easy way to run `presto` for one-off fits, but the Python API give
 from presto.settings import ParamSettings, WorkflowSettings
 from presto.workflow import get_bespoke_force_field
 
-def main():
+if __name__ == "__main__":
     settings = WorkflowSettings(
         param_settings=ParamSettings(
             molecule_input_type="smiles",
@@ -17,11 +17,7 @@ def main():
         device_type="cuda",
     )
 
-    return get_bespoke_force_field(settings)
-
-
-if __name__ == "__main__":
-    bespoke_ff = main()
+    bespoke_ff = get_bespoke_force_field(settings)
 ```
 
 `get_bespoke_force_field` returns the final fitted `openff.toolkit.ForceField` and writes the same output tree the CLI would. Pass `write_settings=False` to skip writing `workflow_settings.yaml` (useful when you've loaded settings from a YAML file already).
@@ -39,35 +35,28 @@ settings = WorkflowSettings.from_yaml(
 
 This is the recommended way to inject runtime objects (e.g. an ASE calculator) that can't round-trip through YAML — see **[Use an ASE calculator](use-ase-calculator.md)**.
 
+## Parallel ligand sampling
+
+Set `n_sampling_processes` on `WorkflowSettings` (or `--n-sampling-processes` on
+`presto train`) to sample independent ligands concurrently on one node. The default of
+one process keeps the serial behaviour.
+
+On CUDA, workers are assigned round-robin to the devices visible through
+`CUDA_VISIBLE_DEVICES`. Each worker loads its own force field and ML model, so model
+and CUDA memory scale with the worker count, and more workers can be slower once one
+already saturates a GPU. Concurrent execution on a single GPU needs NVIDIA MPS,
+configured outside Presto. Only sampling is parallelised; parameterisation, fitting,
+and analysis stay in the parent process.
+
+!!! warning "Guard the Python entry point"
+    Workers are fresh Python processes that re-import your script. With
+    `n_sampling_processes > 1`, call `get_bespoke_force_field` behind an
+    `if __name__ == "__main__":` guard, as in the example above; without it every
+    worker re-runs the script and may spawn workers recursively or fail with a
+    multiprocessing bootstrap error. Interactive sessions and notebooks have no
+    importable guard, so use `n_sampling_processes=1` there, a guarded `.py` script,
+    or the `presto` CLI.
+
 ## Reference
 
 - API reference: [`WorkflowSettings`](../reference/api/settings.md#presto.settings.WorkflowSettings), [`get_bespoke_force_field`](../reference/api/workflow.md#presto.workflow.get_bespoke_force_field).
-# Parallel ligand sampling
-
-Independent ligands can be sampled concurrently on one node by setting
-`n_sampling_processes` on `WorkflowSettings` (or passing
-`--n-sampling-processes` to `presto train`). The default is one process and keeps
-the serial behaviour.
-
-For CUDA runs, Presto assigns workers round-robin to the logical devices exposed
-by `CUDA_VISIBLE_DEVICES`. For example, `CUDA_VISIBLE_DEVICES=0,2` exposes two
-logical devices to the workers. If only one device is visible, every worker uses
-it; NVIDIA MPS must be started and configured outside Presto if concurrent GPU
-execution is desired.
-
-Each process loads its own force field and ML model, so model and CUDA memory use
-is multiplied by the number of workers. More processes can be slower when one
-process already saturates a GPU. This option parallelizes ligands within a single
-node only; parameterization, fitting, and analysis remain in the parent process.
-
-!!! warning "Guard the Python entry point"
-    Parallel sampling starts fresh Python processes. When calling
-    `get_bespoke_force_field` from a Python script with
-    `n_sampling_processes > 1`, put the call behind an
-    `if __name__ == "__main__":` guard, as in the example above. Without the
-    guard, every worker re-runs the script while it is starting and may create
-    workers recursively or fail with a multiprocessing bootstrap error.
-
-    Interactive Python sessions and notebooks do not provide a reliably
-    importable guarded entry point. Use `n_sampling_processes=1` there, or run
-    parallel sampling from a guarded `.py` script or the `presto` CLI.

@@ -3,7 +3,7 @@
 import copy
 import functools
 import pathlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import Protocol, TypedDict, Unpack
 
 import datasets
@@ -74,16 +74,9 @@ _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
 
 _register_sampling_fn = get_registry_decorator(_SAMPLING_FNS_REGISTRY)
 
-# Set only by a molecule-isolated coordinator worker. Keeping this detail outside
-# the public sampling signature preserves compatibility for direct callers.
-_COORDINATED_MOLECULE_INDEX: int | None = None
-
-
-def _indexed_molecules(
-    mols: list[openff.toolkit.Molecule],
-) -> Iterable[tuple[int, openff.toolkit.Molecule]]:
-    start = _COORDINATED_MOLECULE_INDEX
-    return enumerate(mols) if start is None else ((start, mols[0]),)
+# Set only by a coordinator worker sampling one molecule in isolation, so that its
+# per-molecule output filenames keep the molecule's index in the whole workflow.
+_MOL_INDEX_OFFSET: int = 0
 
 
 def _copy_mol_and_add_conformers(
@@ -369,7 +362,7 @@ def sample_mmmd(
 
     all_datasets = []
 
-    for mol_idx, mol in _indexed_molecules(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -466,7 +459,7 @@ def sample_mlmd(
 
     all_datasets = []
 
-    for mol_idx, mol in _indexed_molecules(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -594,7 +587,7 @@ def sample_mmmd_metadynamics(
 
     all_datasets = []
 
-    for mol_idx, mol in _indexed_molecules(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -1212,7 +1205,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
     all_datasets = []
 
-    for mol_idx, mol in _indexed_molecules(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )

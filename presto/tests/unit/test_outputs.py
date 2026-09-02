@@ -16,8 +16,8 @@ from presto.outputs import (
     get_mol_path,
 )
 from presto.settings import (
-    MMMDSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    MMMDSamplingSettings,
     TrainingSettings,
 )
 

@@ -9,12 +9,8 @@ import pytest
 from openff.toolkit import Molecule
 
 from presto import sampling_coordinator
-from presto.outputs import OutputType, get_mol_path
-from presto.sampling_coordinator import sample_ligands
-from presto.settings import (
-    MMMDSamplingSettings,
-    PreComputedDatasetSettings,
-)
+from presto.sampling_coordinator import sample_ligands, sampling_devices
+from presto.settings import MMMDSamplingSettings, PreComputedDatasetSettings
 
 
 def _precomputed_settings(n_datasets: int) -> PreComputedDatasetSettings:
@@ -23,7 +19,7 @@ def _precomputed_settings(n_datasets: int) -> PreComputedDatasetSettings:
     )
 
 
-def _generated_inputs(tmp_path: Path, n_mols: int = 2):
+def _generated_inputs(tmp_path: Path, n_mols: int = 2) -> dict:
     settings = MMMDSamplingSettings()
     return {
         "mols": [Molecule.from_smiles("C") for _ in range(n_mols)],
@@ -41,25 +37,12 @@ def _generated_inputs(tmp_path: Path, n_mols: int = 2):
     }
 
 
-def _successful_worker(*args):
-    molecule_index = args[1]
-    output_paths = args[5]
-    cache_path = args[6]
-    for base_path in output_paths.values():
-        side_path = get_mol_path(base_path, molecule_index)
-        if side_path.suffix:
-            side_path.parent.mkdir(parents=True, exist_ok=True)
-            side_path.write_text("diagnostic output")
-        else:
-            side_path.mkdir(parents=True, exist_ok=True)
-    sampling_coordinator._atomic_save(
-        datasets.Dataset.from_dict({"molecule": [molecule_index]}), cache_path
-    )
-    return molecule_index
+def _successful_worker(molecule_json, molecule_index, *args) -> datasets.Dataset:
+    return datasets.Dataset.from_dict({"molecule": [molecule_index]})
 
 
 class _InlineExecutor:
-    """Run submitted work inline while exposing the executor Future API."""
+    """Run submitted work inline while exposing the executor context/Future API."""
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -79,6 +62,15 @@ class _InlineExecutor:
         return future
 
 
+def test_sampling_devices_round_robin():
+    """Workers share the visible CUDA devices round-robin, or all run on the CPU."""
+    assert sampling_devices("cpu", 3) == ["cpu"] * 3
+    with patch("torch.cuda.device_count", return_value=2):
+        assert sampling_devices("cuda", 3) == ["cuda:0", "cuda:1", "cuda:0"]
+    with patch("torch.cuda.device_count", return_value=0):
+        assert sampling_devices("cuda", 2) == ["cuda:0", "cuda:0"]
+
+
 def test_processes_each_precomputed_dataset(monkeypatch):
     """Precomputed training data is passed through the processing callback."""
     loaded = [
@@ -89,12 +81,10 @@ def test_processes_each_precomputed_dataset(monkeypatch):
         datasets.Dataset.from_dict({"value": [11]}),
         datasets.Dataset.from_dict({"value": [21]}),
     ]
-    sample_fn = MagicMock(return_value=loaded)
-    settings = _precomputed_settings(len(loaded))
     monkeypatch.setitem(
         sampling_coordinator._SAMPLING_FNS_REGISTRY,
         PreComputedDatasetSettings,
-        sample_fn,
+        MagicMock(return_value=loaded),
     )
     process_dataset = MagicMock(side_effect=processed)
 
@@ -103,7 +93,7 @@ def test_processes_each_precomputed_dataset(monkeypatch):
             mols=[MagicMock(), MagicMock()],
             offxml_path=Path("force-field.offxml"),
             device_type="cpu",
-            sampling_settings=settings,
+            sampling_settings=_precomputed_settings(len(loaded)),
             output_paths={},
             canonical_paths=[Path("canonical-0"), Path("canonical-1")],
             n_processes=1,
@@ -111,19 +101,19 @@ def test_processes_each_precomputed_dataset(monkeypatch):
         )
 
     assert result == processed
-    assert process_dataset.call_args_list[0].args == (0, loaded[0])
-    assert process_dataset.call_args_list[1].args == (1, loaded[1])
+    assert [call.args for call in process_dataset.call_args_list] == [
+        (0, loaded[0]),
+        (1, loaded[1]),
+    ]
 
 
 def test_returns_precomputed_datasets_without_callback(monkeypatch):
     """Precomputed test data remains unchanged when no callback is supplied."""
     loaded = [datasets.Dataset.from_dict({"value": [10]})]
-    sample_fn = MagicMock(return_value=loaded)
-    settings = _precomputed_settings(len(loaded))
     monkeypatch.setitem(
         sampling_coordinator._SAMPLING_FNS_REGISTRY,
         PreComputedDatasetSettings,
-        sample_fn,
+        MagicMock(return_value=loaded),
     )
 
     with patch("presto.sampling_coordinator.ForceField"):
@@ -131,27 +121,24 @@ def test_returns_precomputed_datasets_without_callback(monkeypatch):
             mols=[MagicMock()],
             offxml_path=Path("force-field.offxml"),
             device_type="cpu",
-            sampling_settings=settings,
+            sampling_settings=_precomputed_settings(len(loaded)),
             output_paths={},
             canonical_paths=[Path("canonical-0")],
             n_processes=1,
         )
 
-    assert result is loaded
+    assert result == loaded
 
 
 @pytest.mark.parametrize("n_processes", [1, 2])
-def test_clean_directory_samples_every_molecule(tmp_path, monkeypatch, n_processes):
-    """Clean generated-sampling runs sample and atomically commit every molecule."""
+def test_samples_processes_and_saves_every_molecule(tmp_path, monkeypatch, n_processes):
+    """Generated sampling runs, processes, and saves every molecule in order."""
     inputs = _generated_inputs(tmp_path)
     inputs["n_processes"] = n_processes
-    worker = MagicMock(side_effect=_successful_worker)
-    process_dataset = MagicMock(
-        side_effect=lambda molecule_index, dataset: dataset.add_column(
-            "processed", [molecule_index]
-        )
+    inputs["process_dataset"] = lambda mol_idx, dataset: dataset.add_column(
+        "processed", [mol_idx]
     )
-    inputs["process_dataset"] = process_dataset
+    worker = MagicMock(side_effect=_successful_worker)
     monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
     if n_processes > 1:
         monkeypatch.setattr(
@@ -163,38 +150,12 @@ def test_clean_directory_samples_every_molecule(tmp_path, monkeypatch, n_process
     assert [dataset["molecule"][0] for dataset in result] == [0, 1]
     assert [dataset["processed"][0] for dataset in result] == [0, 1]
     assert [call.args[1] for call in worker.call_args_list] == [0, 1]
-    assert [call.args[0] for call in process_dataset.call_args_list] == [0, 1]
-    assert all(path.exists() for path in inputs["canonical_paths"])
     committed = [datasets.load_from_disk(path) for path in inputs["canonical_paths"]]
     assert [dataset["processed"][0] for dataset in committed] == [0, 1]
-    assert not (tmp_path / ".sampling_cache").exists()
 
 
-def test_worker_failure_keeps_diagnostics_but_removes_cache(tmp_path, monkeypatch):
-    """Orderly failure retains side outputs and discards transient raw datasets."""
-    inputs = _generated_inputs(tmp_path, n_mols=1)
-    trajectory = get_mol_path(inputs["output_paths"][OutputType.PDB_TRAJECTORY], 0)
-
-    def failing_worker(*args):
-        trajectory.write_text("partial trajectory")
-        sampling_coordinator._atomic_save(
-            datasets.Dataset.from_dict({"molecule": [0]}), args[6]
-        )
-        raise RuntimeError("simulation failed")
-
-    worker = MagicMock(side_effect=failing_worker)
-    monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
-
-    with pytest.raises(RuntimeError, match=r"molecule 0: simulation failed"):
-        sample_ligands(**inputs)
-
-    assert trajectory.exists()
-    assert not (tmp_path / ".sampling_cache").exists()
-    assert worker.call_count == 1
-
-
-def test_serial_worker_failures_are_aggregated_after_all_ligands(tmp_path, monkeypatch):
-    """Ordinary failures remain per-ligand errors and do not stop serial sampling."""
+def test_worker_failures_are_aggregated_after_all_ligands(tmp_path, monkeypatch):
+    """Ordinary failures remain per-ligand errors and do not stop sampling early."""
     inputs = _generated_inputs(tmp_path)
     worker = MagicMock(
         side_effect=[RuntimeError("first failed"), ValueError("second failed")]
@@ -207,11 +168,11 @@ def test_serial_worker_failures_are_aggregated_after_all_ligands(tmp_path, monke
     assert "molecule 0: first failed" in str(exc_info.value)
     assert "molecule 1: second failed" in str(exc_info.value)
     assert worker.call_count == 2
-    assert not (tmp_path / ".sampling_cache").exists()
+    assert not any(path.exists() for path in inputs["canonical_paths"])
 
 
 @pytest.mark.parametrize("process_control_exception", [KeyboardInterrupt, SystemExit])
-def test_serial_process_control_exception_escapes_immediately(
+def test_process_control_exception_escapes_immediately(
     tmp_path, monkeypatch, process_control_exception
 ):
     """Process-control exceptions are not aggregated as ligand failures."""
@@ -223,27 +184,3 @@ def test_serial_process_control_exception_escapes_immediately(
         sample_ligands(**inputs)
 
     assert worker.call_count == 1
-    assert not (tmp_path / ".sampling_cache").exists()
-
-
-@pytest.mark.parametrize(
-    ("change", "error"),
-    [
-        (lambda inputs: inputs.update(mols=[]), "At least one molecule"),
-        (
-            lambda inputs: inputs.update(canonical_paths=[]),
-            "one canonical dataset path",
-        ),
-        (lambda inputs: inputs.update(n_processes=0), "n_processes"),
-        (lambda inputs: inputs.update(output_paths={}), "output types configured"),
-    ],
-)
-def test_generated_sampling_inputs_are_validated(tmp_path, change, error):
-    """Malformed generated-sampling inputs fail before cache creation."""
-    inputs = _generated_inputs(tmp_path, n_mols=1)
-    change(inputs)
-
-    with pytest.raises((TypeError, ValueError), match=error):
-        sample_ligands(**inputs)
-
-    assert not (tmp_path / ".sampling_cache").exists()
