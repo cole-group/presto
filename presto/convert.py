@@ -259,7 +259,7 @@ def parameterise(
     # immediately, so that a single run reports every offending molecule and the user
     # only has to queue one more job. `bespoke_ff` is incomplete if anything failed, but
     # we always raise below before it is used.
-    failures: dict[int, list[str]] = {}
+    failures: dict[int, list[str]] = collections.defaultdict(list)
 
     if settings.msm_settings is not None:
         bespoke_ff, msm_failures = apply_msm_to_molecules(
@@ -269,7 +269,7 @@ def parameterise(
             device=torch.device(device),
         )
         for index, message in msm_failures.items():
-            failures.setdefault(index, []).append(message)
+            failures[index].append(message)
 
     # Create separate Interchange objects for each molecule. This is also where OpenFF
     # applies its configured charge model. Molecules which already failed the modified
@@ -285,7 +285,7 @@ def parameterise(
             logger.opt(exception=True).error(
                 f"Parameterisation failed for molecule {index}: {exc}"
             )
-            failures.setdefault(index, []).append(f"{type(exc).__name__}: {exc}")
+            failures[index].append(f"{type(exc).__name__}: {exc}")
             continue
 
         if index not in failures:

@@ -83,8 +83,8 @@ failed.
 assignment stage before the error is raised, so the list is complete and a molecule with
 problems at both stages reports both (separated by `;`). Remove or replace all of the
 listed molecules in `param_settings.molecules` in one pass rather than resubmitting once
-per failure. Supplying `msm_settings.starting_conformers` sidesteps ETKDG for the
-modified Seminario stage (see
+per failure. Supplying `msm_settings.starting_conformers` sidesteps the requirement
+for conformer generation (see
 **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
 
 
