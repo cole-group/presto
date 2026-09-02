@@ -702,6 +702,40 @@ class TestParameteriseExtended:
         # Force field should contain parameters for both molecules
         assert isinstance(tensor_ff, smee.TensorForceField)
 
+    def test_parameterise_reports_both_stages_for_one_molecule(self):
+        """A molecule failing MSM is still charged, so one report lists both problems."""
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["C", "CC"],
+            initial_force_field="openff_unconstrained-2.3.0.offxml",
+            expand_torsions=False,
+            msm_settings=MSMSettings(mlp_settings=MLPSettings(ml_potential="aimnet2")),
+        )
+
+        with mock.patch(
+            "presto.convert.apply_msm_to_molecules",
+            return_value=(
+                openff.toolkit.ForceField(settings.initial_force_field),
+                {0: "ValueError: methane conformers"},
+            ),
+        ):
+            with mock.patch.object(
+                openff.interchange.Interchange,
+                "from_smirnoff",
+                side_effect=[ValueError("methane charges"), mock.sentinel.ok],
+            ) as from_smirnoff:
+                with pytest.raises(MoleculeParameterisationError) as exc_info:
+                    parameterise(settings, device="cpu")
+
+        # The MSM failure does not stop the molecule being tried at the charge stage.
+        assert from_smirnoff.call_count == 2
+        message = str(exc_info.value)
+        assert "1 of 2 molecules" in message
+        assert (
+            "molecule 0 (C): ValueError: methane conformers; "
+            "ValueError: methane charges" in message
+        )
+
     def test_parameterise_reports_every_failing_molecule(self):
         """Every molecule is attempted, and one error lists all the failures."""
         settings = ParamSettings(

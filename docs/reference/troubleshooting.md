@@ -79,10 +79,12 @@ MoleculeParameterisationError: Parameterisation failed for 2 of 20 molecules:
 cannot embed them (needed by the modified Seminario method) or because charge assignment
 failed.
 
-**Fix**: every molecule is attempted before the error is raised, so the list is complete.
-Remove or replace all of the listed molecules in `param_settings.molecules` in one pass
-rather than resubmitting once per failure. Supplying `msm_settings.starting_conformers`
-sidesteps ETKDG for the modified Seminario stage (see
+**Fix**: every molecule is attempted at both the modified Seminario and the charge
+assignment stage before the error is raised, so the list is complete and a molecule with
+problems at both stages reports both (separated by `;`). Remove or replace all of the
+listed molecules in `param_settings.molecules` in one pass rather than resubmitting once
+per failure. Supplying `msm_settings.starting_conformers` sidesteps ETKDG for the
+modified Seminario stage (see
 **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
 
 

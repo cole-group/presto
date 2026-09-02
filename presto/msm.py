@@ -719,51 +719,53 @@ def apply_msm_to_molecule(
         defaultdict(list)
     )
 
-    for conformer in track(
-        mol_with_conformers.conformers,
-        description="Finding MSM parameters for conformers",
-    ):
-        # Set positions for this conformer
-        simulation.context.setPositions(conformer.to_openmm())
+    try:
+        for conformer in track(
+            mol_with_conformers.conformers,
+            description="Finding MSM parameters for conformers",
+        ):
+            # Set positions for this conformer
+            simulation.context.setPositions(conformer.to_openmm())
 
-        # Minimize to local energy minimum
-        simulation.minimizeEnergy(maxIterations=0, tolerance=settings.tolerance)
-        positions = simulation.context.getState(getPositions=True).getPositions(
-            asNumpy=True
-        )
+            # Minimize to local energy minimum
+            simulation.minimizeEnergy(maxIterations=0, tolerance=settings.tolerance)
+            positions = simulation.context.getState(getPositions=True).getPositions(
+                asNumpy=True
+            )
 
-        # Convert positions to internal units (nm)
-        coords = positions.value_in_unit(_INTERNAL_LENGTH_UNIT)
+            # Convert positions to internal units (nm)
+            coords = positions.value_in_unit(_INTERNAL_LENGTH_UNIT)
 
-        # Compute Hessian at the minimum and convert to internal units (kcal/mol/nm²)
-        # The hessian is returned with OpenMM units attached, so we use automatic
-        # unit conversion to our internal standard units
-        hessian_with_units = calculate_hessian(
-            simulation,
-            positions,
-            finite_step=settings.finite_step,
-        )
-        hessian = hessian_with_units.value_in_unit(_INTERNAL_HESSIAN_UNIT)
+            # Compute Hessian at the minimum and convert to internal units (kcal/mol/nm²)
+            # The hessian is returned with OpenMM units attached, so we use automatic
+            # unit conversion to our internal standard units
+            hessian_with_units = calculate_hessian(
+                simulation,
+                positions,
+                finite_step=settings.finite_step,
+            )
+            hessian = hessian_with_units.value_in_unit(_INTERNAL_HESSIAN_UNIT)
 
-        # Decompose Hessian (works with unitless numpy arrays in internal units)
-        hessian_decomposer = HessianDecomposer(hessian, coords)
+            # Decompose Hessian (works with unitless numpy arrays in internal units)
+            hessian_decomposer = HessianDecomposer(hessian, coords)
 
-        # Calculate bond and angle parameters for this conformer
-        conformer_bond_params = calculate_bond_params(
-            bond_indices, hessian_decomposer, settings.vib_scaling
-        )
-        conformer_angle_params = calculate_angle_params(
-            angle_indices, hessian_decomposer, settings.vib_scaling
-        )
+            # Calculate bond and angle parameters for this conformer
+            conformer_bond_params = calculate_bond_params(
+                bond_indices, hessian_decomposer, settings.vib_scaling
+            )
+            conformer_angle_params = calculate_angle_params(
+                angle_indices, hessian_decomposer, settings.vib_scaling
+            )
 
-        # Collect parameters
-        for bond_idx, bond_param in conformer_bond_params.items():
-            all_bond_params[bond_idx].append(bond_param)
-        for angle_idx, angle_param in conformer_angle_params.items():
-            all_angle_params[angle_idx].append(angle_param)
-
-    # Clean up OpenMM objects to free GPU memory
-    cleanup_simulation(simulation, integrator)
+            # Collect parameters
+            for bond_idx, bond_param in conformer_bond_params.items():
+                all_bond_params[bond_idx].append(bond_param)
+            for angle_idx, angle_param in conformer_angle_params.items():
+                all_angle_params[angle_idx].append(angle_param)
+    finally:
+        # Clean up OpenMM objects to free GPU memory, even if this molecule failed,
+        # as the caller carries on with the next molecule
+        cleanup_simulation(simulation, integrator)
 
     # Average parameters over all conformers
     bond_params = {
@@ -861,7 +863,7 @@ def apply_msm_to_molecules(
                 mol, bond_indices, angle_indices, settings, device
             )
         except Exception as exc:
-            logger.error(f"MSM failed for molecule {index}: {exc}")
+            logger.opt(exception=True).error(f"MSM failed for molecule {index}: {exc}")
             failures[index] = f"{type(exc).__name__}: {exc}"
             continue
 

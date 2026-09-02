@@ -7,7 +7,7 @@ See https://doi.org/10.1021/acs.jctc.7b00785.
 import json
 import math
 from importlib.resources import files
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch, sentinel
 
 import numpy as np
 import pytest
@@ -885,6 +885,31 @@ class TestApplyMSMToMolecule:
         assert spy_hessian.call_count == n_supplied
         assert len(bond_params) == len(bond_indices)
         assert len(angle_params) == len(angle_indices)
+
+
+def test_apply_msm_to_molecule_cleans_up_on_failure():
+    """A failing molecule releases its simulation, so the next molecule has its GPU."""
+    import presto.msm as msm_module
+
+    mol = Molecule.from_smiles("CCO")
+    simulation = MagicMock()
+    simulation.minimizeEnergy.side_effect = RuntimeError("CUDA out of memory")
+    settings = MSMSettings(
+        n_conformers=1, mlp_settings=MLPSettings(ml_potential="aimnet2")
+    )
+
+    with (
+        patch.object(
+            msm_module,
+            "_build_ml_simulation",
+            return_value=(simulation, sentinel.integrator),
+        ),
+        patch.object(msm_module, "cleanup_simulation") as cleanup,
+        pytest.raises(RuntimeError, match="CUDA out of memory"),
+    ):
+        apply_msm_to_molecule(mol, [], [], settings, device=torch.device("cpu"))
+
+    cleanup.assert_called_once_with(simulation, sentinel.integrator)
 
 
 def test_apply_msm_to_molecules_collects_failures(base_forcefield, msm_settings):

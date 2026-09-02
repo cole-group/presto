@@ -259,35 +259,42 @@ def parameterise(
     # immediately, so that a single run reports every offending molecule and the user
     # only has to queue one more job. `bespoke_ff` is incomplete if anything failed, but
     # we always raise below before it is used.
-    failures: dict[int, str] = {}
+    failures: dict[int, list[str]] = {}
 
     if settings.msm_settings is not None:
-        bespoke_ff, failures = apply_msm_to_molecules(
+        bespoke_ff, msm_failures = apply_msm_to_molecules(
             mols=mols,
             off_ff=bespoke_ff,
             settings=settings.msm_settings,
             device=torch.device(device),
         )
+        for index, message in msm_failures.items():
+            failures.setdefault(index, []).append(message)
 
     # Create separate Interchange objects for each molecule. This is also where OpenFF
-    # applies its configured charge model.
+    # applies its configured charge model. Molecules which already failed the modified
+    # Seminario method are still attempted here, so that a molecule with problems at
+    # both stages reports both at once, but their interchange is discarded.
     interchanges = []
     for index, mol in enumerate(mols):
-        if index in failures:
-            continue
         try:
-            interchanges.append(
-                openff.interchange.Interchange.from_smirnoff(
-                    bespoke_ff, mol.to_topology()
-                )
+            interchange = openff.interchange.Interchange.from_smirnoff(
+                bespoke_ff, mol.to_topology()
             )
         except Exception as exc:
-            logger.error(f"Parameterisation failed for molecule {index}: {exc}")
-            failures[index] = f"{type(exc).__name__}: {exc}"
+            logger.opt(exception=True).error(
+                f"Parameterisation failed for molecule {index}: {exc}"
+            )
+            failures.setdefault(index, []).append(f"{type(exc).__name__}: {exc}")
+            continue
+
+        if index not in failures:
+            interchanges.append(interchange)
 
     if failures:
         report = "\n".join(
-            f"  - {_molecule_description(mols[index], index)}: {failures[index]}"
+            f"  - {_molecule_description(mols[index], index)}: "
+            + "; ".join(failures[index])
             for index in sorted(failures)
         )
         raise MoleculeParameterisationError(
