@@ -19,7 +19,7 @@ from .create_types import (
     _add_parameter_with_overwrite,
     add_types_to_forcefield,
 )
-from .load_molecules import _summarise_error, molecule_description
+from .load_molecules import _molecule_description
 from .msm import apply_msm_to_molecules
 from .settings import ParamSettings
 from .utils.typing import TorchDevice
@@ -216,21 +216,16 @@ def parameterise(
     tensor_ff: smee.TensorForceField
         The force field with unique parameters for each topologically
         symmetric term.
+
+    Raises:
+    ------
+    MoleculeParameterisationError
+        If any molecule could not be parameterised. Every molecule is attempted, so a
+        single error reports all of the failures.
     """
-    return _parameterise_loaded(settings, settings.openff_molecules, device)
+    # Create molecules from SMILES
+    mols = settings.openff_molecules
 
-
-def _parameterise_loaded(
-    settings: ParamSettings,
-    mols: list[openff.toolkit.Molecule],
-    device: TorchDevice = "cuda",
-) -> tuple[
-    list[openff.toolkit.Molecule],
-    openff.toolkit.ForceField,
-    list[smee.TensorTopology],
-    smee.TensorForceField,
-]:
-    """Parameterise an already-loaded molecule list."""
     off_ff = openff.toolkit.ForceField(settings.initial_force_field)
 
     # First check required as Parsely does not contain constraints
@@ -260,8 +255,14 @@ def _parameterise_loaded(
         settings.type_generation_settings,
     )
 
+    # Molecules which cannot be parameterised are collected rather than raised on
+    # immediately, so that a single run reports every offending molecule and the user
+    # only has to queue one more job. `bespoke_ff` is incomplete if anything failed, but
+    # we always raise below before it is used.
+    failures: dict[int, str] = {}
+
     if settings.msm_settings is not None:
-        bespoke_ff = apply_msm_to_molecules(
+        bespoke_ff, failures = apply_msm_to_molecules(
             mols=mols,
             off_ff=bespoke_ff,
             settings=settings.msm_settings,
@@ -269,13 +270,11 @@ def _parameterise_loaded(
         )
 
     # Create separate Interchange objects for each molecule. This is also where OpenFF
-    # applies its configured charge model, which is the most expensive part of
-    # parameterisation, so stop at the first failure rather than paying for the rest of
-    # the set. Molecule geometry problems are caught up front by the workflow preflight
-    # (``presto.workflow._validate_workflow_molecule_inputs``), which reports every
-    # offending molecule at once.
+    # applies its configured charge model.
     interchanges = []
     for index, mol in enumerate(mols):
+        if index in failures:
+            continue
         try:
             interchanges.append(
                 openff.interchange.Interchange.from_smirnoff(
@@ -283,13 +282,18 @@ def _parameterise_loaded(
                 )
             )
         except Exception as exc:
-            message = (
-                f"OpenFF parameterisation/charge assignment failed for "
-                f"{molecule_description(mol, index)}: "
-                f"{type(exc).__name__}: {_summarise_error(exc)}"
-            )
-            logger.error(message)
-            raise MoleculeParameterisationError(message) from exc
+            logger.error(f"Parameterisation failed for molecule {index}: {exc}")
+            failures[index] = f"{type(exc).__name__}: {exc}"
+
+    if failures:
+        report = "\n".join(
+            f"  - {_molecule_description(mols[index], index)}: {failures[index]}"
+            for index in sorted(failures)
+        )
+        raise MoleculeParameterisationError(
+            f"Parameterisation failed for {len(failures)} of {len(mols)} molecules:\n"
+            f"{report}"
+        )
 
     # Convert all interchanges at once to get a shared force field
     # and separate topologies that all reference the same parameters

@@ -803,11 +803,16 @@ def apply_msm_to_molecules(
     off_ff: openff.toolkit.ForceField,
     settings: MSMSettings,
     device: torch.device,
-) -> openff.toolkit.ForceField:
+) -> tuple[openff.toolkit.ForceField, dict[int, str]]:
     """Apply Modified Seminario Method to molecules and update force field.
 
     Calculates bond and angle parameters for all molecules, averages parameters
     that share the same SMIRKS pattern, and updates the force field accordingly.
+
+    Molecules which fail (most commonly because RDKit cannot generate a conformer for
+    them) are skipped and reported rather than aborting the run, so that the caller can
+    report every problematic molecule at once. The returned force field is only valid if
+    no molecule failed.
 
     Args:
         mols: List of molecules to parameterize.
@@ -816,7 +821,8 @@ def apply_msm_to_molecules(
         device: Torch device for ML potential calculations.
 
     Returns:
-        Modified ForceField with MSM-derived parameters.
+        Tuple of (modified ForceField with MSM-derived parameters, mapping of index in
+        ``mols`` to the error for each molecule which failed).
 
     Reference:
         AEA Allen, MC Payne, DJ Cole, J. Chem. Theory Comput. (2018),
@@ -828,28 +834,36 @@ def apply_msm_to_molecules(
     # Collect parameters by SMIRKS across all molecules
     bond_params_by_smirks: defaultdict[str, list[BondParams]] = defaultdict(list)
     angle_params_by_smirks: defaultdict[str, list[AngleParams]] = defaultdict(list)
+    failures: dict[int, str] = {}
 
-    for mol in track(mols, description="Applying MSM to molecules", transient=True):
-        # Get parameter labels for this molecule
-        labels = off_ff.label_molecules(mol.to_topology())[0]
+    for index, mol in enumerate(
+        track(mols, description="Applying MSM to molecules", transient=True)
+    ):
+        try:
+            # Get parameter labels for this molecule
+            labels = off_ff.label_molecules(mol.to_topology())[0]
 
-        # Build index-to-SMIRKS mappings
-        bond_indices_to_smirks = {
-            bond_indices: bond_param.smirks
-            for (bond_indices, bond_param) in labels["Bonds"].items()
-        }
-        angle_indices_to_smirks = {
-            angle_indices: angle_param.smirks
-            for (angle_indices, angle_param) in labels["Angles"].items()
-        }
+            # Build index-to-SMIRKS mappings
+            bond_indices_to_smirks = {
+                bond_indices: bond_param.smirks
+                for (bond_indices, bond_param) in labels["Bonds"].items()
+            }
+            angle_indices_to_smirks = {
+                angle_indices: angle_param.smirks
+                for (angle_indices, angle_param) in labels["Angles"].items()
+            }
 
-        bond_indices = list(bond_indices_to_smirks.keys())
-        angle_indices = list(angle_indices_to_smirks.keys())
+            bond_indices = list(bond_indices_to_smirks.keys())
+            angle_indices = list(angle_indices_to_smirks.keys())
 
-        # Calculate MSM parameters for this molecule
-        mol_bond_params, mol_angle_params = apply_msm_to_molecule(
-            mol, bond_indices, angle_indices, settings, device
-        )
+            # Calculate MSM parameters for this molecule
+            mol_bond_params, mol_angle_params = apply_msm_to_molecule(
+                mol, bond_indices, angle_indices, settings, device
+            )
+        except Exception as exc:
+            logger.error(f"MSM failed for molecule {index}: {exc}")
+            failures[index] = f"{type(exc).__name__}: {exc}"
+            continue
 
         # Collect parameters by SMIRKS
         for bond_idx, bond_params in mol_bond_params.items():
@@ -895,4 +909,4 @@ def apply_msm_to_molecules(
             f"Updated angle {smirks}: k={angle_param.k}, angle={angle_param.angle}"
         )
 
-    return off_ff
+    return off_ff, failures

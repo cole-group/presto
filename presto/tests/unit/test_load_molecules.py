@@ -1,7 +1,5 @@
 """Unit tests for load_molecules.py, focusing on starting-conformer loading."""
 
-from unittest import mock
-
 import numpy as np
 import pytest
 from openff.toolkit import Molecule
@@ -9,8 +7,6 @@ from openff.units import unit
 from scipy.spatial.distance import pdist
 
 from presto.load_molecules import (
-    _summarise_error,
-    find_conformer_generation_failures,
     find_problematic_functional_groups,
     load_conformers_for_molecule,
 )
@@ -161,139 +157,3 @@ def test_non_sdf_suffix_raises(tmp_path):
     other.write_text("")
     with pytest.raises(ValueError, match=r"ending in \.sdf"):
         load_conformers_for_molecule(target, other)
-
-
-class TestFindConformerGenerationFailures:
-    """Tests for the up-front ETKDG check used by ``ParamSettings`` validation."""
-
-    def test_no_failures_for_embeddable_molecules(self):
-        """Molecules RDKit can embed are not reported."""
-        molecules = [
-            Molecule.from_smiles("CCO"),
-            # ``allow_undefined_stereo`` mirrors ``load_smiles_molecules``.
-            Molecule.from_smiles(
-                "CC(C)Cc1ccc(cc1)C(C)C(=O)O", allow_undefined_stereo=True
-            ),
-        ]
-
-        assert find_conformer_generation_failures(molecules) == {}
-
-    def test_callers_molecules_are_not_given_conformers(self):
-        """The check works on copies, so the caller's molecules are untouched."""
-        molecule = Molecule.from_smiles("CCO")
-
-        find_conformer_generation_failures([molecule])
-
-        assert molecule.n_conformers == 0
-
-    def test_reports_only_the_failing_molecule(self):
-        """A raising molecule is reported by index, with its error preserved."""
-        molecules = [
-            Molecule.from_smiles("CCO"),
-            Molecule.from_smiles("CCC"),
-            Molecule.from_smiles("CCCC"),
-        ]
-
-        def fake_generate_conformers(self, *args, **kwargs):
-            if self.n_atoms == molecules[1].n_atoms:
-                raise ValueError("RDKit conformer generation failed.")
-            self._conformers = [np.zeros((self.n_atoms, 3)) * unit.angstrom]
-
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = fake_generate_conformers
-            failures = find_conformer_generation_failures(molecules)
-
-        assert list(failures) == [1]
-        description, error = failures[1]
-        assert "molecule 1" in description
-        assert "RDKit conformer generation failed." in error
-
-    def test_reports_every_failing_molecule(self):
-        """All offenders are collected, not just the first."""
-        molecules = [Molecule.from_smiles(smiles) for smiles in ("CCO", "CCC", "CCCC")]
-
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = ValueError("nope")
-            failures = find_conformer_generation_failures(molecules)
-
-        assert list(failures) == [0, 1, 2]
-
-    def test_reports_silent_failure_to_produce_conformers(self):
-        """Returning without error but with no conformers is still a failure."""
-        molecule = Molecule.from_smiles("CCO")
-
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = lambda self, *args, **kwargs: None
-            failures = find_conformer_generation_failures([molecule])
-
-        assert list(failures) == [0]
-        assert "no conformers" in failures[0][1]
-
-    def test_description_includes_molecule_name_when_set(self):
-        """SDF inputs carry names, which users rely on to identify ligands."""
-        molecule = Molecule.from_smiles("CCO")
-        molecule.name = "ligand-42"
-
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = ValueError("nope")
-            failures = find_conformer_generation_failures([molecule])
-
-        assert "ligand-42" in failures[0][0]
-
-
-class TestSummariseError:
-    """Tests for the error condensing used in every aggregated molecule report."""
-
-    def test_registry_boilerplate_is_dropped(self):
-        """The call signature and toolkit list bury the cause, so they are dropped."""
-        exc = ValueError(
-            "No registered toolkits can provide the capability "
-            '"generate_conformers" for args "(...)" and kwargs "{}"\n'
-            "Available toolkits are: [ToolkitWrapper around OpenEye, "
-            "ToolkitWrapper around RDKit]\n"
-            " OpenEyeToolkitWrapper <class 'LicenseError'> : no license\n"
-            " RDKitToolkitWrapper <class 'ConformerGenerationError'> : embedding failed\n"
-        )
-
-        summary = _summarise_error(exc)
-
-        assert "No registered toolkits" not in summary
-        assert "Available toolkits are:" not in summary
-        # Both failing toolkits are kept: they can fail for different reasons.
-        assert "no license" in summary
-        assert "embedding failed" in summary
-
-    def test_multi_line_message_keeps_its_explanation(self):
-        """Non-registry errors explain themselves on the first line, so keep it."""
-        exc = ValueError(
-            "ProperTorsions is missing parameters for some torsions:\n"
-            "- torsion 0-1-2-3\n"
-            "- torsion 1-2-3-4"
-        )
-
-        summary = _summarise_error(exc)
-
-        assert summary.splitlines()[0].startswith("ProperTorsions is missing")
-        assert "torsion 1-2-3-4" in summary
-
-    def test_long_message_is_truncated(self):
-        """A dump of every uncovered valence term would swamp a multi-molecule report."""
-        exc = ValueError("\n".join(f"line {index}" for index in range(20)))
-
-        summary = _summarise_error(exc, max_lines=3)
-
-        lines = summary.splitlines()
-        assert lines[:3] == ["line 0", "line 1", "line 2"]
-        assert lines[-1] == "... (17 more lines omitted)"
-
-    def test_empty_message_falls_back_to_the_exception_type(self):
-        """An exception raised without a message still identifies itself."""
-        assert _summarise_error(RuntimeError()) == "RuntimeError"

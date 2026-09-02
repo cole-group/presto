@@ -65,64 +65,25 @@ Filtering would remove too many conformations: ... below min_conformations=...
 **Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
 
 
-## Molecule input validation fails at the start of training
+## Parameterisation fails for some molecules
 
-**Symptom**: the run stops as soon as training starts, before any output directory is created:
-
-```
-InvalidSettingsError: Workflow molecule input validation failed for 2 of 3 molecules:
-  - molecule 0 (CCO)
-      ETKDG required by testing_sampling_settings, training_sampling_settings, param_settings.msm_settings: ToolkitWrapper around The RDKit version 2025.09.5 <class 'openff.toolkit.utils.exceptions.ConformerGenerationError'> : RDKit conformer generation failed.
-  - molecule 2 (c1ccccc1)
-      ETKDG required by testing_sampling_settings, training_sampling_settings, param_settings.msm_settings: ToolkitWrapper around The RDKit version 2025.09.5 <class 'openff.toolkit.utils.exceptions.ConformerGenerationError'> : RDKit conformer generation failed.
-```
-
-**Cause**: RDKit's ETKDG cannot embed those molecules, and at least one configured workflow stage
-needs to generate a starting conformer for them. `presto` checks this at the start of training,
-before the modified Seminario method or sampling begins, and reports every affected molecule at once.
-
-**Fixes**:
-
-- Remove the offending molecules from `param_settings.molecules`. The error lists every one of
-  them, so a whole input set can be fixed in a single pass.
-- Or supply geometries for them yourself. Set `starting_conformers` on every stage listed in the
-  error (see **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
-
-The same check validates supplied starting conformers, and reports two further symptoms:
-
-- A molecule with no matching record in a supplied SDF is listed per stage under the same heading:
-
-  ```
-  InvalidSettingsError: Workflow molecule input validation failed for 2 of 2 molecules:
-    - molecule 0 (CCC)
-        param_settings.msm_settings.starting_conformers (conformers.sdf): ValueError: SDF file conformers.sdf contains no conformers matching the molecule [H]C([H])([H])C([H])([H])C([H])([H])[H].
-  ```
-
-  Records are matched by graph isomorphism, so a molecule missing here usually means a different
-  protonation or tautomeric state, not a different atom ordering (ordering is handled automatically).
-
-- A missing or unreadable SDF is a problem with the setting rather than the molecules, so it is
-  reported once per stage:
-
-  ```
-  InvalidSettingsError: Workflow starting-conformer files could not be read:
-    - training_sampling_settings.starting_conformers: SDF file does not exist: conformers.sdf
-  ```
-
-Charge assignment is validated separately by OpenFF during parameterisation, which stops at the
-first molecule it cannot handle rather than collecting them (it is the most expensive phase, and
-molecule geometry problems have already been caught by the check above):
+**Symptom**: the run stops at the end of parameterisation, before any sampling:
 
 ```
-MoleculeParameterisationError: OpenFF parameterisation/charge assignment failed for molecule 3 (ligand-4, CC(C)...): ...
+MoleculeParameterisationError: Parameterisation failed for 2 of 20 molecules:
+  - molecule 3 (ligand-4, CC(C)Cc1ccc(cc1)C(C)C(=O)O): ValueError: No registered toolkits can provide the capability "generate_conformers" ...
+  - molecule 11 (c1ccccc1): ValueError: ...
 ```
 
-The default Sage 2.3 force field uses the graph-based Ash–GC model and does not need conformers.
-Older force fields using AM1-BCC can still fail to parameterise an unembeddable molecule; supplying
-library charges is one way to bypass AM1-BCC (see
-**[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
+**Cause**: OpenFF could not handle those molecules, most often because RDKit's ETKDG
+cannot embed them (needed by the modified Seminario method) or because charge assignment
+failed.
 
-`presto clean` and `presto analyse` do not execute this training-only geometry check.
+**Fix**: every molecule is attempted before the error is raised, so the list is complete.
+Remove or replace all of the listed molecules in `param_settings.molecules` in one pass
+rather than resubmitting once per failure. Supplying `msm_settings.starting_conformers`
+sidesteps ETKDG for the modified Seminario stage (see
+**[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
 
 
 ## Version mismatch warning on YAML load

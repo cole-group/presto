@@ -6,7 +6,7 @@ import pathlib
 import datasets
 import loguru
 from descent.train import Trainable
-from openff.toolkit import ForceField, Molecule
+from openff.toolkit import ForceField
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -18,118 +18,17 @@ from rich.progress import (
 
 from presto.convert import convert_to_smirnoff
 
-from ._exceptions import InvalidSettingsError, MoleculeIssue, format_molecule_issues
 from .analyse import analyse_workflow
-from .convert import _parameterise_loaded
+from .convert import parameterise
 from .data_utils import filter_dataset_outliers
-from .load_molecules import (
-    _open_sdf_supplier,
-    _summarise_error,
-    find_conformer_generation_failures,
-    load_conformers_for_molecule,
-    molecule_description,
-)
 from .outputs import OutputStage, OutputType, StageKind
 from .sample import _SAMPLING_FNS_REGISTRY, SampleFn, load_precomputed_dataset
-from .settings import PreComputedDatasetSettings, WorkflowSettings
+from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
 from .writers import write_scatter
 
 logger = loguru.logger
 console = Console()
-
-
-def _validate_workflow_molecule_inputs(settings: WorkflowSettings) -> list[Molecule]:
-    """Validate molecule geometries needed by the configured workflow.
-
-    This deliberately runs only for training, rather than during Pydantic model
-    construction, so commands such as ``clean`` and ``analyse`` do not perform
-    conformer generation or parse starting-conformer files.
-    """
-    molecules = settings.param_settings.openff_molecules
-    issues: list[MoleculeIssue] = []
-    unreadable_files: list[str] = []
-    etkdg_stages: list[str] = []
-    supplied_stages: list[tuple[str, pathlib.Path]] = []
-
-    sampling_stages = [
-        ("testing_sampling_settings", settings.testing_sampling_settings, True),
-        (
-            "training_sampling_settings",
-            settings.training_sampling_settings,
-            settings.n_iterations > 0,
-        ),
-    ]
-    for name, stage_settings, active in sampling_stages:
-        if not active or isinstance(stage_settings, PreComputedDatasetSettings):
-            continue
-        starting_conformers = stage_settings.starting_conformers
-        if starting_conformers is None:
-            etkdg_stages.append(name)
-        else:
-            supplied_stages.append((name, starting_conformers))
-
-    msm_settings = settings.param_settings.msm_settings
-    if msm_settings is not None:
-        if msm_settings.starting_conformers is None:
-            etkdg_stages.append("param_settings.msm_settings")
-        else:
-            supplied_stages.append(
-                ("param_settings.msm_settings", msm_settings.starting_conformers)
-            )
-
-    for stage_name, path in supplied_stages:
-        # A missing or unreadable file is a problem with the setting, not with the
-        # molecules, so report it once rather than once per molecule.
-        try:
-            _open_sdf_supplier(path)
-        except ValueError as exc:
-            unreadable_files.append(f"{stage_name}.starting_conformers: {exc}")
-            continue
-
-        for index, molecule in enumerate(molecules):
-            try:
-                load_conformers_for_molecule(molecule, path)
-            except Exception as exc:
-                # Isomorphism and remapping raise ``OpenFFToolkitException`` subclasses
-                # rather than ``ValueError``, so catch broadly to keep every molecule
-                # problem inside the aggregated report.
-                issues.append(
-                    MoleculeIssue(
-                        index=index,
-                        description=molecule_description(molecule, index),
-                        phase=f"{stage_name}.starting_conformers ({path})",
-                        error=f"{type(exc).__name__}: {_summarise_error(exc)}",
-                    )
-                )
-
-    if etkdg_stages:
-        failures = find_conformer_generation_failures(molecules)
-        required_by = ", ".join(etkdg_stages)
-        for index, (description, error) in failures.items():
-            issues.append(
-                MoleculeIssue(
-                    index=index,
-                    description=description,
-                    phase=f"ETKDG required by {required_by}",
-                    error=error,
-                )
-            )
-
-    if unreadable_files or issues:
-        report = []
-        if unreadable_files:
-            report.append("Workflow starting-conformer files could not be read:")
-            report.extend(f"  - {failure}" for failure in unreadable_files)
-        if issues:
-            report.append(
-                format_molecule_issues(
-                    "Workflow molecule input validation failed", issues, len(molecules)
-                )
-            )
-        raise InvalidSettingsError("\n".join(report))
-
-    return molecules
 
 
 def get_bespoke_force_field(
@@ -158,7 +57,6 @@ def get_bespoke_force_field(
     ForceField
         The fitted bespoke force field.
     """
-    molecules = _validate_workflow_molecule_inputs(settings)
     path_manager = settings.get_path_manager()
     stage = OutputStage(StageKind.BASE)
     path_manager.mk_stage_dir(stage)
@@ -175,8 +73,8 @@ def get_bespoke_force_field(
         output_settings.to_yaml(settings_output_path)
 
     # Parameterise the base force field for all molecules
-    off_mols, initial_off_ff, tensor_tops, tensor_ff = _parameterise_loaded(
-        settings.param_settings, molecules, device=settings.device_type
+    off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
+        settings.param_settings, device=settings.device_type
     )
 
     pruned_parameter_configs = {

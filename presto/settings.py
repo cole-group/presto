@@ -34,6 +34,7 @@ from .load_molecules import (
     PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS,
     MoleculeInputType,
     find_problematic_functional_groups,
+    load_conformers_for_molecule,
 )
 from .outputs import OutputType, WorkflowPathManager
 from .utils.dicts import deep_update
@@ -179,8 +180,8 @@ def _validate_starting_conformers_path(value: Path | None) -> Path | None:
 
     Only checks the obvious, molecule-independent problems (missing file, wrong
     suffix). Whether the file actually contains conformers for the molecules being
-    fitted can only be checked once the molecules are known, which the training
-    preflight ``presto.workflow._validate_workflow_molecule_inputs`` does.
+    fitted can only be checked once the molecules are known — see
+    ``WorkflowSettings._check_starting_conformers_match_molecules``.
     """
     if value is None:
         return value
@@ -1013,6 +1014,46 @@ class WorkflowSettings(_DefaultSettings):
                 f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_starting_conformers_match_molecules(self) -> Self:
+        """Fail fast if a configured starting-conformers SDF lacks a molecule being fitted.
+
+        This runs before the (slow) parameterisation stage so a mismatch between the
+        supplied conformers and the fitted molecules surfaces immediately rather than
+        mid-run.
+        """
+        msm_settings = self.param_settings.msm_settings
+        stages: list[tuple[str, Path | None]] = [
+            (
+                "training_sampling_settings",
+                getattr(self.training_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "testing_sampling_settings",
+                getattr(self.testing_sampling_settings, "starting_conformers", None),
+            ),
+            (
+                "param_settings.msm_settings",
+                None if msm_settings is None else msm_settings.starting_conformers,
+            ),
+        ]
+
+        configured = [(name, path) for name, path in stages if path is not None]
+        if not configured:
+            return self
+
+        molecules = self.param_settings.openff_molecules
+        for name, path in configured:
+            for molecule in molecules:
+                try:
+                    load_conformers_for_molecule(molecule, path)
+                except ValueError as exc:
+                    raise InvalidSettingsError(
+                        f"{name}.starting_conformers ({path}) is invalid: {exc}"
+                    ) from exc
 
         return self
 

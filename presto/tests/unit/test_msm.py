@@ -887,6 +887,24 @@ class TestApplyMSMToMolecule:
         assert len(angle_params) == len(angle_indices)
 
 
+def test_apply_msm_to_molecules_collects_failures(base_forcefield, msm_settings):
+    """A molecule MSM cannot handle is collected, not raised, so all failures surface."""
+    mols = [Molecule.from_smiles("CCO"), Molecule.from_smiles("CC")]
+
+    def fake_apply(mol, bond_indices, angle_indices, settings, device):
+        if mol.n_atoms == mols[1].n_atoms:
+            raise ValueError("RDKit conformer generation failed.")
+        return {}, {}
+
+    with patch("presto.msm.apply_msm_to_molecule", side_effect=fake_apply):
+        _modified_ff, failures = apply_msm_to_molecules(
+            mols, base_forcefield, msm_settings, device=torch.device("cpu")
+        )
+
+    assert list(failures) == [1]
+    assert "RDKit conformer generation failed." in failures[1]
+
+
 @pytest.mark.slow
 class TestApplyMSMToMolecules:
     """Integration tests for apply_msm_to_molecules function."""
@@ -896,7 +914,7 @@ class TestApplyMSMToMolecules:
         mol = Molecule.from_smiles("CCO")
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -910,7 +928,7 @@ class TestApplyMSMToMolecules:
         ]
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             mols, ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -925,7 +943,7 @@ class TestApplyMSMToMolecules:
         bond_handler = ff.get_parameter_handler("Bonds")
         original_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
 
-        _modified_ff = apply_msm_to_molecules(
+        _modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -950,7 +968,7 @@ class TestApplyMSMToMolecules:
             if p.smirks in used_bond_smirks
         }
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -988,7 +1006,7 @@ class TestApplyMSMToMolecules:
         original_angle_k_units = angle_handler.parameters[0].k.units
         original_angle_angle_units = angle_handler.parameters[0].angle.units
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 

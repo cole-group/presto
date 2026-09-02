@@ -1,7 +1,6 @@
 """Unit tests for settings module."""
 
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 import pytest
@@ -581,26 +580,6 @@ class TestParamSettings:
                 molecule_input_type="smiles", molecules=_DEFAULT_INPUT_PLACEHOLDER
             )
 
-    def test_conformer_generation_is_not_run_during_validation(self):
-        """ParamSettings only validates molecule loading, not workflow geometry."""
-        with mock.patch.object(
-            Molecule, "generate_conformers", autospec=True
-        ) as mock_generate:
-            mock_generate.side_effect = ValueError("RDKit conformer generation failed.")
-            settings = ParamSettings(molecule_input_type="smiles", molecules="CCO")
-
-        assert settings.molecules == ["CCO"]
-        mock_generate.assert_not_called()
-
-    def test_conformer_generation_check_does_not_reject_valid_molecules(self):
-        """Loading settings leaves molecules without incidental conformers."""
-        settings = ParamSettings(
-            molecule_input_type="smiles", molecules=["CCO", "c1ccccc1"]
-        )
-
-        assert len(settings.openff_molecules) == 2
-        assert all(mol.n_conformers == 0 for mol in settings.openff_molecules)
-
     def test_phosphorus_warning_is_actionable_and_non_fatal(self):
         """Phosphorus warns about both minimisation-enabled code paths."""
         with pytest.warns(UserWarning) as caught:
@@ -1019,32 +998,33 @@ class TestStartingConformersField:
         )
         assert settings.training_sampling_settings.starting_conformers == sdf
 
-    def test_workflow_defers_missing_molecule_to_preflight(self, tmp_path):
-        """SDF graph matching is deferred until the training preflight."""
+    def test_workflow_rejects_missing_molecule(self, tmp_path):
+        """WorkflowSettings fails fast when a fitted molecule is absent from the SDF."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)
 
-        settings = WorkflowSettings(
-            param_settings=ParamSettings(
-                molecule_input_type="smiles", molecules="c1ccccc1"
-            ),
-            device_type="cpu",
-            training_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
-        )
-        assert settings.training_sampling_settings.starting_conformers == sdf
+        with pytest.raises(ValidationError, match="starting_conformers"):
+            WorkflowSettings(
+                param_settings=ParamSettings(
+                    molecule_input_type="smiles", molecules="c1ccccc1"
+                ),
+                device_type="cpu",
+                training_sampling_settings=MMMDSamplingSettings(
+                    starting_conformers=sdf
+                ),
+            )
 
-    def test_workflow_defers_msm_conformers_to_preflight(self, tmp_path):
-        """MSM SDF graph matching is deferred until the training preflight."""
+    def test_workflow_validates_msm_conformers(self, tmp_path):
+        """The MSM starting_conformers path is also cross-checked against molecules."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)
 
-        settings = WorkflowSettings(
-            param_settings=ParamSettings(
-                molecule_input_type="smiles",
-                molecules="c1ccccc1",
-                msm_settings=MSMSettings(starting_conformers=sdf),
-            ),
-            device_type="cpu",
-        )
-        assert settings.param_settings.msm_settings is not None
-        assert settings.param_settings.msm_settings.starting_conformers == sdf
+        with pytest.raises(ValidationError, match=r"msm_settings\.starting_conformers"):
+            WorkflowSettings(
+                param_settings=ParamSettings(
+                    molecule_input_type="smiles",
+                    molecules="c1ccccc1",
+                    msm_settings=MSMSettings(starting_conformers=sdf),
+                ),
+                device_type="cpu",
+            )
