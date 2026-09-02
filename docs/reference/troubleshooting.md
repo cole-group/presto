@@ -65,6 +65,29 @@ Filtering would remove too many conformations: ... below min_conformations=...
 **Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
 
 
+## Parameterisation fails for some molecules
+
+**Symptom**: the run stops at the end of parameterisation, before any sampling:
+
+```
+MoleculeParameterisationError: Parameterisation failed for 2 of 20 molecules:
+  - molecule 3 (ligand-4, CC(C)Cc1ccc(cc1)C(C)C(=O)O): ValueError: No registered toolkits can provide the capability "generate_conformers" ...
+  - molecule 11 (c1ccccc1): ValueError: ...
+```
+
+**Cause**: OpenFF could not handle those molecules, most often because RDKit's ETKDG
+cannot embed them (needed by the modified Seminario method) or because charge assignment
+failed.
+
+**Fix**: every molecule is attempted at both the modified Seminario and the charge
+assignment stage before the error is raised, so the list is complete and a molecule with
+problems at both stages reports both (separated by `;`). Remove or replace all of the
+listed molecules in `param_settings.molecules` in one pass rather than resubmitting once
+per failure. Supplying `msm_settings.starting_conformers` sidesteps the requirement
+for conformer generation (see
+**[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
+
+
 ## Version mismatch warning on YAML load
 
 **Symptom**:
