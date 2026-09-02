@@ -65,32 +65,62 @@ Filtering would remove too many conformations: ... below min_conformations=...
 **Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
 
 
-## Conformer generation fails for some molecules
+## Molecule input validation fails at the start of training
 
-**Symptom**: settings validation fails immediately, before any fitting starts:
+**Symptom**: the run stops as soon as training starts, before any output directory is created:
 
 ```
-InvalidSettingsError: Conformer generation failed for 2 of 40 molecules:
-  - molecule 12 (ligand-13, CC(C)...): ... ConformerGenerationError : RDKit conformer generation failed.
-  - molecule 27 (ligand-28, c1ccc...): ... ConformerGenerationError : RDKit conformer generation failed.
+InvalidSettingsError: Workflow molecule input validation failed for 2 of 3 molecules:
+  - molecule 0 (CCO)
+      ETKDG required by testing_sampling_settings, training_sampling_settings, param_settings.msm_settings: ToolkitWrapper around The RDKit version 2025.09.5 <class 'openff.toolkit.utils.exceptions.ConformerGenerationError'> : RDKit conformer generation failed.
+  - molecule 2 (c1ccccc1)
+      ETKDG required by testing_sampling_settings, training_sampling_settings, param_settings.msm_settings: ToolkitWrapper around The RDKit version 2025.09.5 <class 'openff.toolkit.utils.exceptions.ConformerGenerationError'> : RDKit conformer generation failed.
 ```
 
 **Cause**: RDKit's ETKDG cannot embed those molecules, and at least one configured workflow stage
-needs to generate a starting conformer. `presto` checks this at the start of training and reports
-every affected molecule before the modified Seminario method or sampling begins.
+needs to generate a starting conformer for them. `presto` checks this at the start of training,
+before the modified Seminario method or sampling begins, and reports every affected molecule at once.
 
 **Fixes**:
 
 - Remove the offending molecules from `param_settings.molecules`. The error lists every one of
   them, so a whole input set can be fixed in a single pass.
-- Or supply geometries for them yourself. Set `starting_conformers` on every active geometry stage
-  listed in the error (see **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
+- Or supply geometries for them yourself. Set `starting_conformers` on every stage listed in the
+  error (see **[How-to → Use your own starting conformers](../how-to/use-starting-conformers.md)**).
 
-Charge assignment is validated separately by OpenFF during parameterisation. The default Sage 2.3
-force field uses the graph-based Ash–GC model and does not need conformers. Older force fields using
-AM1-BCC can still fail to parameterise an unembeddable molecule; when this happens, `presto` reports
-all molecules that fail the OpenFF parameterisation phase. Supplying library charges is one way to
-bypass AM1-BCC (see **[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
+The same check validates supplied starting conformers, and reports two further symptoms:
+
+- A molecule with no matching record in a supplied SDF is listed per stage under the same heading:
+
+  ```
+  InvalidSettingsError: Workflow molecule input validation failed for 2 of 2 molecules:
+    - molecule 0 (CCC)
+        param_settings.msm_settings.starting_conformers (conformers.sdf): ValueError: SDF file conformers.sdf contains no conformers matching the molecule [H]C([H])([H])C([H])([H])C([H])([H])[H].
+  ```
+
+  Records are matched by graph isomorphism, so a molecule missing here usually means a different
+  protonation or tautomeric state, not a different atom ordering (ordering is handled automatically).
+
+- A missing or unreadable SDF is a problem with the setting rather than the molecules, so it is
+  reported once per stage:
+
+  ```
+  InvalidSettingsError: Workflow starting-conformer files could not be read:
+    - training_sampling_settings.starting_conformers: SDF file does not exist: conformers.sdf
+  ```
+
+Charge assignment is validated separately by OpenFF during parameterisation, which stops at the
+first molecule it cannot handle rather than collecting them (it is the most expensive phase, and
+molecule geometry problems have already been caught by the check above):
+
+```
+MoleculeParameterisationError: OpenFF parameterisation/charge assignment failed for molecule 3 (ligand-4, CC(C)...): ...
+```
+
+The default Sage 2.3 force field uses the graph-based Ash–GC model and does not need conformers.
+Older force fields using AM1-BCC can still fail to parameterise an unembeddable molecule; supplying
+library charges is one way to bypass AM1-BCC (see
+**[How-to → Use custom charges](../how-to/use-custom-charges.md)**).
 
 `presto clean` and `presto analyse` do not execute this training-only geometry check.
 

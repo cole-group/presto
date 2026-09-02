@@ -9,6 +9,7 @@ from openff.units import unit
 from scipy.spatial.distance import pdist
 
 from presto.load_molecules import (
+    _summarise_error,
     find_conformer_generation_failures,
     find_problematic_functional_groups,
     load_conformers_for_molecule,
@@ -246,3 +247,53 @@ class TestFindConformerGenerationFailures:
             failures = find_conformer_generation_failures([molecule])
 
         assert "ligand-42" in failures[0][0]
+
+
+class TestSummariseError:
+    """Tests for the error condensing used in every aggregated molecule report."""
+
+    def test_registry_boilerplate_is_dropped(self):
+        """The call signature and toolkit list bury the cause, so they are dropped."""
+        exc = ValueError(
+            "No registered toolkits can provide the capability "
+            '"generate_conformers" for args "(...)" and kwargs "{}"\n'
+            "Available toolkits are: [ToolkitWrapper around OpenEye, "
+            "ToolkitWrapper around RDKit]\n"
+            " OpenEyeToolkitWrapper <class 'LicenseError'> : no license\n"
+            " RDKitToolkitWrapper <class 'ConformerGenerationError'> : embedding failed\n"
+        )
+
+        summary = _summarise_error(exc)
+
+        assert "No registered toolkits" not in summary
+        assert "Available toolkits are:" not in summary
+        # Both failing toolkits are kept: they can fail for different reasons.
+        assert "no license" in summary
+        assert "embedding failed" in summary
+
+    def test_multi_line_message_keeps_its_explanation(self):
+        """Non-registry errors explain themselves on the first line, so keep it."""
+        exc = ValueError(
+            "ProperTorsions is missing parameters for some torsions:\n"
+            "- torsion 0-1-2-3\n"
+            "- torsion 1-2-3-4"
+        )
+
+        summary = _summarise_error(exc)
+
+        assert summary.splitlines()[0].startswith("ProperTorsions is missing")
+        assert "torsion 1-2-3-4" in summary
+
+    def test_long_message_is_truncated(self):
+        """A dump of every uncovered valence term would swamp a multi-molecule report."""
+        exc = ValueError("\n".join(f"line {index}" for index in range(20)))
+
+        summary = _summarise_error(exc, max_lines=3)
+
+        lines = summary.splitlines()
+        assert lines[:3] == ["line 0", "line 1", "line 2"]
+        assert lines[-1] == "... (17 more lines omitted)"
+
+    def test_empty_message_falls_back_to_the_exception_type(self):
+        """An exception raised without a message still identifies itself."""
+        assert _summarise_error(RuntimeError()) == "RuntimeError"

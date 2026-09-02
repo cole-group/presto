@@ -136,3 +136,58 @@ def test_preflight_failure_creates_no_output(tmp_path):
             get_bespoke_force_field(settings)
 
     assert not output_dir.exists()
+
+
+def test_missing_sdf_is_reported_once_per_stage(tmp_path):
+    """A path problem is a settings problem, so it is not repeated per molecule."""
+    sdf = tmp_path / "ethanol.sdf"
+    _write_conformer_sdf("CCO", sdf)
+    settings = WorkflowSettings(
+        param_settings=ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CCO", "CCC"],
+            msm_settings=MSMSettings(starting_conformers=sdf),
+        ),
+        training_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
+        testing_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
+        device_type="cpu",
+    )
+    # Settings validation only sees the path when it is set, so a rename afterwards is
+    # the realistic way this fails.
+    sdf.unlink()
+
+    with pytest.raises(InvalidSettingsError) as exc_info:
+        _validate_workflow_molecule_inputs(settings)
+
+    message = str(exc_info.value)
+    assert message.count("SDF file does not exist") == 3
+    assert "molecules:" not in message
+    assert "molecule 0" not in message
+
+
+def test_non_value_error_from_conformer_loading_is_aggregated(tmp_path):
+    """Toolkit exceptions which are not ValueErrors still reach the report."""
+    sdf = tmp_path / "ethanol.sdf"
+    _write_conformer_sdf("CCO", sdf)
+    precomputed = PreComputedDatasetSettings(dataset_paths=[tmp_path / "dataset"])
+    settings = WorkflowSettings(
+        param_settings=ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["CCO", "CCC"],
+            msm_settings=MSMSettings(starting_conformers=sdf),
+        ),
+        training_sampling_settings=precomputed,
+        testing_sampling_settings=precomputed,
+        device_type="cpu",
+    )
+
+    with mock.patch(
+        "presto.workflow.load_conformers_for_molecule",
+        side_effect=RuntimeError("remapping failed"),
+    ):
+        with pytest.raises(InvalidSettingsError) as exc_info:
+            _validate_workflow_molecule_inputs(settings)
+
+    message = str(exc_info.value)
+    assert "2 of 2 molecules" in message
+    assert message.count("RuntimeError: remapping failed") == 2

@@ -1019,7 +1019,7 @@ class TestStartingConformersField:
         )
         assert settings.training_sampling_settings.starting_conformers == sdf
 
-    def test_workflow_rejects_missing_molecule(self, tmp_path):
+    def test_workflow_defers_missing_molecule_to_preflight(self, tmp_path):
         """SDF graph matching is deferred until the training preflight."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)
@@ -1033,7 +1033,7 @@ class TestStartingConformersField:
         )
         assert settings.training_sampling_settings.starting_conformers == sdf
 
-    def test_workflow_validates_msm_conformers(self, tmp_path):
+    def test_workflow_defers_msm_conformers_to_preflight(self, tmp_path):
         """MSM SDF graph matching is deferred until the training preflight."""
         sdf = tmp_path / "confs.sdf"
         _write_single_conformer_sdf("CCO", sdf)

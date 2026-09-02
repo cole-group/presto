@@ -32,5 +32,10 @@ def format_molecule_issues(
         if issue.index != current_index:
             lines.append(f"  - {issue.description}")
             current_index = issue.index
-        lines.append(f"      {issue.phase}: {issue.error}")
+        lines.extend(_indent_error(f"{issue.phase}: {issue.error}"))
     return "\n".join(lines)
+
+
+def _indent_error(error: str) -> list[str]:
+    """Indent an error under its molecule, keeping multi-line messages aligned."""
+    return [f"      {line}" for line in error.splitlines()]

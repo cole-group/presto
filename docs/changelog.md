@@ -6,16 +6,17 @@
 
 - Warn without rejecting or changing settings when input molecules contain phosphorus or sulfonamide environments known to cause MLP-minimisation or modified Seminario initialisation failures. The warnings identify every matching molecule and recommend safer sampling/MSM settings. Addresses [#63](https://github.com/cole-group/presto/issues/63).
 - Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
-- Validate at the start of training that ETKDG can generate a conformer for every molecule used by a stage without supplied starting conformers. Every offending molecule is reported at once, while configurations that supply all required geometries remain valid. `presto clean` and `presto analyse` do not run this training-only check. Addresses [#80](https://github.com/cole-group/presto/issues/80).
+- Validate at the start of training that ETKDG can generate a conformer for every molecule used by a stage without supplied starting conformers. Every offending molecule is reported at once, while configurations that supply all required geometries remain valid. `presto clean` and `presto analyse` do not run this training-only check. Supplied `starting_conformers` SDFs are checked in the same pass: every molecule with no matching record is reported at once, while a missing or unreadable file is reported once per stage rather than once per molecule. Addresses [#80](https://github.com/cole-group/presto/issues/80).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
 ### Fixes
 
+- Report the molecule that OpenFF could not parameterise, with the cause preserved rather than truncated to its last line, instead of raising a bare toolkit traceback.
 - Fix a latent `IndexError` in the MSM step when fewer conformers were available than `n_conformers`; the conformer loop now iterates the conformers actually present.
 
 ### Documentation
 
-- Document the new conformer-generation validation error in [Troubleshooting](reference/troubleshooting.md).
+- Document the molecule input validation errors raised at the start of training, and the first-failure OpenFF parameterisation error, in [Troubleshooting](reference/troubleshooting.md).
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).

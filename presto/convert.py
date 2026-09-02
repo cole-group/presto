@@ -14,16 +14,12 @@ import torch
 from openff.units import Quantity
 from openff.units import unit as off_unit
 
-from ._exceptions import (
-    MoleculeIssue,
-    MoleculeParameterisationError,
-    format_molecule_issues,
-)
+from ._exceptions import MoleculeParameterisationError
 from .create_types import (
     _add_parameter_with_overwrite,
     add_types_to_forcefield,
 )
-from .load_molecules import _summarise_toolkit_error, molecule_description
+from .load_molecules import _summarise_error, molecule_description
 from .msm import apply_msm_to_molecules
 from .settings import ParamSettings
 from .utils.typing import TorchDevice
@@ -272,11 +268,13 @@ def _parameterise_loaded(
             device=torch.device(device),
         )
 
-    # Create separate Interchange objects for each molecule. This is also where
-    # OpenFF applies its configured charge model, so use the real operation instead
-    # of trying to predict which models require conformers.
+    # Create separate Interchange objects for each molecule. This is also where OpenFF
+    # applies its configured charge model, which is the most expensive part of
+    # parameterisation, so stop at the first failure rather than paying for the rest of
+    # the set. Molecule geometry problems are caught up front by the workflow preflight
+    # (``presto.workflow._validate_workflow_molecule_inputs``), which reports every
+    # offending molecule at once.
     interchanges = []
-    issues: list[MoleculeIssue] = []
     for index, mol in enumerate(mols):
         try:
             interchanges.append(
@@ -285,22 +283,13 @@ def _parameterise_loaded(
                 )
             )
         except Exception as exc:
-            description = molecule_description(mol, index)
-            error = f"{type(exc).__name__}: {_summarise_toolkit_error(exc)}"
-            logger.error(f"OpenFF parameterisation failed for {description}: {error}")
-            issues.append(
-                MoleculeIssue(
-                    index=index,
-                    description=description,
-                    phase="OpenFF parameterisation/charge assignment",
-                    error=error,
-                )
+            message = (
+                f"OpenFF parameterisation/charge assignment failed for "
+                f"{molecule_description(mol, index)}: "
+                f"{type(exc).__name__}: {_summarise_error(exc)}"
             )
-
-    if issues:
-        raise MoleculeParameterisationError(
-            format_molecule_issues("OpenFF parameterisation failed", issues, len(mols))
-        )
+            logger.error(message)
+            raise MoleculeParameterisationError(message) from exc
 
     # Convert all interchanges at once to get a shared force field
     # and separate topologies that all reference the same parameters

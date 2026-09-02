@@ -23,6 +23,8 @@ from .analyse import analyse_workflow
 from .convert import _parameterise_loaded
 from .data_utils import filter_dataset_outliers
 from .load_molecules import (
+    _open_sdf_supplier,
+    _summarise_error,
     find_conformer_generation_failures,
     load_conformers_for_molecule,
     molecule_description,
@@ -46,6 +48,7 @@ def _validate_workflow_molecule_inputs(settings: WorkflowSettings) -> list[Molec
     """
     molecules = settings.param_settings.openff_molecules
     issues: list[MoleculeIssue] = []
+    unreadable_files: list[str] = []
     etkdg_stages: list[str] = []
     supplied_stages: list[tuple[str, pathlib.Path]] = []
 
@@ -76,16 +79,27 @@ def _validate_workflow_molecule_inputs(settings: WorkflowSettings) -> list[Molec
             )
 
     for stage_name, path in supplied_stages:
+        # A missing or unreadable file is a problem with the setting, not with the
+        # molecules, so report it once rather than once per molecule.
+        try:
+            _open_sdf_supplier(path)
+        except ValueError as exc:
+            unreadable_files.append(f"{stage_name}.starting_conformers: {exc}")
+            continue
+
         for index, molecule in enumerate(molecules):
             try:
                 load_conformers_for_molecule(molecule, path)
-            except ValueError as exc:
+            except Exception as exc:
+                # Isomorphism and remapping raise ``OpenFFToolkitException`` subclasses
+                # rather than ``ValueError``, so catch broadly to keep every molecule
+                # problem inside the aggregated report.
                 issues.append(
                     MoleculeIssue(
                         index=index,
                         description=molecule_description(molecule, index),
                         phase=f"{stage_name}.starting_conformers ({path})",
-                        error=f"{type(exc).__name__}: {exc}",
+                        error=f"{type(exc).__name__}: {_summarise_error(exc)}",
                     )
                 )
 
@@ -102,12 +116,18 @@ def _validate_workflow_molecule_inputs(settings: WorkflowSettings) -> list[Molec
                 )
             )
 
-    if issues:
-        raise InvalidSettingsError(
-            format_molecule_issues(
-                "Workflow molecule input validation failed", issues, len(molecules)
+    if unreadable_files or issues:
+        report = []
+        if unreadable_files:
+            report.append("Workflow starting-conformer files could not be read:")
+            report.extend(f"  - {failure}" for failure in unreadable_files)
+        if issues:
+            report.append(
+                format_molecule_issues(
+                    "Workflow molecule input validation failed", issues, len(molecules)
+                )
             )
-        )
+        raise InvalidSettingsError("\n".join(report))
 
     return molecules
 

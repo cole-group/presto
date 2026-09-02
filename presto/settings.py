@@ -179,8 +179,8 @@ def _validate_starting_conformers_path(value: Path | None) -> Path | None:
 
     Only checks the obvious, molecule-independent problems (missing file, wrong
     suffix). Whether the file actually contains conformers for the molecules being
-    fitted can only be checked once the molecules are known — see
-    ``WorkflowSettings._check_starting_conformers_match_molecules``.
+    fitted can only be checked once the molecules are known, which the training
+    preflight ``presto.workflow._validate_workflow_molecule_inputs`` does.
     """
     if value is None:
         return value

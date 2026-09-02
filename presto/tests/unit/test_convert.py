@@ -702,8 +702,8 @@ class TestParameteriseExtended:
         # Force field should contain parameters for both molecules
         assert isinstance(tensor_ff, smee.TensorForceField)
 
-    def test_parameterise_reports_all_interchange_failures(self):
-        """OpenFF failures are collected for every molecule in input order."""
+    def test_parameterise_fails_fast_on_interchange_failure(self):
+        """Charge assignment stops at the first molecule OpenFF cannot handle."""
         settings = ParamSettings(
             molecule_input_type="smiles",
             molecules=["C", "CC", "CCC"],
@@ -716,19 +716,43 @@ class TestParameteriseExtended:
             openff.interchange.Interchange,
             "from_smirnoff",
             side_effect=[
-                ValueError("charge failure"),
                 mock.sentinel.ok,
-                RuntimeError("typing failure"),
+                ValueError("charge failure"),
+                RuntimeError("never reached"),
             ],
         ) as from_smirnoff:
             with pytest.raises(MoleculeParameterisationError) as exc_info:
                 parameterise(settings, device="cpu")
 
-        assert from_smirnoff.call_count == 3
+        # The third molecule is never parameterised, which is the point of failing fast.
+        assert from_smirnoff.call_count == 2
         message = str(exc_info.value)
-        assert "2 of 3 molecules" in message
-        assert "molecule 0 (C)" in message
+        assert "molecule 1 (CC)" in message
         assert "ValueError: charge failure" in message
-        assert "molecule 2 (CCC)" in message
-        assert "RuntimeError: typing failure" in message
-        assert "molecule 1 " not in message
+        assert "never reached" not in message
+
+    def test_parameterise_keeps_multi_line_openff_errors(self):
+        """A multi-line OpenFF error keeps its explanation, not just its last line."""
+        settings = ParamSettings(
+            molecule_input_type="smiles",
+            molecules=["C"],
+            initial_force_field="openff_unconstrained-2.3.0.offxml",
+            expand_torsions=False,
+            msm_settings=None,
+        )
+
+        with mock.patch.object(
+            openff.interchange.Interchange,
+            "from_smirnoff",
+            side_effect=ValueError(
+                "ProperTorsions is missing parameters for some torsions:\n"
+                "- torsion 0-1-2-3\n"
+                "- torsion 1-2-3-4"
+            ),
+        ):
+            with pytest.raises(MoleculeParameterisationError) as exc_info:
+                parameterise(settings, device="cpu")
+
+        message = str(exc_info.value)
+        assert "missing parameters for some torsions" in message
+        assert "torsion 1-2-3-4" in message

@@ -100,6 +100,30 @@ MOLECULE_LOADERS: dict[MoleculeInputType, MoleculeLoader] = {
 }
 
 
+def _open_sdf_supplier(path: Path) -> Chem.SDMolSupplier:
+    """Open an SDF file, raising a clear ``ValueError`` for path-level problems.
+
+    Kept separate from :func:`load_conformers_for_molecule` so callers which read the
+    same file for many molecules can report a missing or unreadable file once, rather
+    than once per molecule.
+
+    Raises:
+    ------
+    ValueError
+        If the path does not exist, does not end in ``.sdf``, or cannot be read.
+    """
+    if not path.exists():
+        raise ValueError(f"SDF file does not exist: {path}")
+
+    if path.suffix.lower() != ".sdf":
+        raise ValueError(f"Expected an SDF file path ending in .sdf: {path}")
+
+    try:
+        return Chem.SDMolSupplier(str(path), removeHs=False)
+    except Exception as exc:
+        raise ValueError(f"Failed to read SDF file: {path}") from exc
+
+
 def load_conformers_for_molecule(
     molecule: Molecule, sdf_path: PathLike
 ) -> list[Quantity]:
@@ -133,17 +157,7 @@ def load_conformers_for_molecule(
         matching ``molecule``.
     """
     path = Path(sdf_path)
-
-    if not path.exists():
-        raise ValueError(f"SDF file does not exist: {path}")
-
-    if path.suffix.lower() != ".sdf":
-        raise ValueError(f"Expected an SDF file path ending in .sdf: {path}")
-
-    try:
-        supplier = Chem.SDMolSupplier(str(path), removeHs=False)
-    except Exception as exc:
-        raise ValueError(f"Failed to read SDF file: {path}") from exc
+    supplier = _open_sdf_supplier(path)
 
     conformers: list[Quantity] = []
 
@@ -188,15 +202,43 @@ def molecule_description(molecule: Molecule, index: int) -> str:
     return f"molecule {index} ({smiles})"
 
 
-def _summarise_toolkit_error(exc: Exception) -> str:
-    """Condense a toolkit error to its most informative line.
+_TOOLKIT_REGISTRY_HEADER = "No registered toolkits can provide the capability"
+_TOOLKIT_LIST_HEADER = "Available toolkits are:"
+_MAX_SUMMARY_LINES = 8
 
-    ``ToolkitRegistry`` re-raises the underlying failure with the full call signature
-    and a list of every registered toolkit appended, which buries the actual cause. The
-    last non-empty line holds the wrapped exception, which is what a user needs.
+
+def _summarise_error(exc: Exception, max_lines: int = _MAX_SUMMARY_LINES) -> str:
+    """Condense an exception message to the part a user needs.
+
+    ``ToolkitRegistry`` re-raises the underlying failure with the full call signature and
+    a list of every registered toolkit prepended, which buries the actual cause, so for
+    those only the per-toolkit error lines are kept (all of them: two toolkits can fail
+    for different reasons). Every other message is kept in full, because exceptions such
+    as ``UnassignedProperTorsionParameterException`` explain themselves on the first line
+    and list the offending terms afterwards. Long messages are truncated so a report
+    covering many molecules stays readable.
     """
     lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
-    return lines[-1] if lines else type(exc).__name__
+    if not lines:
+        return type(exc).__name__
+
+    if lines[0].startswith(_TOOLKIT_REGISTRY_HEADER):
+        toolkit_list = next(
+            (
+                position
+                for position, line in enumerate(lines)
+                if line.startswith(_TOOLKIT_LIST_HEADER)
+            ),
+            None,
+        )
+        if toolkit_list is not None and lines[toolkit_list + 1 :]:
+            lines = lines[toolkit_list + 1 :]
+
+    if len(lines) > max_lines:
+        omitted = len(lines) - max_lines
+        lines = [*lines[:max_lines], f"... ({omitted} more lines omitted)"]
+
+    return "\n".join(lines)
 
 
 def find_conformer_generation_failures(
@@ -240,7 +282,7 @@ def find_conformer_generation_failures(
             # enough to catch.
             failures[index] = (
                 molecule_description(molecule, index),
-                _summarise_toolkit_error(exc),
+                _summarise_error(exc),
             )
             continue
 
