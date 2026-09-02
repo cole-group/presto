@@ -184,7 +184,7 @@ def sample_ligands(
     raw: dict[int, datasets.Dataset] = {}
     cache_dir.mkdir(parents=True)
     try:
-        failures: dict[int, BaseException] = {}
+        failures: dict[int, Exception] = {}
         devices = sampling_devices(device_type, workers)
         if workers == 1:
             for i, molecule in enumerate(mols):
@@ -199,7 +199,7 @@ def sample_ligands(
                         cache_paths[i],
                     )
                     raw[i] = _load_dataset(cache_paths[i], "sampling cache")
-                except BaseException as exc:
+                except Exception as exc:
                     failures[i] = exc
         else:
             context = multiprocessing.get_context("spawn")
@@ -228,7 +228,7 @@ def sample_ligands(
                     try:
                         future.result()
                         raw[i] = _load_dataset(cache_paths[i], "sampling cache")
-                    except BaseException as exc:
+                    except Exception as exc:
                         failures[i] = exc
 
         if failures:

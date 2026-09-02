@@ -151,7 +151,13 @@ class TestWorkflowPathManager:
 
     @pytest.mark.parametrize(
         "stage_name",
-        ["initial_statistics", "test_data", "plots", "training_iteration_7"],
+        [
+            "initial_statistics",
+            "test_data",
+            "plots",
+            "training_iteration_7",
+            "training_iteration_legacy",
+        ],
     )
     def test_status_partial_for_any_generated_stage(self, tmp_path, stage_name):
         """Empty, fixed, and obsolete generated stages all mark a partial fit."""
@@ -161,6 +167,50 @@ class TestWorkflowPathManager:
         assert path_manager.status == WorkflowStatus.PARTIAL
         with pytest.raises(RuntimeError, match=r"partial.*presto clean"):
             path_manager.require_clean()
+
+    @pytest.mark.parametrize(
+        "file_name",
+        [
+            "initial_statistics",
+            "test_data",
+            "plots",
+            "training_iteration_7",
+            "training_iteration_notes.txt",
+        ],
+    )
+    def test_status_and_clean_preserve_root_files(self, tmp_path, file_name):
+        """Stage-like regular files are unrelated root files, not generated stages."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=2)
+        unrelated_file = tmp_path / file_name
+        unrelated_file.write_text("keep me")
+
+        assert path_manager.status == WorkflowStatus.CLEAN
+
+        path_manager.clean()
+
+        assert unrelated_file.read_text() == "keep me"
+
+    def test_clean_unlinks_stage_symlinks_without_deleting_targets(self, tmp_path):
+        """Live and broken stage symlinks are owned, but their targets are not."""
+        output_dir = tmp_path / "outputs"
+        output_dir.mkdir()
+        external_stage = tmp_path / "external-stage"
+        external_stage.mkdir()
+        sentinel = external_stage / "sentinel.txt"
+        sentinel.write_text("keep me")
+        live_link = output_dir / "training_iteration_legacy"
+        live_link.symlink_to(external_stage, target_is_directory=True)
+        broken_link = output_dir / "plots"
+        broken_link.symlink_to(tmp_path / "missing-stage", target_is_directory=True)
+        path_manager = WorkflowPathManager(output_dir=output_dir)
+
+        assert path_manager.status == WorkflowStatus.PARTIAL
+
+        path_manager.clean()
+
+        assert not live_link.is_symlink()
+        assert not broken_link.is_symlink()
+        assert sentinel.read_text() == "keep me"
 
     def test_status_complete_for_final_force_field(self, tmp_path):
         """The expected final force field marks fitting as complete."""

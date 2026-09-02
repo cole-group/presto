@@ -193,6 +193,39 @@ def test_worker_failure_keeps_diagnostics_but_removes_cache(tmp_path, monkeypatc
     assert worker.call_count == 1
 
 
+def test_serial_worker_failures_are_aggregated_after_all_ligands(tmp_path, monkeypatch):
+    """Ordinary failures remain per-ligand errors and do not stop serial sampling."""
+    inputs = _generated_inputs(tmp_path)
+    worker = MagicMock(
+        side_effect=[RuntimeError("first failed"), ValueError("second failed")]
+    )
+    monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        sample_ligands(**inputs)
+
+    assert "molecule 0: first failed" in str(exc_info.value)
+    assert "molecule 1: second failed" in str(exc_info.value)
+    assert worker.call_count == 2
+    assert not (tmp_path / ".sampling_cache").exists()
+
+
+@pytest.mark.parametrize("process_control_exception", [KeyboardInterrupt, SystemExit])
+def test_serial_process_control_exception_escapes_immediately(
+    tmp_path, monkeypatch, process_control_exception
+):
+    """Process-control exceptions are not aggregated as ligand failures."""
+    inputs = _generated_inputs(tmp_path)
+    worker = MagicMock(side_effect=process_control_exception("stop sampling"))
+    monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
+
+    with pytest.raises(process_control_exception, match="stop sampling"):
+        sample_ligands(**inputs)
+
+    assert worker.call_count == 1
+    assert not (tmp_path / ".sampling_cache").exists()
+
+
 @pytest.mark.parametrize(
     ("change", "error"),
     [

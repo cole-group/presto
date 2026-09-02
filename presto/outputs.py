@@ -156,9 +156,13 @@ class WorkflowPathManager:
             self.output_dir / StageKind.TESTING.value,
             self.output_dir / StageKind.PLOTS.value,
         ]
-        paths = [path for path in fixed_paths if os.path.lexists(path)]
+        paths = [path for path in fixed_paths if path.is_dir() or path.is_symlink()]
         if self.output_dir.exists():
-            paths.extend(self.output_dir.glob(f"{StageKind.TRAINING.value}_*"))
+            paths.extend(
+                path
+                for path in self.output_dir.glob(f"{StageKind.TRAINING.value}_*")
+                if path.is_dir() or path.is_symlink()
+            )
         return sorted(set(paths), key=str)
 
     @property
