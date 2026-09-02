@@ -8,15 +8,20 @@ The CLI is an easy way to run `presto` for one-off fits, but the Python API give
 from presto.settings import ParamSettings, WorkflowSettings
 from presto.workflow import get_bespoke_force_field
 
-settings = WorkflowSettings(
-    param_settings=ParamSettings(
-        molecule_input_type="smiles",
-        molecules="CCO",
-    ),
-    device_type="cuda",
-)
+def main():
+    settings = WorkflowSettings(
+        param_settings=ParamSettings(
+            molecule_input_type="smiles",
+            molecules="CCO",
+        ),
+        device_type="cuda",
+    )
 
-bespoke_ff = get_bespoke_force_field(settings)
+    return get_bespoke_force_field(settings)
+
+
+if __name__ == "__main__":
+    bespoke_ff = main()
 ```
 
 `get_bespoke_force_field` returns the final fitted `openff.toolkit.ForceField` and writes the same output tree the CLI would. Pass `write_settings=False` to skip writing `workflow_settings.yaml` (useful when you've loaded settings from a YAML file already).
@@ -54,3 +59,15 @@ Each process loads its own force field and ML model, so model and CUDA memory us
 is multiplied by the number of workers. More processes can be slower when one
 process already saturates a GPU. This option parallelizes ligands within a single
 node only; parameterization, fitting, and analysis remain in the parent process.
+
+!!! warning "Guard the Python entry point"
+    Parallel sampling starts fresh Python processes. When calling
+    `get_bespoke_force_field` from a Python script with
+    `n_sampling_processes > 1`, put the call behind an
+    `if __name__ == "__main__":` guard, as in the example above. Without the
+    guard, every worker re-runs the script while it is starting and may create
+    workers recursively or fail with a multiprocessing bootstrap error.
+
+    Interactive Python sessions and notebooks do not provide a reliably
+    importable guarded entry point. Use `n_sampling_processes=1` there, or run
+    parallel sampling from a guarded `.py` script or the `presto` CLI.
