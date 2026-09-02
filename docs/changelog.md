@@ -10,10 +10,12 @@
 
 ### Fixes
 
+- Attempt parameterisation for every molecule instead of aborting on the first failure, then raise a single `MoleculeParameterisationError` listing every molecule which could not be parameterised (whether the modified Seminario step could not generate a conformer for it, or OpenFF could not assign its charges/parameters). Addresses [#80](https://github.com/cole-group/presto/issues/80).
 - Fix a latent `IndexError` in the MSM step when fewer conformers were available than `n_conformers`; the conformer loop now iterates the conformers actually present.
 
 ### Documentation
 
+- Document the aggregated parameterisation error in [Troubleshooting](reference/troubleshooting.md).
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).
