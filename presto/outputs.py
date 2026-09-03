@@ -1,6 +1,7 @@
 """Functionality for handling the outputs of a workflow."""
 
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, StrEnum
@@ -102,6 +103,20 @@ PER_MOLECULE_OUTPUT_TYPES: set[OutputType] = {
     OutputType.MM_MINIMISED_PDB,
     OutputType.TORSION_SAMPLING_PLOT,
 }
+
+# Every generated path is an OutputType name, optionally with a per-molecule suffix.
+_MOL_SUFFIX = re.compile(r"_mol\d+(?=\.|$)")
+_GENERATED_NAMES = {output_type.value for output_type in OutputType}
+
+
+def _foreign_children(stage_path: Path) -> list[Path]:
+    """Return stage directory entries which presto did not generate."""
+    return [
+        child
+        for child in stage_path.iterdir()
+        if not child.name.startswith(".")
+        and _MOL_SUFFIX.sub("", child.name) not in _GENERATED_NAMES
+    ]
 
 
 class StageKind(StrEnum):
@@ -423,8 +438,26 @@ class WorkflowPathManager:
         return 0  # Default for backward compatibility
 
     def clean(self) -> None:
-        """Remove every Presto-owned generated stage directory."""
-        for stage_path in self._generated_stage_paths():
+        """Remove every Presto-owned generated stage directory.
+
+        Raises:
+        ------
+        RuntimeError
+            If a stage directory holds files presto did not generate. Nothing is
+            deleted in that case.
+        """
+        stage_paths = self._generated_stage_paths()
+        for stage_path in stage_paths:
+            if stage_path.is_symlink() or not (
+                foreign := _foreign_children(stage_path)
+            ):
+                continue
+            raise RuntimeError(
+                f"{stage_path} contains files presto did not generate "
+                f"({', '.join(child.name for child in foreign[:3])}). Delete it "
+                "yourself or use a different output_dir."
+            )
+        for stage_path in stage_paths:
             delete_path(stage_path, recursive=True)
 
 

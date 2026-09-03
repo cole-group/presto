@@ -190,6 +190,21 @@ class TestWorkflowPathManager:
 
         assert unrelated_file.read_text() == "keep me"
 
+    def test_clean_refuses_stage_directories_holding_foreign_files(self, tmp_path):
+        """A user's own directory sharing a stage name is never deleted."""
+        path_manager = WorkflowPathManager(output_dir=tmp_path, n_iterations=2)
+        user_plot = tmp_path / "plots" / "figure.png"
+        user_plot.parent.mkdir()
+        user_plot.write_text("keep me")
+        stale_stage = tmp_path / "test_data"
+        stale_stage.mkdir()
+
+        with pytest.raises(RuntimeError, match=r"figure\.png.*different output_dir"):
+            path_manager.clean()
+
+        assert user_plot.read_text() == "keep me"
+        assert stale_stage.exists()
+
     def test_clean_unlinks_stage_symlinks_without_deleting_targets(self, tmp_path):
         """Live and broken stage symlinks are owned, but their targets are not."""
         output_dir = tmp_path / "outputs"

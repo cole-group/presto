@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import multiprocessing
+import pickle
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import datasets
 import torch
+from loguru import logger
 from openff.toolkit import ForceField, Molecule
 from rich.progress import track
 
+from . import sample as sample_module
 from .outputs import OutputType
 from .sample import _SAMPLING_FNS_REGISTRY
 from .settings import PreComputedDatasetSettings, SamplingSettings
+from .utils._suppress_output import suppress_unwanted_output
+
+# The device this worker process claimed at start-up; unused in the parent.
+_WORKER_DEVICE = "cpu"
 
 
 def sampling_devices(device_type: str, n_workers: int) -> list[str]:
@@ -26,27 +33,30 @@ def sampling_devices(device_type: str, n_workers: int) -> list[str]:
     return [f"cuda:{i % n_devices}" for i in range(n_workers)]
 
 
+def _init_worker(devices: multiprocessing.Queue) -> None:  # type: ignore[type-arg]
+    """Claim one device for this worker and leave all reporting to the parent."""
+    global _WORKER_DEVICE
+    _WORKER_DEVICE = devices.get()
+    suppress_unwanted_output()
+    logger.remove()
+    sample_module.track = lambda sequence, *args, **kwargs: sequence  # type: ignore[attr-defined]
+
+
 def _sample_worker(
     molecule_json: str,
     molecule_index: int,
     offxml_path: str,
-    device: str,
+    device: str | None,
     sampling_settings: SamplingSettings,
     output_paths: dict[OutputType, Path],
 ) -> datasets.Dataset:
     """Sample one molecule, naming its side outputs with its workflow index."""
-    from . import sample as sample_module
-
-    if multiprocessing.parent_process() is not None:
-        # The parent owns progress reporting, and a spawned worker is discarded
-        # after one molecule, so this is not restored.
-        sample_module.track = lambda sequence, *args, **kwargs: sequence  # type: ignore[attr-defined]
     sample_module._MOL_INDEX_OFFSET = molecule_index  # type: ignore[attr-defined]
     try:
         return _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
             mols=[Molecule.from_json(molecule_json)],
             off_ff=ForceField(offxml_path),
-            device=torch.device(device),
+            device=torch.device(device or _WORKER_DEVICE),
             settings=sampling_settings,
             output_paths=output_paths,
         )[0]
@@ -111,12 +121,14 @@ def _sample_every_ligand(
     """Sample every molecule, reporting all per-ligand failures together."""
     workers = max(1, min(n_processes, len(mols)))
     devices = sampling_devices(device_type, workers)
+    # Each worker claims one device at start-up and keeps it, so oversubscribing a
+    # GPU stays deliberate rather than depending on which worker picks up a molecule.
     worker_args = [
         (
             mol.to_json(),
             mol_idx,
             str(offxml_path),
-            devices[mol_idx % workers],
+            devices[0] if workers == 1 else None,
             sampling_settings,
             output_paths,
         )
@@ -132,8 +144,23 @@ def _sample_every_ligand(
             except Exception as exc:
                 failures[mol_idx] = exc
     else:
+        try:
+            pickle.dumps(sampling_settings)
+        except Exception as exc:
+            raise RuntimeError(
+                "Parallel sampling requires picklable sampling settings. Runtime "
+                "objects such as custom ASE calculators require "
+                "n_sampling_processes: 1."
+            ) from exc
+        context = multiprocessing.get_context("spawn")
+        device_queue = context.Queue()
+        for device in devices:
+            device_queue.put(device)
         with ProcessPoolExecutor(
-            max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+            max_workers=workers,
+            mp_context=context,
+            initializer=_init_worker,
+            initargs=(device_queue,),
         ) as executor:
             futures = {
                 executor.submit(_sample_worker, *args): mol_idx
@@ -153,5 +180,7 @@ def _sample_every_ligand(
         details = "; ".join(
             f"molecule {i}: {exc}" for i, exc in sorted(failures.items())
         )
-        raise RuntimeError(f"Sampling failed for {len(failures)} ligand(s): {details}")
+        raise RuntimeError(
+            f"Sampling failed for {len(failures)} ligand(s): {details}"
+        ) from failures[min(failures)]
     return [sampled[mol_idx] for mol_idx in range(len(mols))]

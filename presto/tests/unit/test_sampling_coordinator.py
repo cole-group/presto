@@ -1,5 +1,7 @@
 """Unit tests for the sampling coordinator."""
 
+import multiprocessing
+import threading
 from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,7 +10,7 @@ import datasets
 import pytest
 from openff.toolkit import Molecule
 
-from presto import sampling_coordinator
+from presto import sample, sampling_coordinator
 from presto.sampling_coordinator import sample_ligands, sampling_devices
 from presto.settings import MMMDSamplingSettings, PreComputedDatasetSettings
 
@@ -184,3 +186,36 @@ def test_process_control_exception_escapes_immediately(
         sample_ligands(**inputs)
 
     assert worker.call_count == 1
+
+
+def test_parallel_sampling_rejects_unpicklable_settings(tmp_path):
+    """Runtime objects which cannot cross to a spawned worker fail up front."""
+    inputs = _generated_inputs(tmp_path)
+    inputs["n_processes"] = 2
+    inputs["sampling_settings"].mlp_settings.ml_system_kwargs = {
+        "calculator": threading.Lock()
+    }
+
+    with pytest.raises(RuntimeError, match="n_sampling_processes: 1"):
+        sample_ligands(**inputs)
+
+
+@pytest.mark.parametrize(
+    "devices", [["cuda:0", "cuda:1"], ["cuda:0", "cuda:0"], ["cpu", "cpu"]]
+)
+def test_each_worker_claims_one_device(monkeypatch, devices):
+    """Workers claim a device each at start-up, oversubscribed GPUs included."""
+    # _init_worker silences the process it runs in, so undo that for the test session.
+    monkeypatch.setattr(sampling_coordinator, "logger", MagicMock())
+    monkeypatch.setattr(sample, "track", sample.track)
+    monkeypatch.setattr(sampling_coordinator, "_WORKER_DEVICE", "cpu")
+    queue = multiprocessing.get_context("spawn").Queue()
+    for device in devices:
+        queue.put(device)
+
+    claimed = []
+    for _ in devices:
+        sampling_coordinator._init_worker(queue)
+        claimed.append(sampling_coordinator._WORKER_DEVICE)
+
+    assert claimed == devices
