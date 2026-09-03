@@ -1,5 +1,7 @@
 """Functionality for handling the outputs of a workflow."""
 
+import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, StrEnum
@@ -102,6 +104,20 @@ PER_MOLECULE_OUTPUT_TYPES: set[OutputType] = {
     OutputType.TORSION_SAMPLING_PLOT,
 }
 
+# Every generated path is an OutputType name, optionally with a per-molecule suffix.
+_MOL_SUFFIX = re.compile(r"_mol\d+(?=\.|$)")
+_GENERATED_NAMES = {output_type.value for output_type in OutputType}
+
+
+def _foreign_children(stage_path: Path) -> list[Path]:
+    """Return stage directory entries which presto did not generate."""
+    return [
+        child
+        for child in stage_path.iterdir()
+        if not child.name.startswith(".")
+        and _MOL_SUFFIX.sub("", child.name) not in _GENERATED_NAMES
+    ]
+
 
 class StageKind(StrEnum):
     """Enumeration of output directory names for each stage of the workflow."""
@@ -111,6 +127,14 @@ class StageKind(StrEnum):
     TESTING = "test_data"
     TRAINING = "training_iteration"
     PLOTS = "plots"
+
+
+class WorkflowStatus(StrEnum):
+    """The state of generated output for a workflow fit."""
+
+    CLEAN = "clean"
+    PARTIAL = "partial"
+    COMPLETE = "complete"
 
 
 @dataclass(frozen=True)
@@ -139,6 +163,45 @@ class WorkflowPathManager:
     training_settings: "TrainingSettings | None" = None
     training_sampling_settings: "SamplingSettings | None" = None
     testing_sampling_settings: "SamplingSettings | None" = None
+
+    def _generated_stage_paths(self) -> list[Path]:
+        """Return all existing Presto-owned generated stage paths."""
+        candidates = [
+            self.output_dir / kind.value
+            for kind in (
+                StageKind.INITIAL_STATISTICS,
+                StageKind.TESTING,
+                StageKind.PLOTS,
+            )
+        ]
+        # Globbing a missing directory yields nothing, so needs no existence check.
+        candidates += self.output_dir.glob(f"{StageKind.TRAINING.value}_*")
+        return sorted(
+            {path for path in candidates if path.is_dir() or path.is_symlink()}, key=str
+        )
+
+    @property
+    def status(self) -> WorkflowStatus:
+        """Return whether generated fit output is clean, partial, or complete."""
+        final_force_field = (
+            self.output_dir
+            / f"{StageKind.TRAINING.value}_{self.n_iterations}"
+            / OutputType.OFFXML.value
+        )
+        if os.path.lexists(final_force_field):
+            return WorkflowStatus.COMPLETE
+        if self._generated_stage_paths():
+            return WorkflowStatus.PARTIAL
+        return WorkflowStatus.CLEAN
+
+    def require_clean(self) -> None:
+        """Raise if generated output must be cleaned before starting a fit."""
+        if (status := self.status) is not WorkflowStatus.CLEAN:
+            raise RuntimeError(
+                f"The output directory {self.output_dir} contains a {status.value} "
+                "Presto fit. Run `presto clean` or use a new output directory before "
+                "starting another fit."
+            )
 
     @property
     def outputs_by_stage(self) -> dict[OutputStage, set[OutputType]]:
@@ -375,25 +438,27 @@ class WorkflowPathManager:
         return 0  # Default for backward compatibility
 
     def clean(self) -> None:
-        """Remove all output files and empty stage directories."""
-        # Delete all output files
-        all_paths = self.get_all_output_paths(only_if_exists=True)
+        """Remove every Presto-owned generated stage directory.
 
-        for paths in all_paths.values():
-            for output_type, path_or_paths in paths.items():
-                if output_type == OutputType.WORKFLOW_SETTINGS:
-                    continue  # Don't delete workflow settings
-                if isinstance(path_or_paths, list):
-                    for path in path_or_paths:
-                        delete_path(path, recursive=True)
-                else:
-                    delete_path(path_or_paths, recursive=True)
-
-        # Remove empty stage directories
-        for stage in self.outputs_by_stage.keys():
-            if stage.kind == StageKind.BASE:
+        Raises:
+        ------
+        RuntimeError
+            If a stage directory holds files presto did not generate. Nothing is
+            deleted in that case.
+        """
+        stage_paths = self._generated_stage_paths()
+        for stage_path in stage_paths:
+            if stage_path.is_symlink() or not (
+                foreign := _foreign_children(stage_path)
+            ):
                 continue
-            delete_path(self.get_stage_path(stage), recursive=False)
+            raise RuntimeError(
+                f"{stage_path} contains files presto did not generate "
+                f"({', '.join(child.name for child in foreign[:3])}). Delete it "
+                "yourself or use a different output_dir."
+            )
+        for stage_path in stage_paths:
+            delete_path(stage_path, recursive=True)
 
 
 def delete_path(path: Path, recursive: bool = False) -> None:
@@ -410,10 +475,12 @@ def delete_path(path: Path, recursive: bool = False) -> None:
         Whether to delete directories recursively, by default False. If False, only
         empty directories will be deleted.
     """
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return
 
-    if path.is_dir():
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
         if recursive:
             for child in path.iterdir():
                 delete_path(child, recursive=True)

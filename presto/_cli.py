@@ -109,7 +109,8 @@ class Clean(BaseModel):
     Example: ``presto clean workflow_settings.yaml``
 
     Removes everything that ``train`` / ``train-from-yaml`` would generate, but
-    keeps the settings YAML itself.
+    keeps the settings YAML itself. Refuses to touch a stage directory holding
+    files presto did not generate.
     """
 
     settings_yaml: CliPositionalArg[Path] = Field(

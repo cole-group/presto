@@ -21,8 +21,8 @@ from presto.convert import convert_to_smirnoff
 from .analyse import analyse_workflow
 from .convert import parameterise
 from .data_utils import filter_dataset_outliers
-from .outputs import OutputStage, OutputType, StageKind
-from .sample import _SAMPLING_FNS_REGISTRY, SampleFn, load_precomputed_dataset
+from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
+from .sampling_coordinator import sample_ligands
 from .settings import WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
 from .writers import write_scatter
@@ -57,6 +57,10 @@ def get_bespoke_force_field(
     ForceField
         The fitted bespoke force field.
     """
+    WorkflowPathManager(
+        output_dir=settings.output_dir,
+        n_iterations=settings.n_iterations,
+    ).require_clean()
     path_manager = settings.get_path_manager()
     stage = OutputStage(StageKind.BASE)
     path_manager.mk_stage_dir(stage)
@@ -94,30 +98,35 @@ def get_bespoke_force_field(
     # Get a copy of the initial trainable parameters for regularisation
     initial_parameters = trainable_parameters.clone().detach()
 
+    # Persist the parameterised force field before sampling so spawned workers
+    # reconstruct their own OpenFF/OpenMM state from disk.
+    initial_stage = OutputStage(StageKind.INITIAL_STATISTICS)
+    path_manager.mk_stage_dir(initial_stage)
+    initial_offxml_path = path_manager.get_output_path(initial_stage, OutputType.OFFXML)
+    initial_off_ff.to_file(str(initial_offxml_path))
+
     # Generate the test data for all molecules
     stage = OutputStage(StageKind.TESTING)
     path_manager.mk_stage_dir(stage)
-    test_sample_fn: SampleFn = _SAMPLING_FNS_REGISTRY[
-        type(settings.testing_sampling_settings)
-    ]
     logger.info("Generating test data")
-    datasets_test = test_sample_fn(
+    test_output_paths = {
+        output_type: path_manager.get_output_path(stage, output_type)
+        for output_type in settings.testing_sampling_settings.output_types
+    }
+    datasets_test = sample_ligands(
         mols=off_mols,
-        off_ff=initial_off_ff,
-        device=settings.device,
-        settings=settings.testing_sampling_settings,
-        output_paths={
-            output_type: path_manager.get_output_path(stage, output_type)
-            for output_type in settings.testing_sampling_settings.output_types
-        },
-    )
-
-    if test_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
-        for mol_idx, dataset_test in enumerate(datasets_test):
-            dataset_path_mol = path_manager.get_output_path_for_mol(
-                stage, OutputType.ENERGIES_AND_FORCES, mol_idx
+        offxml_path=initial_offxml_path,
+        device_type=settings.device_type,
+        sampling_settings=settings.testing_sampling_settings,
+        output_paths=test_output_paths,
+        canonical_paths=[
+            path_manager.get_output_path_for_mol(
+                stage, OutputType.ENERGIES_AND_FORCES, i
             )
-            dataset_test.save_to_disk(str(dataset_path_mol))
+            for i in range(len(off_mols))
+        ],
+        n_processes=settings.n_sampling_processes,
+    )
 
     # Write out statistics on the initial force field
     stage = OutputStage(StageKind.INITIAL_STATISTICS)
@@ -146,8 +155,6 @@ def get_bespoke_force_field(
     )
     off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
-    train_sample_fn = _SAMPLING_FNS_REGISTRY[type(settings.training_sampling_settings)]
-
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
 
     # Train the force field
@@ -168,51 +175,57 @@ def get_bespoke_force_field(
             stage = OutputStage(StageKind.TRAINING, iteration)
             path_manager.mk_stage_dir(stage)
 
-            datasets_train_new = train_sample_fn(
-                mols=off_mols,
-                off_ff=off_ff,
-                device=settings.device,
-                settings=settings.training_sampling_settings,
-                output_paths={
-                    output_type: path_manager.get_output_path(stage, output_type)
-                    for output_type in settings.training_sampling_settings.output_types
-                },
-            )
+            train_output_paths_sampling = {
+                output_type: path_manager.get_output_path(stage, output_type)
+                for output_type in settings.training_sampling_settings.output_types
+            }
 
-            # Apply outlier filtering if configured
-            if settings.outlier_filter_settings is not None:
-                logger.info("Applying outlier filtering to training data")
-                datasets_train_new = [
-                    filter_dataset_outliers(
-                        dataset=ds,
+            def process_training_dataset(
+                mol_idx: int,
+                dataset: datasets.Dataset,
+                # Bound now, before `datasets_train` is rebound by the call below.
+                previous_datasets: list[datasets.Dataset] | None = datasets_train,
+            ) -> datasets.Dataset:
+                if settings.outlier_filter_settings is not None:
+                    logger.info(
+                        f"Applying outlier filtering to molecule {mol_idx} training data"
+                    )
+                    dataset = filter_dataset_outliers(
+                        dataset=dataset,
                         force_field=tensor_ff,
-                        topology=tensor_top,
+                        topology=tensor_tops[mol_idx],
                         settings=settings.outlier_filter_settings,
                         device=settings.device,
                     )
-                    for ds, tensor_top in zip(
-                        datasets_train_new, tensor_tops, strict=True
+                if settings.memory and previous_datasets is not None:
+                    dataset = datasets.combine.concatenate_datasets(
+                        [previous_datasets[mol_idx], dataset]
                     )
-                ]
+                return dataset
 
-            # Update training dataset: concatenate if memory is enabled and not the first iteration
-            if settings.memory and datasets_train is not None:
-                datasets_train = [
-                    datasets.combine.concatenate_datasets([ds_old, ds_new])
-                    for ds_old, ds_new in zip(
-                        datasets_train, datasets_train_new, strict=True
+            # Workers load the force field produced by the previous iteration.
+            sampling_offxml_path = (
+                initial_offxml_path
+                if iteration == 1
+                else path_manager.get_output_path(
+                    OutputStage(StageKind.TRAINING, iteration - 1), OutputType.OFFXML
+                )
+            )
+            datasets_train = sample_ligands(
+                mols=off_mols,
+                offxml_path=sampling_offxml_path,
+                device_type=settings.device_type,
+                sampling_settings=settings.training_sampling_settings,
+                output_paths=train_output_paths_sampling,
+                canonical_paths=[
+                    path_manager.get_output_path_for_mol(
+                        stage, OutputType.ENERGIES_AND_FORCES, i
                     )
-                ]
-            else:
-                datasets_train = datasets_train_new
-
-            # Save each dataset
-            if train_sample_fn is not load_precomputed_dataset:  # type: ignore[comparison-overlap]
-                for mol_idx, dataset_train in enumerate(datasets_train):
-                    dataset_path_mol = path_manager.get_output_path_for_mol(
-                        stage, OutputType.ENERGIES_AND_FORCES, mol_idx
-                    )
-                    dataset_train.save_to_disk(str(dataset_path_mol))
+                    for i in range(len(off_mols))
+                ],
+                n_processes=settings.n_sampling_processes,
+                process_dataset=process_training_dataset,
+            )
 
             train_output_paths = {
                 output_type: path_manager.get_output_path(stage, output_type)

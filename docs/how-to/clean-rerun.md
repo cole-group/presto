@@ -4,17 +4,30 @@ How to wipe output and rerun.
 
 ## Clean a directory
 
-`presto clean` removes everything `presto train` / `train-from-yaml` would generate, but **keeps the settings YAML**:
+`presto clean` removes every Presto-owned generated stage directory, but **keeps the settings YAML**:
 
 ```bash
 presto clean workflow_settings.yaml
 ```
 
-It walks the expected output layout (see **[Concepts → Output directory layout](../concepts/output-layout.md)**) and deletes each known file/directory plus the empty stage directories. Anything not in the expected layout is left alone — useful if you've added your own notes or scripts to the run directory.
+The directories `initial_statistics/`, `test_data/`, `plots/`, and every
+`training_iteration_*/` directory are reserved for Presto and are removed recursively.
+Keep personal notes outside those directories. Unrelated files at the output root are
+left alone.
+
+The output manager reports a fit as:
+
+- `clean` when none of the generated stage directories exists;
+- `partial` when a generated stage exists without the final fitted force field; or
+- `complete` when the final iteration's `bespoke_ff.offxml` exists.
+
+Both partial and complete output must be cleaned before another fit can start. This
+prevents an interrupted run from silently reusing an old trajectory or metadynamics
+bias.
 
 ## Re-run from a YAML
 
-Any `workflow_settings.yaml` written by a previous run can be replayed with:
+After cleaning, any `workflow_settings.yaml` written by a previous run can be replayed with:
 
 ```bash
 presto train-from-yaml workflow_settings.yaml
