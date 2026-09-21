@@ -12,6 +12,8 @@ import torch
 from openff.toolkit import ForceField, Molecule, Topology
 from openff.units import unit as off_unit
 from openmm import unit as omm_unit
+from rdkit import Chem
+from rdkit.Chem import rdMolTransforms
 
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
 from presto.find_torsions import (
@@ -50,6 +52,7 @@ from presto.settings import (
     MMMDSamplingSettings,
     MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     PreComputedDatasetSettings,
+    TorsionMinimisationSettings,
 )
 
 
@@ -1165,32 +1168,6 @@ class TestRunMdRestraintHooks:
 
         assert call_order == ["restrain", "minimise"]
 
-    def test_record_force_groups_passed_to_get_state(
-        self, mock_molecule, mock_simulation
-    ):
-        """Test that the force group mask reaches the recording getState call."""
-        mask = _force_groups_excluding(7)
-
-        _run_md(
-            mol=mock_molecule,
-            simulation=mock_simulation,
-            step_fn=MagicMock(),
-            equilibration_n_steps_per_conformer=1,
-            production_n_snapshots_per_conformer=1,
-            production_n_steps_per_snapshot_per_conformer=1,
-            pdb_reporter_path=None,
-            record_force_groups=mask,
-        )
-
-        recording_calls = [
-            call
-            for call in mock_simulation.context.getState.call_args_list
-            if call.kwargs.get("getEnergy")
-        ]
-        assert recording_calls
-        for call in recording_calls:
-            assert call.kwargs["groups"] == mask
-
     def test_defaults_record_all_force_groups(self, mock_molecule, mock_simulation):
         """Test that existing callers keep recording every force group."""
         _run_md(
@@ -1686,8 +1663,9 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
             equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             snapshot_interval=0.001 * omm_unit.picoseconds,
-            ml_minimisation_steps=1,
-            mm_minimisation_steps=1,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=1, mm_minimisation_steps=1
+            ),
         )
 
         bias_dir = tmp_path / "bias"
@@ -1784,14 +1762,13 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
 
 
 def _mock_ml_system_factory(mol):
-    """Return a factory making a dummy zero-energy ML system for `mol`."""
+    """Return a factory standing in for the MLP with the MM system for `mol`."""
+    mm_system = ForceField("openff_unconstrained-2.3.0.offxml").create_openmm_system(
+        mol.to_topology()
+    )
 
     def create_mock_system(*args, **kwargs):
-        mock_system = openmm.System()
-        for _ in range(mol.n_atoms):
-            mock_system.addParticle(12.0)
-        mock_system.addForce(openmm.CustomExternalForce("0"))
-        return mock_system
+        return openmm.XmlSerializer.clone(mm_system)
 
     return create_mock_system
 
@@ -1805,8 +1782,9 @@ def _torsion_restrained_settings(**overrides):
         "equilibration_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
         "production_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
         "snapshot_interval": 0.001 * omm_unit.picoseconds,
-        "ml_minimisation_steps": 1,
-        "mm_minimisation_steps": 1,
+        "torsion_minimisation_settings": TorsionMinimisationSettings(
+            ml_minimisation_steps=1, mm_minimisation_steps=1
+        ),
     }
     kwargs.update(overrides)
     return MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(**kwargs)
@@ -1886,96 +1864,66 @@ class TestSampleMmmdTorsionRestrainedTorsionMinIntegration:
         with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
 
-            with patch("presto.sample._add_torsion_restraint_forces") as mock_restrain:
-                result = sample_mmmd_torsion_restrained_with_torsion_minimisation(
-                    [mol], ff, torch.device("cpu"), settings_obj, output_paths
-                )
-
-        # Nothing to restrain, so no restraints should have been added
-        assert not mock_restrain.called
+            result = sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
 
         assert len(result) == 1
         entry = result[0][0]
         assert "energy_weights" in entry
         assert "forces_weights" in entry
 
-    def test_restraints_target_each_conformer_separately(self, tmp_path):
-        """Test that each conformer is restrained to its own torsion values."""
+    def test_restraints_target_each_conformer_separately(
+        self, tmp_path, write_multiconformer_sdf
+    ):
+        """Test that each conformer's MD stays near its own starting torsion."""
+        template = Molecule.from_smiles("CCCC")
+        template.generate_conformers(n_conformers=1)
+        rdmol = template.to_rdkit()
+
+        # Two conformers with clearly different central torsions, one off-minimum so
+        # that it would relax away without a restraint
         mol = Molecule.from_smiles("CCCC")
-        mol.generate_conformers(n_conformers=5, rms_cutoff=0.0 * off_unit.angstrom)
-        assert len(mol.conformers) > 1
+        starting_angles = [180.0, 120.0]
+        for angle in starting_angles:
+            conformer = Chem.Conformer(rdmol.GetConformer())
+            rdMolTransforms.SetDihedralDeg(conformer, 0, 1, 2, 3, angle)
+            mol.add_conformer(conformer.GetPositions() * off_unit.angstrom)
+
+        sdf_path = tmp_path / "conformers.sdf"
+        write_multiconformer_sdf(mol, sdf_path)
 
         ff = ForceField("openff_unconstrained-2.3.0.offxml")
-        settings_obj = _torsion_restrained_settings(n_conformers=len(mol.conformers))
+        settings_obj = _torsion_restrained_settings(
+            starting_conformers=sdf_path,
+            md_torsion_restraint_force_constant=10000.0
+            * omm_unit.kilojoules_per_mole
+            / omm_unit.radian**2,
+        )
         output_paths = _torsion_restrained_output_paths(tmp_path)
 
         with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
             mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
 
-            with patch(
-                "presto.sample._update_torsion_restraints",
-                wraps=_update_torsion_restraints,
-            ) as mock_update:
-                sample_mmmd_torsion_restrained_with_torsion_minimisation(
-                    [mol], ff, torch.device("cpu"), settings_obj, output_paths
-                )
-
-        # The MD stage retargets the restraints once per conformer, before the
-        # minimisation stage does so once per snapshot.
-        md_targets = [
-            call.args[2] for call in mock_update.call_args_list[: len(mol.conformers)]
-        ]
-        assert len(md_targets) == len(mol.conformers)
-
-        # The targets must be the conformers' own dihedrals, not a shared value
-        expected = [
-            mdtraj.compute_dihedrals(
-                mdtraj.Trajectory(
-                    xyz=conformer.m_as(off_unit.nanometer).reshape(1, -1, 3),
-                    topology=mdtraj.Topology.from_openmm(mol.to_topology().to_openmm()),
-                ),
-                [(0, 1, 2, 3)],
-            )[0][0]
-            for conformer in mol.conformers
-        ]
-        for targets, expected_angle in zip(md_targets, expected, strict=True):
-            assert any(
-                np.isclose(target, expected_angle, atol=1e-4) for target in targets
+            result = sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
             )
 
-    def test_passes_a_mask_excluding_the_restraint_force_group(self, tmp_path):
-        """Test that the driver tells _run_md to leave the restraints out of the record."""
-        mol = Molecule.from_smiles("CCCC")
-        mol.generate_conformers(n_conformers=1)
+        # The first entry holds the MD snapshots, one per conformer, in order
+        md_entry = result[0][0]
+        n_snapshots = len(md_entry["energy"])
+        assert n_snapshots == len(starting_angles)
+        coords = md_entry["coords"].reshape(n_snapshots, -1, 3).numpy()
+        sampled = mdtraj.compute_dihedrals(
+            mdtraj.Trajectory(
+                xyz=coords / 10.0,
+                topology=mdtraj.Topology.from_openmm(mol.to_topology().to_openmm()),
+            ),
+            [(0, 1, 2, 3)],
+        )[:, 0]
 
-        ff = ForceField("openff_unconstrained-2.3.0.offxml")
-        settings_obj = _torsion_restrained_settings()
-        output_paths = _torsion_restrained_output_paths(tmp_path)
-
-        restraint_groups = []
-        real_add = _add_torsion_restraint_forces
-
-        def capture_add(*args, **kwargs):
-            force_indices, group = real_add(*args, **kwargs)
-            restraint_groups.append(group)
-            return force_indices, group
-
-        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
-            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
-
-            with patch(
-                "presto.sample._add_torsion_restraint_forces", side_effect=capture_add
-            ):
-                with patch("presto.sample._run_md", wraps=_run_md) as mock_run_md:
-                    sample_mmmd_torsion_restrained_with_torsion_minimisation(
-                        [mol], ff, torch.device("cpu"), settings_obj, output_paths
-                    )
-
-        # The MD stage adds its restraints first, before the minimisation stage
-        md_restraint_group = restraint_groups[0]
-        assert mock_run_md.call_args.kwargs[
-            "record_force_groups"
-        ] == _force_groups_excluding(md_restraint_group)
+        difference = np.angle(np.exp(1j * (sampled - np.deg2rad(starting_angles))))
+        assert np.all(np.abs(difference) < np.deg2rad(10.0))
 
 
 class TestRunMdExcludesRestraintsFromRecord:

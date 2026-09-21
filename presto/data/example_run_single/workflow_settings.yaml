@@ -46,14 +46,15 @@ training_sampling_settings:
     bias_height: 2.0 kJ * mol**-1
     bias_frequency: 0.5 ps
     bias_save_frequency: 1.0 ps
-    ml_minimisation_steps: 10
-    mm_minimisation_steps: 10
-    torsion_restraint_force_constant: 0.0 kJ * rad**-2 * mol**-1
-    map_ml_coords_energy_to_mm_coords_energy: true
-    loss_energy_weight_mm_torsion_min: 1000.0
-    loss_force_weight_mm_torsion_min: 0.1
-    loss_energy_weight_ml_torsion_min: 1000.0
-    loss_force_weight_ml_torsion_min: 0.1
+    torsion_minimisation_settings:
+        ml_minimisation_steps: 10
+        mm_minimisation_steps: 10
+        torsion_restraint_force_constant: 0.0 kJ * rad**-2 * mol**-1
+        map_ml_coords_energy_to_mm_coords_energy: true
+        loss_energy_weight_mm_torsion_min: 1000.0
+        loss_force_weight_mm_torsion_min: 0.1
+        loss_energy_weight_ml_torsion_min: 1000.0
+        loss_force_weight_ml_torsion_min: 0.1
 testing_sampling_settings:
     sampling_protocol: ml_md
     mlp_settings:

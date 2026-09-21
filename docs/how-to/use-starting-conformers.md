@@ -55,7 +55,7 @@ testing_sampling_settings:
 
 !!! tip "Staying near the supplied conformers"
 
-    `starting_conformers` only decides where each trajectory *starts*. The MD is then free to wander, and with a metadynamics protocol it is actively pushed out of the starting well. If you want sampling to stay close to the conformers you supplied, use the [`mm_md_torsion_restrained_torsion_minimisation`](../concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation) protocol, which restrains each rotatable torsion to the value it takes in the conformer that trajectory started from.
+    `starting_conformers` only decides where each trajectory *starts*. The MD is then free to wander, and with a metadynamics protocol it is actively pushed out of the starting well. If you want sampling to stay close to the conformers you supplied, use the [`mm_md_torsion_restrained_torsion_minimisation`](../concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation) protocol, which restrains specified torsions (by default rotatable torsions) to the values they take in the conformer that trajectory started from.
 
 ## Preparing the SDF
 

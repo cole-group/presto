@@ -31,6 +31,8 @@ from presto.settings import (
     MSMSettings,
     OutlierFilterSettings,
     ParamSettings,
+    TorsionMinimisationSettings,
+    TorsionSelectionSettings,
     TrainingSettings,
     TypeGenerationSettings,
     WorkflowSettings,
@@ -285,14 +287,14 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
     def test_default_minimisation_steps(self):
         """Test default minimisation steps."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert settings.ml_minimisation_steps == 10
-        assert settings.mm_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 10
 
     def test_default_torsion_restraint_force_constant(self):
         """Test default torsion restraint force constant."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert (
-            settings.torsion_restraint_force_constant.value_in_unit(
+            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
                 omm_unit.kilojoules_per_mole / omm_unit.radian**2
             )
             == 0.0
@@ -307,29 +309,45 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
     def test_default_torsion_min_loss_weights(self):
         """Test default loss weights for torsion-minimised samples."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert settings.loss_energy_weight_mm_torsion_min == 1000.0
-        assert settings.loss_force_weight_mm_torsion_min == 0.1
-        assert settings.loss_energy_weight_ml_torsion_min == 1000.0
-        assert settings.loss_force_weight_ml_torsion_min == 0.1
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
+            == 0.1
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_ml_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_ml_torsion_min
+            == 0.1
+        )
 
     def test_custom_minimisation_steps(self):
         """Test custom minimisation steps."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            ml_minimisation_steps=20,
-            mm_minimisation_steps=15,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=20,
+                mm_minimisation_steps=15,
+            )
         )
-        assert settings.ml_minimisation_steps == 20
-        assert settings.mm_minimisation_steps == 15
+        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 20
+        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 15
 
     def test_custom_torsion_restraint_force_constant(self):
         """Test custom torsion restraint force constant."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            torsion_restraint_force_constant=500.0
-            * omm_unit.kilojoules_per_mole
-            / omm_unit.radian**2,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                torsion_restraint_force_constant=500.0
+                * omm_unit.kilojoules_per_mole
+                / omm_unit.radian**2,
+            )
         )
         assert (
-            settings.torsion_restraint_force_constant.value_in_unit(
+            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
                 omm_unit.kilojoules_per_mole / omm_unit.radian**2
             )
             == 500.0
@@ -340,26 +358,36 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
             loss_energy_weight=500.0,
             loss_force_weight=0.5,
-            loss_energy_weight_mm_torsion_min=200.0,
-            loss_force_weight_mm_torsion_min=0.0,
-            loss_energy_weight_ml_torsion_min=100.0,
-            loss_force_weight_ml_torsion_min=0.1,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                loss_energy_weight_mm_torsion_min=200.0,
+                loss_force_weight_mm_torsion_min=0.0,
+                loss_energy_weight_ml_torsion_min=100.0,
+                loss_force_weight_ml_torsion_min=0.1,
+            ),
         )
         assert settings.loss_energy_weight == 500.0
         assert settings.loss_force_weight == 0.5
-        assert settings.loss_energy_weight_mm_torsion_min == 200.0
-        assert settings.loss_force_weight_mm_torsion_min == 0.0
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
+            == 200.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
+            == 0.0
+        )
 
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            ml_minimisation_steps=25,
-            mm_minimisation_steps=30,
-            torsion_restraint_force_constant=750.0
-            * omm_unit.kilojoules_per_mole
-            / omm_unit.radian**2,
             loss_energy_weight=800.0,
-            loss_force_weight_mm_torsion_min=0.05,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=25,
+                mm_minimisation_steps=30,
+                torsion_restraint_force_constant=750.0
+                * omm_unit.kilojoules_per_mole
+                / omm_unit.radian**2,
+                loss_force_weight_mm_torsion_min=0.05,
+            ),
         )
         yaml_path = tmp_path / "settings.yaml"
         settings.to_yaml(yaml_path)
@@ -367,16 +395,7 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         loaded = MMMDMetadynamicsTorsionMinimisationSamplingSettings.from_yaml(
             yaml_path
         )
-        assert loaded.ml_minimisation_steps == 25
-        assert loaded.mm_minimisation_steps == 30
-        assert (
-            loaded.torsion_restraint_force_constant.value_in_unit(
-                omm_unit.kilojoules_per_mole / omm_unit.radian**2
-            )
-            == 750.0
-        )
-        assert loaded.loss_energy_weight == 800.0
-        assert loaded.loss_force_weight_mm_torsion_min == 0.05
+        assert loaded == settings
 
     def test_inherits_metadynamics_parameters(self):
         """Test that metadynamics parameters are inherited."""
@@ -430,30 +449,57 @@ class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
         )
         # The minimisation restraint keeps its own default of 0.0
         assert (
-            settings.torsion_restraint_force_constant.value_in_unit(
+            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
                 omm_unit.kilojoules_per_mole / omm_unit.radian**2
             )
             == 0.0
         )
 
-    def test_inherits_torsion_minimisation_defaults(self):
-        """Test that the minimisation stage settings are inherited."""
+    def test_torsion_minimisation_defaults(self):
+        """Test the defaults of the nested minimisation stage settings."""
         settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
-        assert settings.ml_minimisation_steps == 10
-        assert settings.mm_minimisation_steps == 10
-        assert settings.loss_energy_weight_mm_torsion_min == 1000.0
-        assert settings.loss_force_weight_mm_torsion_min == 0.1
-        assert settings.loss_energy_weight_ml_torsion_min == 1000.0
-        assert settings.loss_force_weight_ml_torsion_min == 0.1
+        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 10
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
+            == 0.1
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_ml_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_ml_torsion_min
+            == 0.1
+        )
 
-    def test_inherits_torsion_selection_defaults(self):
-        """Test that the torsion selection SMARTS are inherited."""
+    def test_torsion_selection_defaults(self):
+        """Test the default torsion selection SMARTS."""
         settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
-        assert settings.torsions_to_include_smarts == (
+        assert settings.torsion_selection_settings.torsions_to_include_smarts == (
             DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
         )
-        assert settings.torsions_to_exclude_smarts == (
+        assert settings.torsion_selection_settings.torsions_to_exclude_smarts == (
             DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+        )
+
+    def test_md_and_minimisation_torsion_selections_are_independent(self):
+        """Test that MD and minimisation can restrain different torsions."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            torsion_selection_settings=TorsionSelectionSettings(
+                torsions_to_include_smarts=["[*:1]-[#6:2]-[#8:3]-[*:4]"]
+            ),
+        )
+        assert settings.torsion_selection_settings.torsions_to_include_smarts == [
+            "[*:1]-[#6:2]-[#8:3]-[*:4]"
+        ]
+        assert (
+            settings.torsion_minimisation_settings.torsion_selection_settings.torsions_to_include_smarts
+            == DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
         )
 
     def test_has_no_metadynamics_settings(self):
@@ -515,7 +561,9 @@ class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
             md_torsion_restraint_force_constant=250.0
             * omm_unit.kilojoules_per_mole
             / omm_unit.radian**2,
-            ml_minimisation_steps=25,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=25
+            ),
             loss_energy_weight=800.0,
         )
         yaml_path = tmp_path / "settings.yaml"
@@ -524,14 +572,7 @@ class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
         loaded = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings.from_yaml(
             yaml_path
         )
-        assert (
-            loaded.md_torsion_restraint_force_constant.value_in_unit(
-                omm_unit.kilojoules_per_mole / omm_unit.radian**2
-            )
-            == 250.0
-        )
-        assert loaded.ml_minimisation_steps == 25
-        assert loaded.loss_energy_weight == 800.0
+        assert loaded == settings
 
 
 class TestMSMSettings:

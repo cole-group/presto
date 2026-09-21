@@ -345,13 +345,12 @@ class MLMDSamplingSettings(_SamplingSettingsBase):
     )
 
 
-class _TorsionSelectionSettings(_DefaultSettings, ABC):
-    """Settings selecting which torsions a sampling protocol acts on."""
+class TorsionSelectionSettings(_DefaultSettings):
+    """Settings selecting which torsions a sampling stage acts on."""
 
     torsions_to_include_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_INCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for torsions to include in metadynamics biasing "
-        "and/or torsion restraints. "
+        description="SMARTS patterns for torsions this stage acts on. "
         "Note that the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
         "RDKIT default gives more sane aromaticty perception. These should match the "
         "entire torsion (4 atoms), not just the rotatable bond. ",
@@ -359,8 +358,7 @@ class _TorsionSelectionSettings(_DefaultSettings, ABC):
 
     torsions_to_exclude_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for bonds to exclude from metadynamics biasing "
-        "and/or torsion restraints. Note that "
+        description="SMARTS patterns for bonds this stage should not act on. Note that "
         "the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
         "RDKIT default gives more sane aromaticty perception. Matches are removed from the list of "
         "torsions matched by the include patterns. These should match only the rotatable bond "
@@ -368,13 +366,18 @@ class _TorsionSelectionSettings(_DefaultSettings, ABC):
     )
 
 
-class _TorsionMinimisationSettings(_DefaultSettings, ABC):
+class TorsionMinimisationSettings(_DefaultSettings):
     """Settings for the torsion-restrained ML and MM minimisation stage.
 
     Snapshots taken during MD sampling are relaxed with the MLP and then the MM force
-    field, with the rotatable torsions restrained, and the relaxed structures are added
+    field, with the selected torsions restrained, and the relaxed structures are added
     to the training set with their own loss weights.
     """
+
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to restrain during minimisation.",
+    )
 
     ml_minimisation_steps: int = Field(
         10,
@@ -429,9 +432,7 @@ class _TorsionMinimisationSettings(_DefaultSettings, ABC):
     )
 
 
-class MMMDMetadynamicsSamplingSettings(
-    _SamplingSettingsBase, _TorsionSelectionSettings
-):
+class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
     """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
 
     The force field is initially taken from the parameterisation settings, but is
@@ -440,6 +441,11 @@ class MMMDMetadynamicsSamplingSettings(
 
     sampling_protocol: Literal["mm_md_metadynamics"] = Field(
         "mm_md_metadynamics", description="Sampling protocol to use."
+    )
+
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to apply the metadynamics bias to.",
     )
 
     bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
@@ -505,7 +511,7 @@ class MMMDMetadynamicsSamplingSettings(
 
 
 class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-    MMMDMetadynamicsSamplingSettings, _TorsionMinimisationSettings
+    MMMDMetadynamicsSamplingSettings
 ):
     """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
 
@@ -516,6 +522,11 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
     sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
         "mm_md_metadynamics_torsion_minimisation",
         description="Sampling protocol to use.",
+    )
+
+    torsion_minimisation_settings: TorsionMinimisationSettings = Field(
+        default_factory=TorsionMinimisationSettings,
+        description="Settings for the torsion-restrained minimisation stage.",
     )
 
     @property
@@ -529,13 +540,11 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
         }
 
 
-class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
-    _SamplingSettingsBase, _TorsionSelectionSettings, _TorsionMinimisationSettings
-):
+class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
     """Settings for torsion-restrained MM MD sampling with torsion-restrained minimisations.
 
     The same protocol as `mm_md_metadynamics_torsion_minimisation`, but with no
-    metadynamics bias. Instead, the rotatable torsions are restrained to the values they
+    metadynamics bias. Instead, the selected torsions are restrained to the values they
     take in the conformer each trajectory started from, so sampling stays close to the
     supplied starting conformers rather than exploring away from them.
     """
@@ -543,6 +552,16 @@ class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
     sampling_protocol: Literal["mm_md_torsion_restrained_torsion_minimisation"] = Field(
         "mm_md_torsion_restrained_torsion_minimisation",
         description="Sampling protocol to use.",
+    )
+
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to restrain during MD sampling.",
+    )
+
+    torsion_minimisation_settings: TorsionMinimisationSettings = Field(
+        default_factory=TorsionMinimisationSettings,
+        description="Settings for the torsion-restrained minimisation stage.",
     )
 
     md_torsion_restraint_force_constant: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
@@ -553,8 +572,9 @@ class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
         "sampling. Each torsion is restrained to the value it takes in the conformer the "
         "trajectory started from. For a harmonic restraint the spread about that value is "
         "roughly sqrt(RT/k), so the default (100 kJ/mol/rad^2) allows around 12 degrees at "
-        "the default 500 K. Note this is separate from `torsion_restraint_force_constant`, "
-        "which applies only to the minimisation stage.",
+        "the default 500 K. Note this is separate from "
+        "`torsion_minimisation_settings.torsion_restraint_force_constant`, which applies "
+        "only to the minimisation stage.",
     )
 
     @model_validator(mode="after")

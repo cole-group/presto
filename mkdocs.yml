@@ -34,6 +34,7 @@ nav:
   - Fit a single molecule: how-to/fit-single-molecule.md
   - Fit a congeneric series: how-to/fit-congeneric-series.md
   - Use SDF inputs: how-to/use-sdf-inputs.md
+  - Use starting conformers: how-to/use-starting-conformers.md
   - Use custom charges: how-to/use-custom-charges.md
   - Clean and rerun a fit: how-to/clean-rerun.md
   - Choose an MLP: how-to/choose-an-mlp.md

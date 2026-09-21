@@ -32,30 +32,30 @@ MM-driven MD with [well-tempered metadynamics](https://doi.org/10.1103/PhysRevLe
 Options:
 
 - `bias_height`, `bias_frequency`, `bias_factor`, `bias_width` — control the metadynamics bias.
-- `torsions_to_include_smarts`, `torsions_to_exclude_smarts` — which torsions are biased (default: all rotatable bonds, with linear torsions excluded).
+- `torsion_selection_settings.torsions_to_include_smarts`, `torsion_selection_settings.torsions_to_exclude_smarts` — which torsions are biased (default: all rotatable bonds, with linear torsions excluded).
 
 ## `mm_md_metadynamics_torsion_minimisation` (default for training)
 
 `mm_md_metadynamics` plus short, (optionally torsion-restrained) minimisations at the end of each conformer's trajectory. The minimisations use both the MLP and the MM force field as relaxation potentials. Each minimised snapshot is added to the training set with configurable loss weights. These, epecially the MLP minimisations, improve torsion scan performance. Note that by default, no torsion restraints are applied.
 
-Additional options (on top of the metadynamics base class):
+Additional options (on top of the metadynamics base class), all nested under `torsion_minimisation_settings`:
 
 - `ml_minimisation_steps`, `mm_minimisation_steps` — how many minimisation iterations.
 - `torsion_restraint_force_constant` — strength of the torsion restraint during minimisation.
+- `torsion_selection_settings` — which torsions are restrained during minimisation. This is set separately from the torsions biased during MD.
 - `loss_*_weight_*_torsion_min` — separate loss weights for the minimised snapshots, in case you want them weighted differently from the MD snapshots.
 
 ## `mm_md_torsion_restrained_torsion_minimisation`
 
-The same pipeline as `mm_md_metadynamics_torsion_minimisation`, but with no metadynamics bias. Instead, each rotatable torsion is restrained to the value it takes in the conformer that trajectory started from, so sampling stays close to the conformers you supply rather than exploring away from them. The MLP and MM minimisation stage is unchanged.
+The same pipeline as `mm_md_metadynamics_torsion_minimisation`, but with no metadynamics bias. Instead, each specified torsion (by default, rotatable torsions) is restrained to the value it takes in the conformer that trajectory started from, so sampling stays close to the conformers you supply rather than exploring away from them. The MLP and MM minimisation stage is unchanged.
 
 Use this when you have already chosen the conformers you care about (e.g. a bound pose, or a set of conformers from a docking or QM study), supply them with `starting_conformers`, and want the fit weighted towards that region of conformational space rather than towards broad torsional coverage. Without `starting_conformers` the restraints hold the molecule near ETKDG-generated conformers instead, which is rarely what you want, so the protocol warns.
 
 Additional options (on top of the minimisation options above):
 
 - `md_torsion_restraint_force_constant` — how tightly sampling is held to the starting torsions. For a harmonic restraint the spread about the target is roughly `sqrt(RT/k)`, so the default (100 kJ/mol/rad²) allows around 12° at the default 500 K. Lower it to let the torsions roam further, raise it to pin them.
-- Note this is separate from `torsion_restraint_force_constant`, which applies only to the minimisation stage and still defaults to 0.
-
-Because there is no bias, no `metadynamics_bias/` directory is produced.
+- `torsion_selection_settings` — which torsions are restrained during MD. This is set separately from `torsion_minimisation_settings.torsion_selection_settings`.
+- Note this is separate from `torsion_minimisation_settings.torsion_restraint_force_constant`, which applies only to the minimisation stage and still defaults to 0.
 
 ## `pre_computed`
 
@@ -74,7 +74,7 @@ See **[How-to → Use a pre-computed dataset](../how-to/use-precomputed-dataset.
 |---|---|
 | Defaults for a small/medium molecule | `mm_md_metadynamics_torsion_minimisation` (the default) |
 | Fastest possible iteration | `mm_md` |
-| Most physically realistic sampling | `ml_md` |
+| Most physically realistic sampling (but does not penalise spurious MM minima) | `ml_md` |
 | Reproducibility / external dataset | `pre_computed` |
 | Sampling to stay near conformers you supply | `mm_md_torsion_restrained_torsion_minimisation` |
 

@@ -615,8 +615,8 @@ def sample_mmmd_metadynamics(
 
         torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
-            include_smarts=settings.torsions_to_include_smarts,
-            exclude_smarts=settings.torsions_to_exclude_smarts,
+            include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
+            exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
         if not torsions:
             logger.warning(
@@ -648,8 +648,8 @@ def sample_mmmd_metadynamics(
             # Setup metadynamics
             bias_variables = _get_torsion_bias_forces(
                 mol_with_conformers,
-                torsions_to_include=settings.torsions_to_include_smarts,
-                torsions_to_exclude=settings.torsions_to_exclude_smarts,
+                torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
+                torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
                 bias_width=settings.bias_width,
             )
 
@@ -1218,7 +1218,7 @@ def generate_torsion_minimised_dataset(
     return mm_min_dataset, ml_min_dataset
 
 
-_TorsionMinimisationSettings = (
+_TorsionMinimisationSamplingSettings = (
     settings.MMMDMetadynamicsTorsionMinimisationSamplingSettings
     | settings.MMMDTorsionRestrainedTorsionMinimisationSamplingSettings
 )
@@ -1230,7 +1230,7 @@ def _recalculate_and_weight_with_mlp(
     mol: openff.toolkit.Molecule,
     topology: openmm.app.Topology,
     device: torch.device,
-    settings: _TorsionMinimisationSettings,
+    settings: _TorsionMinimisationSamplingSettings,
 ) -> datasets.Dataset:
     """Recalculate a dataset's energies and forces with the MLP and apply the MD loss weights.
 
@@ -1284,7 +1284,7 @@ def _torsion_minimise_and_merge(
     mol: openff.toolkit.Molecule,
     interchange: openff.interchange.Interchange,
     device: torch.device,
-    settings: _TorsionMinimisationSettings,
+    settings: _TorsionMinimisationSamplingSettings,
     output_paths: dict[OutputType, pathlib.Path],
     mol_idx: int,
 ) -> datasets.Dataset:
@@ -1339,24 +1339,25 @@ def _torsion_minimise_and_merge(
     if OutputType.MM_MINIMISED_PDB in output_paths:
         mm_pdb_path = get_mol_path(output_paths[OutputType.MM_MINIMISED_PDB], mol_idx)
 
+    min_settings = settings.torsion_minimisation_settings
     torsion_mm_min_dataset, torsion_ml_min_dataset = generate_torsion_minimised_dataset(
         mm_dataset,
         ml_min_simulation,
         mm_min_simulation,
-        torsion_restraint_force_constant=settings.torsion_restraint_force_constant.value_in_unit(
+        torsion_restraint_force_constant=min_settings.torsion_restraint_force_constant.value_in_unit(
             _OMM_KJ_PER_MOL / _OMM_RADIAN**2
         ),
-        torsions_to_include_smarts=settings.torsions_to_include_smarts,
-        torsions_to_exclude_smarts=settings.torsions_to_exclude_smarts,
-        ml_minimisation_steps=settings.ml_minimisation_steps,
-        mm_minimisation_steps=settings.mm_minimisation_steps,
+        torsions_to_include_smarts=min_settings.torsion_selection_settings.torsions_to_include_smarts,
+        torsions_to_exclude_smarts=min_settings.torsion_selection_settings.torsions_to_exclude_smarts,
+        ml_minimisation_steps=min_settings.ml_minimisation_steps,
+        mm_minimisation_steps=min_settings.mm_minimisation_steps,
         ml_pdb_path=ml_pdb_path,
         mm_pdb_path=mm_pdb_path,
-        map_ml_coords_energy_to_mm_coords_energy=settings.map_ml_coords_energy_to_mm_coords_energy,
-        mm_min_energy_weight=settings.loss_energy_weight_mm_torsion_min,
-        mm_min_forces_weight=settings.loss_force_weight_mm_torsion_min,
-        ml_min_energy_weight=settings.loss_energy_weight_ml_torsion_min,
-        ml_min_forces_weight=settings.loss_force_weight_ml_torsion_min,
+        map_ml_coords_energy_to_mm_coords_energy=min_settings.map_ml_coords_energy_to_mm_coords_energy,
+        mm_min_energy_weight=min_settings.loss_energy_weight_mm_torsion_min,
+        mm_min_forces_weight=min_settings.loss_force_weight_mm_torsion_min,
+        ml_min_energy_weight=min_settings.loss_energy_weight_ml_torsion_min,
+        ml_min_forces_weight=min_settings.loss_force_weight_ml_torsion_min,
     )
 
     # Clean up minimisation simulations to free GPU memory
@@ -1419,8 +1420,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
         torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
-            include_smarts=settings.torsions_to_include_smarts,
-            exclude_smarts=settings.torsions_to_exclude_smarts,
+            include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
+            exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
         system = interchange.to_openmm_system()
 
@@ -1471,8 +1472,8 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         # Setup metadynamics
         bias_variables = _get_torsion_bias_forces(
             mol_with_conformers,
-            torsions_to_include=settings.torsions_to_include_smarts,
-            torsions_to_exclude=settings.torsions_to_exclude_smarts,
+            torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
+            torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
             bias_width=settings.bias_width,
         )
 
@@ -1562,7 +1563,7 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
     """Generate datasets using torsion-restrained MM MD with additional torsion-minimised structures.
 
     This is the same protocol as `sample_mmmd_metadynamics_with_torsion_minimisation`,
-    but with no metadynamics bias. Instead, each rotatable torsion is restrained to the
+    but with no metadynamics bias. Instead, each selected torsion is restrained to the
     value it takes in the conformer the trajectory started from, so sampling stays close
     to the supplied starting conformers.
 
@@ -1601,8 +1602,8 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
 
         torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
-            include_smarts=settings.torsions_to_include_smarts,
-            exclude_smarts=settings.torsions_to_exclude_smarts,
+            include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
+            exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
 
         simulation, integrator = _build_mm_simulation(
@@ -1643,7 +1644,7 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
             )
             continue
 
-        # Restrain every rotatable torsion during sampling. The targets are set per
+        # Restrain every selected torsion during sampling. The targets are set per
         # conformer in the callback below; the force constant is fixed.
         torsion_atoms_list = list(torsions.values())
         force_constant = settings.md_torsion_restraint_force_constant.value_in_unit(
