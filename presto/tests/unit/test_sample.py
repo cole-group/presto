@@ -2028,19 +2028,19 @@ class TestIndependentTorsionSelections:
             )
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs", "select_no_md_torsions"),
+        ("make_settings", "sample_fn", "extra_outputs", "no_sampling_torsions_overrides"),
         _PROTOCOLS,
     )
-    def test_minimisation_runs_when_md_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs, select_no_md_torsions
+    def test_minimisation_runs_when_sampling_selects_no_torsions(
+        self, tmp_path, make_settings, sample_fn, extra_outputs, no_sampling_torsions_overrides
     ):
-        """Test that an empty MD selection does not skip the minimisation stage."""
+        """Test that an empty sampling-stage selection does not skip the minimisation."""
         result = self._run(
             tmp_path,
             make_settings,
             sample_fn,
             extra_outputs,
-            **select_no_md_torsions,
+            **no_sampling_torsions_overrides,
         )
 
         # MD, ML-minimised and MM-minimised entries
@@ -2049,11 +2049,11 @@ class TestIndependentTorsionSelections:
         assert not (tmp_path / "bias").exists()
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs", "select_no_md_torsions"),
+        ("make_settings", "sample_fn", "extra_outputs", "no_sampling_torsions_overrides"),
         _PROTOCOLS,
     )
     def test_minimisation_skipped_when_it_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs, select_no_md_torsions
+        self, tmp_path, make_settings, sample_fn, extra_outputs, no_sampling_torsions_overrides
     ):
         """Test that an empty minimisation selection skips only the minimisation."""
         result = self._run(
