@@ -34,6 +34,18 @@ Options, all nested under `metadynamics_settings`:
 - `bias_height`, `bias_frequency`, `bias_factor`, `bias_width` — control the metadynamics bias.
 - `torsion_selection_settings.torsions_to_include_smarts`, `torsion_selection_settings.torsions_to_exclude_smarts` — which torsions are biased (default: all rotatable bonds, with linear torsions excluded).
 
+!!! note "Changing metadynamics settings in Python"
+
+    `metadynamics_settings` is read-only once created, because the bias frequencies are checked against `timestep` and `production_sampling_time_per_conformer` only when the whole object is assigned. Setting a field directly (`settings.metadynamics_settings.bias_factor = 15.0`) raises an error. Replace the object instead:
+
+    ```python
+    settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+        update={"bias_factor": 15.0}
+    )
+    ```
+
+    In YAML, set the values under `metadynamics_settings:` as usual.
+
 ## `mm_md_metadynamics_torsion_minimisation` (default for training)
 
 `mm_md_metadynamics` plus short, (optionally torsion-restrained) minimisations at the end of each conformer's trajectory. The minimisations use both the MLP and the MM force field as relaxation potentials. Each minimised snapshot is added to the training set with configurable loss weights. These, epecially the MLP minimisations, improve torsion scan performance. Note that by default, no torsion restraints are applied.

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from rdkit import Chem
 
 from presto import __version__
+from presto._exceptions import InvalidSettingsError
 from presto.find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
@@ -265,6 +266,34 @@ class TestMMMDMetadynamicsSamplingSettings:
                     bias_frequency=0.5 * omm_unit.picoseconds
                 ),
             )
+
+    def test_metadynamics_settings_are_read_only(self):
+        """Test that nested fields cannot be set, as that would skip validation."""
+        settings = MMMDMetadynamicsSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds
+        )
+        with pytest.raises(InvalidSettingsError, match="model_copy"):
+            settings.metadynamics_settings.bias_frequency = (
+                0.1005 * omm_unit.picoseconds
+            )
+
+    def test_replacing_metadynamics_settings_is_validated(self):
+        """Test that replacing the whole object revalidates the bias frequencies."""
+        settings = MMMDMetadynamicsSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds
+        )
+        with pytest.raises(ValidationError, match="must be divisible by the timestep"):
+            settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+                update={"bias_frequency": 0.1005 * omm_unit.picoseconds}
+            )
+
+    def test_replacing_metadynamics_settings_via_model_copy(self):
+        """Test the documented way of changing a metadynamics setting."""
+        settings = MMMDMetadynamicsSamplingSettings()
+        settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+            update={"bias_factor": 15.0}
+        )
+        assert settings.metadynamics_settings.bias_factor == 15.0
 
     def test_output_types_includes_metadynamics_bias(self):
         """Test that output types include metadynamics bias."""

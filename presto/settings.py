@@ -433,7 +433,30 @@ class TorsionMinimisationSettings(_DefaultSettings):
 
 
 class MetadynamicsSettings(_DefaultSettings):
-    """Settings for the well-tempered metadynamics bias applied during MM MD."""
+    """Settings for the well-tempered metadynamics bias applied during MM MD.
+
+    These settings are read-only once created, because the bias frequencies are
+    validated against the timestep and sampling time of the sampling settings they
+    belong to, and that check only runs when the whole object is assigned. To change
+    a value, replace the object, e.g.::
+
+        settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+            update={"bias_factor": 15.0}
+        )
+    """
+
+    # Revalidate on assignment to the parent, so values set via model_copy are checked
+    model_config = ConfigDict(
+        **_DEFAULT_MODEL_CONFIG, frozen=True, revalidate_instances="always"
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Raise an error explaining how to change these read-only settings."""
+        raise InvalidSettingsError(
+            f"MetadynamicsSettings are read-only, so `{name}` cannot be set directly. "
+            "Replace the whole object instead, e.g. `settings.metadynamics_settings = "
+            f"settings.metadynamics_settings.model_copy(update={{{name!r}: value}})`."
+        )
 
     torsion_selection_settings: TorsionSelectionSettings = Field(
         default_factory=TorsionSelectionSettings,
