@@ -8,12 +8,17 @@ import torch
 from hypothesis import given
 from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
+from loguru import logger as loguru_logger
 from openff.toolkit import Molecule
 from openmm import unit as omm_unit
 from pydantic import ValidationError
 from rdkit import Chem
 
 from presto import __version__
+from presto.find_torsions import (
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+)
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
@@ -22,6 +27,7 @@ from presto.settings import (
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     MSMSettings,
     OutlierFilterSettings,
     ParamSettings,
@@ -386,6 +392,146 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert OutputType.METADYNAMICS_BIAS in settings.output_types
         assert OutputType.PDB_TRAJECTORY in settings.output_types
+
+
+class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
+    """Tests for torsion-restrained MM MD with torsion minimisation sampling settings."""
+
+    def test_sampling_protocol(self):
+        """Test that sampling protocol is set correctly."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert (
+            settings.sampling_protocol
+            == "mm_md_torsion_restrained_torsion_minimisation"
+        )
+
+    def test_default_md_torsion_restraint_force_constant(self):
+        """Test the default force constant for the restraints applied during MD."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert (
+            settings.md_torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 100.0
+        )
+
+    def test_md_and_minimisation_force_constants_are_independent(self):
+        """Test that the MD and minimisation restraint force constants are separate."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            md_torsion_restraint_force_constant=500.0
+            * omm_unit.kilojoules_per_mole
+            / omm_unit.radian**2,
+        )
+        assert (
+            settings.md_torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 500.0
+        )
+        # The minimisation restraint keeps its own default of 0.0
+        assert (
+            settings.torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 0.0
+        )
+
+    def test_inherits_torsion_minimisation_defaults(self):
+        """Test that the minimisation stage settings are inherited."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.ml_minimisation_steps == 10
+        assert settings.mm_minimisation_steps == 10
+        assert settings.loss_energy_weight_mm_torsion_min == 1000.0
+        assert settings.loss_force_weight_mm_torsion_min == 0.1
+        assert settings.loss_energy_weight_ml_torsion_min == 1000.0
+        assert settings.loss_force_weight_ml_torsion_min == 0.1
+
+    def test_inherits_torsion_selection_defaults(self):
+        """Test that the torsion selection SMARTS are inherited."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.torsions_to_include_smarts == (
+            DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        assert settings.torsions_to_exclude_smarts == (
+            DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+        )
+
+    def test_has_no_metadynamics_settings(self):
+        """Test that metadynamics settings are rejected, as there is no bias."""
+        assert "bias_height" not in (
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings.model_fields
+        )
+        with pytest.raises(ValidationError):
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+                bias_height=1.0 * omm_unit.kilojoules_per_mole,
+            )
+
+    def test_output_types_exclude_metadynamics_bias(self):
+        """Test that no metadynamics bias output is expected."""
+        from presto.outputs import OutputType
+
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.output_types == {
+            OutputType.PDB_TRAJECTORY,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+
+    @staticmethod
+    def _capture_logs(build_settings) -> list[str]:
+        """Return the log messages emitted while building a settings object."""
+        messages: list[str] = []
+        sink_id = loguru_logger.add(messages.append)
+        try:
+            build_settings()
+        finally:
+            loguru_logger.remove(sink_id)
+        return messages
+
+    def test_warns_when_no_starting_conformers(self):
+        """Test that omitting starting_conformers warns, as it is the intended input."""
+        messages = self._capture_logs(
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings
+        )
+        assert any("starting_conformers" in message for message in messages)
+
+    def test_no_warning_with_starting_conformers(
+        self, tmp_path, ethanol_with_conformers, write_multiconformer_sdf
+    ):
+        """Test that supplying starting_conformers does not warn."""
+        sdf_path = tmp_path / "conformers.sdf"
+        write_multiconformer_sdf(ethanol_with_conformers, sdf_path)
+
+        messages = self._capture_logs(
+            lambda: MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+                starting_conformers=sdf_path
+            )
+        )
+        assert not any("starting_conformers" in message for message in messages)
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Test YAML serialization round-trip."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            md_torsion_restraint_force_constant=250.0
+            * omm_unit.kilojoules_per_mole
+            / omm_unit.radian**2,
+            ml_minimisation_steps=25,
+            loss_energy_weight=800.0,
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings.from_yaml(
+            yaml_path
+        )
+        assert (
+            loaded.md_torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 250.0
+        )
+        assert loaded.ml_minimisation_steps == 25
+        assert loaded.loss_energy_weight == 800.0
 
 
 class TestMSMSettings:

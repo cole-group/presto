@@ -3,12 +3,14 @@
 from unittest.mock import MagicMock, patch
 
 import datasets
+import mdtraj
 import numpy as np
 import openff.interchange
 import openmm
 import pytest
 import torch
 from openff.toolkit import ForceField, Molecule, Topology
+from openff.units import unit as off_unit
 from openmm import unit as omm_unit
 
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
@@ -24,6 +26,7 @@ from presto.sample import (
     _build_mm_simulation,
     _create_simulation,
     _find_available_force_group,
+    _force_groups_excluding,
     _get_integrator,
     _get_molecule_from_dataset,
     _get_torsion_bias_forces,
@@ -37,6 +40,7 @@ from presto.sample import (
     sample_mmmd,
     sample_mmmd_metadynamics,
     sample_mmmd_metadynamics_with_torsion_minimisation,
+    sample_mmmd_torsion_restrained_with_torsion_minimisation,
 )
 from presto.settings import (
     MLMDSamplingSettings,
@@ -44,6 +48,7 @@ from presto.settings import (
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     PreComputedDatasetSettings,
 )
 
@@ -1091,6 +1096,123 @@ class TestRunMdFunction:
         assert len(dataset) == 1
 
 
+class TestForceGroupsExcluding:
+    """Tests for the _force_groups_excluding bitmask helper."""
+
+    @pytest.mark.parametrize("excluded", [0, 5, 31])
+    def test_excluded_group_is_clear_and_others_set(self, excluded):
+        """Test that only the excluded group's bit is clear."""
+        mask = _force_groups_excluding(excluded)
+
+        for group in range(32):
+            expected = group != excluded
+            assert bool(mask & (1 << group)) is expected
+
+    def test_all_groups_when_excluding_out_of_range(self):
+        """Test that excluding a group outside 0-31 selects everything."""
+        assert _force_groups_excluding(32) == (1 << 32) - 1
+
+
+class TestRunMdRestraintHooks:
+    """Tests for the torsion restraint hooks added to _run_md."""
+
+    def test_on_conformer_start_called_per_conformer(self, mock_simulation):
+        """Test that the hook is called once per conformer with that conformer's coords."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=3, rms_cutoff=0.0 * off_unit.angstrom)
+        assert len(mol.conformers) > 1
+
+        hook = MagicMock()
+
+        _run_md(
+            mol=mol,
+            simulation=mock_simulation,
+            step_fn=MagicMock(),
+            equilibration_n_steps_per_conformer=1,
+            production_n_snapshots_per_conformer=1,
+            production_n_steps_per_snapshot_per_conformer=1,
+            pdb_reporter_path=None,
+            on_conformer_start=hook,
+        )
+
+        assert hook.call_count == len(mol.conformers)
+
+        # Each call must receive its own conformer's coordinates, in Angstroms
+        for conformer, call in zip(mol.conformers, hook.call_args_list, strict=True):
+            passed_coords = call.args[0]
+            np.testing.assert_allclose(
+                passed_coords, conformer.m_as(off_unit.angstrom), rtol=1e-6
+            )
+
+    def test_hook_runs_before_minimisation(self, mock_molecule, mock_simulation):
+        """Test that restraints are retargeted before the pre-production minimisation."""
+        call_order = []
+
+        mock_simulation.minimizeEnergy.side_effect = lambda **_: call_order.append(
+            "minimise"
+        )
+
+        _run_md(
+            mol=mock_molecule,
+            simulation=mock_simulation,
+            step_fn=MagicMock(),
+            equilibration_n_steps_per_conformer=1,
+            production_n_snapshots_per_conformer=1,
+            production_n_steps_per_snapshot_per_conformer=1,
+            pdb_reporter_path=None,
+            on_conformer_start=lambda _coords: call_order.append("restrain"),
+        )
+
+        assert call_order == ["restrain", "minimise"]
+
+    def test_record_force_groups_passed_to_get_state(
+        self, mock_molecule, mock_simulation
+    ):
+        """Test that the force group mask reaches the recording getState call."""
+        mask = _force_groups_excluding(7)
+
+        _run_md(
+            mol=mock_molecule,
+            simulation=mock_simulation,
+            step_fn=MagicMock(),
+            equilibration_n_steps_per_conformer=1,
+            production_n_snapshots_per_conformer=1,
+            production_n_steps_per_snapshot_per_conformer=1,
+            pdb_reporter_path=None,
+            record_force_groups=mask,
+        )
+
+        recording_calls = [
+            call
+            for call in mock_simulation.context.getState.call_args_list
+            if call.kwargs.get("getEnergy")
+        ]
+        assert recording_calls
+        for call in recording_calls:
+            assert call.kwargs["groups"] == mask
+
+    def test_defaults_record_all_force_groups(self, mock_molecule, mock_simulation):
+        """Test that existing callers keep recording every force group."""
+        _run_md(
+            mol=mock_molecule,
+            simulation=mock_simulation,
+            step_fn=MagicMock(),
+            equilibration_n_steps_per_conformer=1,
+            production_n_snapshots_per_conformer=1,
+            production_n_steps_per_snapshot_per_conformer=1,
+            pdb_reporter_path=None,
+        )
+
+        recording_calls = [
+            call
+            for call in mock_simulation.context.getState.call_args_list
+            if call.kwargs.get("getEnergy")
+        ]
+        assert recording_calls
+        for call in recording_calls:
+            assert call.kwargs["groups"] == -1
+
+
 class TestSamplingFunctionsRegistry:
     """Tests for sampling function registry."""
 
@@ -1104,6 +1226,7 @@ class TestSamplingFunctionsRegistry:
             settings.MLMDSamplingSettings,
             settings.MMMDMetadynamicsSamplingSettings,
             settings.MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+            settings.MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
             settings.PreComputedDatasetSettings,
         ]
 
@@ -1658,3 +1781,284 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
         assert "forces" in entry
         assert "energy_weights" in entry
         assert "forces_weights" in entry
+
+
+def _mock_ml_system_factory(mol):
+    """Return a factory making a dummy zero-energy ML system for `mol`."""
+
+    def create_mock_system(*args, **kwargs):
+        mock_system = openmm.System()
+        for _ in range(mol.n_atoms):
+            mock_system.addParticle(12.0)
+        mock_system.addForce(openmm.CustomExternalForce("0"))
+        return mock_system
+
+    return create_mock_system
+
+
+def _torsion_restrained_settings(**overrides):
+    """Build minimal torsion-restrained sampling settings for integration tests."""
+    kwargs = {
+        "timestep": 1.0 * omm_unit.femtoseconds,
+        "temperature": 300.0 * omm_unit.kelvin,
+        "n_conformers": 1,
+        "equilibration_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+        "production_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+        "snapshot_interval": 0.001 * omm_unit.picoseconds,
+        "ml_minimisation_steps": 1,
+        "mm_minimisation_steps": 1,
+    }
+    kwargs.update(overrides)
+    return MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(**kwargs)
+
+
+def _torsion_restrained_output_paths(tmp_path):
+    """Build the output paths the torsion-restrained protocol expects."""
+    (tmp_path / "ml_min").mkdir()
+    (tmp_path / "mm_min").mkdir()
+    return {
+        OutputType.PDB_TRAJECTORY: tmp_path,
+        OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+        OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+    }
+
+
+class TestSampleMmmdTorsionRestrainedTorsionMinIntegration:
+    """Integration tests for sample_mmmd_torsion_restrained_with_torsion_minimisation."""
+
+    def test_with_rotatable_bonds(self, tmp_path):
+        """Test the torsion-restrained workflow on a molecule with rotatable bonds."""
+        mol = Molecule.from_smiles("CCCC")  # Butane
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        settings_obj = _torsion_restrained_settings()
+        output_paths = _torsion_restrained_output_paths(tmp_path)
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+
+            result = sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        assert len(result) == 1
+        assert isinstance(result[0], datasets.Dataset)
+
+        entry = result[0][0]
+        for key in (
+            "smiles",
+            "coords",
+            "energy",
+            "forces",
+            "energy_weights",
+            "forces_weights",
+        ):
+            assert key in entry
+
+        # No metadynamics, so no bias directory should have been created
+        assert not (tmp_path / "metadynamics_bias").exists()
+
+    def test_validates_output_paths(self, tmp_path):
+        """Test that a metadynamics bias path is rejected, as no bias is run."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        settings_obj = _torsion_restrained_settings()
+        output_paths = _torsion_restrained_output_paths(tmp_path)
+        output_paths[OutputType.METADYNAMICS_BIAS] = tmp_path / "bias"
+
+        with pytest.raises(ValueError, match="Output paths must contain exactly"):
+            sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+    def test_fallback_no_rotatable_bonds(self, tmp_path):
+        """Test fallback to regular MD when the molecule has no rotatable bonds."""
+        mol = Molecule.from_smiles("C")  # Methane
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        settings_obj = _torsion_restrained_settings()
+        output_paths = _torsion_restrained_output_paths(tmp_path)
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+
+            with patch("presto.sample._add_torsion_restraint_forces") as mock_restrain:
+                result = sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                    [mol], ff, torch.device("cpu"), settings_obj, output_paths
+                )
+
+        # Nothing to restrain, so no restraints should have been added
+        assert not mock_restrain.called
+
+        assert len(result) == 1
+        entry = result[0][0]
+        assert "energy_weights" in entry
+        assert "forces_weights" in entry
+
+    def test_restraints_target_each_conformer_separately(self, tmp_path):
+        """Test that each conformer is restrained to its own torsion values."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=5, rms_cutoff=0.0 * off_unit.angstrom)
+        assert len(mol.conformers) > 1
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        settings_obj = _torsion_restrained_settings(n_conformers=len(mol.conformers))
+        output_paths = _torsion_restrained_output_paths(tmp_path)
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+
+            with patch(
+                "presto.sample._update_torsion_restraints",
+                wraps=_update_torsion_restraints,
+            ) as mock_update:
+                sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                    [mol], ff, torch.device("cpu"), settings_obj, output_paths
+                )
+
+        # The MD stage retargets the restraints once per conformer, before the
+        # minimisation stage does so once per snapshot.
+        md_targets = [
+            call.args[2] for call in mock_update.call_args_list[: len(mol.conformers)]
+        ]
+        assert len(md_targets) == len(mol.conformers)
+
+        # The targets must be the conformers' own dihedrals, not a shared value
+        expected = [
+            mdtraj.compute_dihedrals(
+                mdtraj.Trajectory(
+                    xyz=conformer.m_as(off_unit.nanometer).reshape(1, -1, 3),
+                    topology=mdtraj.Topology.from_openmm(mol.to_topology().to_openmm()),
+                ),
+                [(0, 1, 2, 3)],
+            )[0][0]
+            for conformer in mol.conformers
+        ]
+        for targets, expected_angle in zip(md_targets, expected, strict=True):
+            assert any(
+                np.isclose(target, expected_angle, atol=1e-4) for target in targets
+            )
+
+    def test_passes_a_mask_excluding_the_restraint_force_group(self, tmp_path):
+        """Test that the driver tells _run_md to leave the restraints out of the record."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        settings_obj = _torsion_restrained_settings()
+        output_paths = _torsion_restrained_output_paths(tmp_path)
+
+        restraint_groups = []
+        real_add = _add_torsion_restraint_forces
+
+        def capture_add(*args, **kwargs):
+            force_indices, group = real_add(*args, **kwargs)
+            restraint_groups.append(group)
+            return force_indices, group
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+
+            with patch(
+                "presto.sample._add_torsion_restraint_forces", side_effect=capture_add
+            ):
+                with patch("presto.sample._run_md", wraps=_run_md) as mock_run_md:
+                    sample_mmmd_torsion_restrained_with_torsion_minimisation(
+                        [mol], ff, torch.device("cpu"), settings_obj, output_paths
+                    )
+
+        # The MD stage adds its restraints first, before the minimisation stage
+        md_restraint_group = restraint_groups[0]
+        assert mock_run_md.call_args.kwargs[
+            "record_force_groups"
+        ] == _force_groups_excluding(md_restraint_group)
+
+
+class TestRunMdExcludesRestraintsFromRecord:
+    """Numerical check that a masked _run_md records restraint-free energies and forces."""
+
+    def test_recorded_values_match_an_unrestrained_system(self):
+        """Test that a large restraint contributes nothing to the recorded values."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ff := ForceField("openff_unconstrained-2.3.0.offxml"),
+            Topology.from_molecules(mol),
+        )
+        assert ff is not None
+
+        temperature = 300.0 * omm_unit.kelvin
+        timestep = 1.0 * omm_unit.femtoseconds
+        simulation, _ = _build_mm_simulation(
+            interchange, temperature, timestep, torch.device("cpu")
+        )
+
+        # Restrain the central torsion to a target 90 degrees away from where it
+        # actually is, so the restraint carries a large energy and real forces.
+        torsion = (0, 1, 2, 3)
+        current_angle = mdtraj.compute_dihedrals(
+            mdtraj.Trajectory(
+                xyz=mol.conformers[0].m_as(off_unit.nanometer).reshape(1, -1, 3),
+                topology=mdtraj.Topology.from_openmm(simulation.topology),
+            ),
+            [torsion],
+        )[0][0]
+
+        force_constant = 5000.0
+        _, restraint_group = _add_torsion_restraint_forces(
+            simulation,
+            [torsion],
+            force_constant,
+            initial_angles=[float(current_angle) + np.pi / 2],
+        )
+
+        dataset = _run_md(
+            mol=mol,
+            simulation=simulation,
+            step_fn=simulation.step,
+            equilibration_n_steps_per_conformer=0,
+            production_n_snapshots_per_conformer=3,
+            production_n_steps_per_snapshot_per_conformer=5,
+            pdb_reporter_path=None,
+            record_force_groups=_force_groups_excluding(restraint_group),
+        )
+
+        entry = dataset[0]
+        n_snapshots = len(entry["energy"])
+        coords = entry["coords"].reshape(n_snapshots, -1, 3).numpy()
+        recorded_forces = entry["forces"].reshape(n_snapshots, -1, 3).numpy()
+
+        # Recompute on a clean system that has never seen a restraint
+        clean_simulation, _ = _build_mm_simulation(
+            interchange, temperature, timestep, torch.device("cpu")
+        )
+
+        clean_energies = []
+        for i in range(n_snapshots):
+            clean_simulation.context.setPositions(
+                omm_unit.Quantity(np.array(coords[i]), omm_unit.angstrom)
+            )
+            state = clean_simulation.context.getState(getEnergy=True, getForces=True)
+            clean_energies.append(
+                state.getPotentialEnergy().value_in_unit(omm_unit.kilocalorie_per_mole)
+            )
+            # Forces are recorded absolutely, so they are the sharpest check: any
+            # restraint contribution would show up here immediately. The tolerance
+            # only has to absorb the float32 round-trip through the dataset; a leaked
+            # restraint would be orders of magnitude larger than this.
+            np.testing.assert_allclose(
+                recorded_forces[i],
+                state.getForces(asNumpy=True).value_in_unit(
+                    omm_unit.kilocalorie_per_mole / omm_unit.angstrom
+                ),
+                atol=0.05,
+            )
+
+        # Energies in the dataset are relative to the first snapshot
+        clean_relative = np.array(clean_energies) - clean_energies[0]
+        np.testing.assert_allclose(np.array(entry["energy"]), clean_relative, atol=0.05)

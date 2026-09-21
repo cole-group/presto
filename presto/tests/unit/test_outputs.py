@@ -18,6 +18,7 @@ from presto.outputs import (
 from presto.settings import (
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     TrainingSettings,
 )
 
@@ -424,9 +425,16 @@ class TestWorkflowPathManager:
 
         assert not stage_path.exists()
 
-    def test_clean_removes_every_sampling_output(self, tmp_path):
+    @pytest.mark.parametrize(
+        "settings_cls",
+        [
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
+        ],
+    )
+    def test_clean_removes_every_sampling_output(self, tmp_path, settings_cls):
         """Every side output the sampling protocol produces is predicted, so removed."""
-        sampling_settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
+        sampling_settings = settings_cls()
         path_manager = WorkflowPathManager(
             output_dir=tmp_path,
             n_mols=1,
