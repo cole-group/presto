@@ -1315,6 +1315,18 @@ def _torsion_minimise_and_merge(
     datasets.Dataset
         The MD, ML-minimised and MM-minimised samples merged into one dataset.
     """
+    min_selection = settings.torsion_minimisation_settings.torsion_selection_settings
+    if not get_rot_torsions_by_rot_bond(
+        mol,
+        include_smarts=min_selection.torsions_to_include_smarts,
+        exclude_smarts=min_selection.torsions_to_exclude_smarts,
+    ):
+        logger.warning(
+            f"No torsions selected for minimisation in molecule {mol_idx}. "
+            "Skipping the torsion minimisation stage."
+        )
+        return md_weighted_dataset
+
     # Create a fresh MM simulation for minimisation (without metadynamics biases
     # or sampling restraints)
     mm_min_simulation, mm_min_integrator = _build_mm_simulation(
@@ -1425,74 +1437,36 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         )
         system = interchange.to_openmm_system()
 
-        if not torsions:
-            logger.warning(
-                f"No rotatable bonds found in molecule {mol_idx}. "
-                "Falling back to regular MD without torsion minimisation."
-            )
-            # Fall back to regular MD for this molecule
-            simulation, integrator = _create_simulation(
-                interchange.topology.to_openmm(),
-                system,
-                settings.temperature,
-                settings.timestep,
-                device,
-            )
-
-            pdb_path = None
-            if OutputType.PDB_TRAJECTORY in output_paths:
-                base_path = output_paths[OutputType.PDB_TRAJECTORY]
-                pdb_path = str(get_mol_path(base_path, mol_idx))
-
-            mm_dataset = _run_md(
+        if torsions:
+            # Setup metadynamics
+            bias_variables = _get_torsion_bias_forces(
                 mol_with_conformers,
-                simulation,
-                simulation.step,
-                settings.equilibration_n_steps_per_conformer,
-                settings.production_n_snapshots_per_conformer,
-                settings.production_n_steps_per_snapshot_per_conformer,
-                pdb_path,
+                torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
+                torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
+                bias_width=settings.bias_width,
             )
 
-            # Clean up MM simulation to free GPU memory
-            cleanup_simulation(simulation, integrator)
+            # Create molecule-specific bias directory
+            base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
+            bias_dir = get_mol_path(base_bias_dir, mol_idx)
+            bias_dir.mkdir(parents=True, exist_ok=True)
 
-            # Recalculate with ML potential
-            all_datasets.append(
-                _recalculate_and_weight_with_mlp(
-                    mm_dataset,
-                    mol_with_conformers,
-                    interchange.topology.to_openmm(),
-                    device,
-                    settings,
-                )
+            metad = Metadynamics(  # type: ignore[no-untyped-call]
+                system=system,
+                variables=bias_variables,
+                temperature=settings.temperature,
+                biasFactor=settings.bias_factor,
+                height=settings.bias_height,
+                frequency=settings.n_steps_per_bias,
+                saveFrequency=settings.n_steps_per_bias_save,
+                biasDir=bias_dir,
+                independentCVs=True,
             )
-            continue
-
-        # Setup metadynamics
-        bias_variables = _get_torsion_bias_forces(
-            mol_with_conformers,
-            torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
-            torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
-            bias_width=settings.bias_width,
-        )
-
-        # Create molecule-specific bias directory
-        base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
-        bias_dir = get_mol_path(base_bias_dir, mol_idx)
-        bias_dir.mkdir(parents=True, exist_ok=True)
-
-        metad = Metadynamics(  # type: ignore[no-untyped-call]
-            system=system,
-            variables=bias_variables,
-            temperature=settings.temperature,
-            biasFactor=settings.bias_factor,
-            height=settings.bias_height,
-            frequency=settings.n_steps_per_bias,
-            saveFrequency=settings.n_steps_per_bias_save,
-            biasDir=bias_dir,
-            independentCVs=True,
-        )
+        else:
+            logger.warning(
+                f"No torsions selected for metadynamics in molecule {mol_idx}. "
+                "Falling back to regular MD without a bias."
+            )
 
         simulation, integrator = _create_simulation(
             interchange.topology.to_openmm(),
@@ -1502,7 +1476,9 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             device,
         )
 
-        step_fn = functools.partial(metad.step, simulation)
+        step_fn = (
+            functools.partial(metad.step, simulation) if torsions else simulation.step
+        )
 
         # Create molecule-specific PDB path
         pdb_path = None
@@ -1615,55 +1591,34 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
             base_path = output_paths[OutputType.PDB_TRAJECTORY]
             pdb_path = str(get_mol_path(base_path, mol_idx))
 
-        if not torsions:
-            logger.warning(
-                f"No rotatable bonds found in molecule {mol_idx}. "
-                "Falling back to regular MD without torsion restraints or minimisation."
+        on_conformer_start = None
+        record_force_groups = -1
+        if torsions:
+            # Restrain every selected torsion during sampling. The targets are set
+            # per conformer in the callback below; the force constant is fixed.
+            torsion_atoms_list = list(torsions.values())
+            force_constant = settings.md_torsion_restraint_force_constant.value_in_unit(
+                _OMM_KJ_PER_MOL / _OMM_RADIAN**2
             )
-            mm_dataset = _run_md(
-                mol_with_conformers,
+            force_indices, restraint_force_group = _add_torsion_restraint_forces(
+                simulation, torsion_atoms_list, force_constant
+            )
+            on_conformer_start = functools.partial(
+                _restrain_torsions_to_current_angles,
                 simulation,
-                simulation.step,
-                settings.equilibration_n_steps_per_conformer,
-                settings.production_n_snapshots_per_conformer,
-                settings.production_n_steps_per_snapshot_per_conformer,
-                pdb_path,
+                torsion_atoms_list=torsion_atoms_list,
+                force_indices=force_indices,
+                force_constant=force_constant,
+            )
+            # Keep the restraint energy out of the recorded energies and forces
+            record_force_groups = _force_groups_excluding(restraint_force_group)
+        else:
+            logger.warning(
+                f"No torsions selected for MD restraints in molecule {mol_idx}. "
+                "Falling back to regular MD without torsion restraints."
             )
 
-            # Clean up MM simulation to free GPU memory
-            cleanup_simulation(simulation, integrator)
-
-            all_datasets.append(
-                _recalculate_and_weight_with_mlp(
-                    mm_dataset,
-                    mol_with_conformers,
-                    interchange.topology.to_openmm(),
-                    device,
-                    settings,
-                )
-            )
-            continue
-
-        # Restrain every selected torsion during sampling. The targets are set per
-        # conformer in the callback below; the force constant is fixed.
-        torsion_atoms_list = list(torsions.values())
-        force_constant = settings.md_torsion_restraint_force_constant.value_in_unit(
-            _OMM_KJ_PER_MOL / _OMM_RADIAN**2
-        )
-        force_indices, restraint_force_group = _add_torsion_restraint_forces(
-            simulation, torsion_atoms_list, force_constant
-        )
-
-        restrain_to_conformer = functools.partial(
-            _restrain_torsions_to_current_angles,
-            simulation,
-            torsion_atoms_list=torsion_atoms_list,
-            force_indices=force_indices,
-            force_constant=force_constant,
-        )
-
-        # Step 1: Generate restrained MM MD samples. The restraint energy is excluded
-        # from the recorded energies and forces so that they are pure MM values.
+        # Step 1: Generate (restrained) MM MD samples
         mm_dataset = _run_md(
             mol_with_conformers,
             simulation,
@@ -1672,8 +1627,8 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
             settings.production_n_snapshots_per_conformer,
             settings.production_n_steps_per_snapshot_per_conformer,
             pdb_path,
-            on_conformer_start=restrain_to_conformer,
-            record_force_groups=_force_groups_excluding(restraint_force_group),
+            on_conformer_start=on_conformer_start,
+            record_force_groups=record_force_groups,
         )
 
         # Clean up MM simulation to free GPU memory

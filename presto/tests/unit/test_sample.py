@@ -53,6 +53,7 @@ from presto.settings import (
     MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     PreComputedDatasetSettings,
     TorsionMinimisationSettings,
+    TorsionSelectionSettings,
 )
 
 
@@ -1924,6 +1925,120 @@ class TestSampleMmmdTorsionRestrainedTorsionMinIntegration:
 
         difference = np.angle(np.exp(1j * (sampled - np.deg2rad(starting_angles))))
         assert np.all(np.abs(difference) < np.deg2rad(10.0))
+
+
+_SELECT_NO_TORSIONS = TorsionSelectionSettings(
+    torsions_to_exclude_smarts=["[*:1]~[*:2]"]
+)
+"""A torsion selection which excludes every bond, so matches no torsions."""
+
+
+def _metadynamics_torsion_min_settings(**overrides):
+    """Build minimal metadynamics torsion-minimisation settings for integration tests."""
+    kwargs = {
+        "timestep": 1.0 * omm_unit.femtoseconds,
+        "temperature": 300.0 * omm_unit.kelvin,
+        "n_conformers": 1,
+        "bias_frequency": 0.001 * omm_unit.picoseconds,
+        "bias_save_frequency": 0.001 * omm_unit.picoseconds,
+        "equilibration_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+        "production_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+        "snapshot_interval": 0.001 * omm_unit.picoseconds,
+    }
+    kwargs.update(overrides)
+    return MMMDMetadynamicsTorsionMinimisationSamplingSettings(**kwargs)
+
+
+_PROTOCOLS = [
+    pytest.param(
+        _metadynamics_torsion_min_settings,
+        sample_mmmd_metadynamics_with_torsion_minimisation,
+        {OutputType.METADYNAMICS_BIAS},
+        id="metadynamics",
+    ),
+    pytest.param(
+        _torsion_restrained_settings,
+        sample_mmmd_torsion_restrained_with_torsion_minimisation,
+        set(),
+        id="torsion_restrained",
+    ),
+]
+
+
+class TestIndependentTorsionSelections:
+    """The MD and minimisation stages fall back based on their own torsion selections."""
+
+    @staticmethod
+    def _run(tmp_path, make_settings, sample_fn, extra_outputs, **overrides):
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+
+        (tmp_path / "ml_min").mkdir()
+        (tmp_path / "mm_min").mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+        }
+        for output_type in extra_outputs:
+            output_paths[output_type] = tmp_path / "bias"
+
+        settings_obj = make_settings(
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=1,
+                mm_minimisation_steps=1,
+                **overrides.pop("minimisation", {}),
+            ),
+            **overrides,
+        )
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+            return sample_fn(
+                [mol],
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                torch.device("cpu"),
+                settings_obj,
+                output_paths,
+            )
+
+    @pytest.mark.parametrize(
+        ("make_settings", "sample_fn", "extra_outputs"), _PROTOCOLS
+    )
+    def test_minimisation_runs_when_md_selects_no_torsions(
+        self, tmp_path, make_settings, sample_fn, extra_outputs
+    ):
+        """Test that an empty MD selection does not skip the minimisation stage."""
+        result = self._run(
+            tmp_path,
+            make_settings,
+            sample_fn,
+            extra_outputs,
+            torsion_selection_settings=_SELECT_NO_TORSIONS,
+        )
+
+        # MD, ML-minimised and MM-minimised entries
+        assert len(result[0]) == 3
+        # No bias was run, so no bias directory was made
+        assert not (tmp_path / "bias").exists()
+
+    @pytest.mark.parametrize(
+        ("make_settings", "sample_fn", "extra_outputs"), _PROTOCOLS
+    )
+    def test_minimisation_skipped_when_it_selects_no_torsions(
+        self, tmp_path, make_settings, sample_fn, extra_outputs
+    ):
+        """Test that an empty minimisation selection skips only the minimisation."""
+        result = self._run(
+            tmp_path,
+            make_settings,
+            sample_fn,
+            extra_outputs,
+            minimisation={"torsion_selection_settings": _SELECT_NO_TORSIONS},
+        )
+
+        # Only the MD entry
+        assert len(result[0]) == 1
 
 
 class TestRunMdExcludesRestraintsFromRecord:
