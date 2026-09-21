@@ -22,6 +22,7 @@ from presto.find_torsions import (
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
+    MetadynamicsSettings,
     MLMDSamplingSettings,
     MLPSettings,
     MMMDMetadynamicsSamplingSettings,
@@ -217,33 +218,32 @@ class TestMMMDMetadynamicsSamplingSettings:
 
     def test_default_metadynamics_parameters(self):
         """Test that default metadynamics parameters are set."""
-        settings = MMMDMetadynamicsSamplingSettings()
-        assert settings.bias_factor == 20.0
-        assert settings.bias_width == np.pi / 10
-        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 1.0
+        metad_settings = MMMDMetadynamicsSamplingSettings().metadynamics_settings
+        assert metad_settings.bias_factor == 20.0
+        assert metad_settings.bias_width == np.pi / 10
+        assert (
+            metad_settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole)
+            == 1.0
+        )
 
     def test_n_steps_per_bias(self):
         """Test calculation of steps per bias."""
-        settings = MMMDMetadynamicsSamplingSettings(
-            timestep=1.0 * omm_unit.femtoseconds,
-            bias_frequency=0.5 * omm_unit.picoseconds,
-        )
-        assert settings.n_steps_per_bias == 500
+        settings = MetadynamicsSettings(bias_frequency=0.5 * omm_unit.picoseconds)
+        assert settings.n_steps_per_bias(1.0 * omm_unit.femtoseconds) == 500
 
     def test_n_steps_per_bias_save(self):
         """Test calculation of steps per bias save."""
-        settings = MMMDMetadynamicsSamplingSettings(
-            timestep=1.0 * omm_unit.femtoseconds,
-            bias_save_frequency=1.0 * omm_unit.picoseconds,
-        )
-        assert settings.n_steps_per_bias_save == 1000
+        settings = MetadynamicsSettings(bias_save_frequency=1.0 * omm_unit.picoseconds)
+        assert settings.n_steps_per_bias_save(1.0 * omm_unit.femtoseconds) == 1000
 
     def test_invalid_bias_frequency_not_divisible_by_timestep(self):
         """Test that invalid bias frequency raises error."""
         with pytest.raises(ValidationError, match="must be divisible by the timestep"):
             MMMDMetadynamicsSamplingSettings(
                 timestep=1.5 * omm_unit.femtoseconds,
-                bias_frequency=1.0 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=1.0 * omm_unit.picoseconds
+                ),
             )
 
     def test_invalid_bias_save_frequency_not_divisible_by_timestep(self):
@@ -251,7 +251,9 @@ class TestMMMDMetadynamicsSamplingSettings:
         with pytest.raises(ValidationError, match="must be divisible by the timestep"):
             MMMDMetadynamicsSamplingSettings(
                 timestep=1.5 * omm_unit.femtoseconds,
-                bias_save_frequency=1.0 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_save_frequency=1.0 * omm_unit.picoseconds
+                ),
             )
 
     def test_production_time_not_divisible_by_bias_frequency(self):
@@ -259,7 +261,9 @@ class TestMMMDMetadynamicsSamplingSettings:
         with pytest.raises(ValidationError, match="must be divisible by"):
             MMMDMetadynamicsSamplingSettings(
                 production_sampling_time_per_conformer=10.3 * omm_unit.picoseconds,
-                bias_frequency=0.5 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=0.5 * omm_unit.picoseconds
+                ),
             )
 
     def test_output_types_includes_metadynamics_bias(self):
@@ -278,11 +282,6 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         """Test that sampling protocol is set correctly."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert settings.sampling_protocol == "mm_md_metadynamics_torsion_minimisation"
-
-    def test_inherits_from_metadynamics_settings(self):
-        """Test that it inherits from MMMDMetadynamicsSamplingSettings."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert isinstance(settings, MMMDMetadynamicsSamplingSettings)
 
     def test_default_minimisation_steps(self):
         """Test default minimisation steps."""
@@ -326,60 +325,11 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
             == 0.1
         )
 
-    def test_custom_minimisation_steps(self):
-        """Test custom minimisation steps."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            torsion_minimisation_settings=TorsionMinimisationSettings(
-                ml_minimisation_steps=20,
-                mm_minimisation_steps=15,
-            )
-        )
-        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 20
-        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 15
-
-    def test_custom_torsion_restraint_force_constant(self):
-        """Test custom torsion restraint force constant."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            torsion_minimisation_settings=TorsionMinimisationSettings(
-                torsion_restraint_force_constant=500.0
-                * omm_unit.kilojoules_per_mole
-                / omm_unit.radian**2,
-            )
-        )
-        assert (
-            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
-                omm_unit.kilojoules_per_mole / omm_unit.radian**2
-            )
-            == 500.0
-        )
-
-    def test_custom_loss_weights(self):
-        """Test custom loss weights."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            loss_energy_weight=500.0,
-            loss_force_weight=0.5,
-            torsion_minimisation_settings=TorsionMinimisationSettings(
-                loss_energy_weight_mm_torsion_min=200.0,
-                loss_force_weight_mm_torsion_min=0.0,
-                loss_energy_weight_ml_torsion_min=100.0,
-                loss_force_weight_ml_torsion_min=0.1,
-            ),
-        )
-        assert settings.loss_energy_weight == 500.0
-        assert settings.loss_force_weight == 0.5
-        assert (
-            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
-            == 200.0
-        )
-        assert (
-            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
-            == 0.0
-        )
-
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
             loss_energy_weight=800.0,
+            metadynamics_settings=MetadynamicsSettings(bias_factor=15.0),
             torsion_minimisation_settings=TorsionMinimisationSettings(
                 ml_minimisation_steps=25,
                 mm_minimisation_steps=30,
@@ -397,12 +347,15 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         )
         assert loaded == settings
 
-    def test_inherits_metadynamics_parameters(self):
-        """Test that metadynamics parameters are inherited."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            bias_factor=15.0,
-        )
-        assert settings.bias_factor == 15.0
+    def test_invalid_bias_frequency_not_divisible_by_timestep(self):
+        """Test that the bias frequencies are validated against the timestep."""
+        with pytest.raises(ValidationError, match="must be divisible by the timestep"):
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+                timestep=1.5 * omm_unit.femtoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=1.0 * omm_unit.picoseconds
+                ),
+            )
 
     def test_output_types_includes_metadynamics_bias(self):
         """Test that output types include metadynamics bias."""

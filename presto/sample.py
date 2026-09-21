@@ -613,12 +613,13 @@ def sample_mmmd_metadynamics(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        torsions = get_rot_torsions_by_rot_bond(
+        metad_settings = settings.metadynamics_settings
+        metad_torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
-            include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
-            exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
+            include_smarts=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
+            exclude_smarts=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
-        if not torsions:
+        if not metad_torsions:
             logger.warning(
                 f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
             )
@@ -648,9 +649,9 @@ def sample_mmmd_metadynamics(
             # Setup metadynamics
             bias_variables = _get_torsion_bias_forces(
                 mol_with_conformers,
-                torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
-                torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
-                bias_width=settings.bias_width,
+                torsions_to_include=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
+                torsions_to_exclude=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
+                bias_width=metad_settings.bias_width,
             )
 
             system = interchange.to_openmm_system()
@@ -664,10 +665,10 @@ def sample_mmmd_metadynamics(
                 system=system,
                 variables=bias_variables,
                 temperature=settings.temperature,
-                biasFactor=settings.bias_factor,
-                height=settings.bias_height,
-                frequency=settings.n_steps_per_bias,
-                saveFrequency=settings.n_steps_per_bias_save,
+                biasFactor=metad_settings.bias_factor,
+                height=metad_settings.bias_height,
+                frequency=metad_settings.n_steps_per_bias(settings.timestep),
+                saveFrequency=metad_settings.n_steps_per_bias_save(settings.timestep),
                 biasDir=bias_dir,
                 independentCVs=True,
             )
@@ -1430,20 +1431,21 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        torsions = get_rot_torsions_by_rot_bond(
+        metad_settings = settings.metadynamics_settings
+        metad_torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
-            include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
-            exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
+            include_smarts=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
+            exclude_smarts=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
         system = interchange.to_openmm_system()
 
-        if torsions:
+        if metad_torsions:
             # Setup metadynamics
             bias_variables = _get_torsion_bias_forces(
                 mol_with_conformers,
-                torsions_to_include=settings.torsion_selection_settings.torsions_to_include_smarts,
-                torsions_to_exclude=settings.torsion_selection_settings.torsions_to_exclude_smarts,
-                bias_width=settings.bias_width,
+                torsions_to_include=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
+                torsions_to_exclude=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
+                bias_width=metad_settings.bias_width,
             )
 
             # Create molecule-specific bias directory
@@ -1455,10 +1457,10 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
                 system=system,
                 variables=bias_variables,
                 temperature=settings.temperature,
-                biasFactor=settings.bias_factor,
-                height=settings.bias_height,
-                frequency=settings.n_steps_per_bias,
-                saveFrequency=settings.n_steps_per_bias_save,
+                biasFactor=metad_settings.bias_factor,
+                height=metad_settings.bias_height,
+                frequency=metad_settings.n_steps_per_bias(settings.timestep),
+                saveFrequency=metad_settings.n_steps_per_bias_save(settings.timestep),
                 biasDir=bias_dir,
                 independentCVs=True,
             )
@@ -1477,7 +1479,9 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         )
 
         step_fn = (
-            functools.partial(metad.step, simulation) if torsions else simulation.step
+            functools.partial(metad.step, simulation)
+            if metad_torsions
+            else simulation.step
         )
 
         # Create molecule-specific PDB path
@@ -1576,7 +1580,7 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        torsions = get_rot_torsions_by_rot_bond(
+        restrained_torsions = get_rot_torsions_by_rot_bond(
             mol_with_conformers,
             include_smarts=settings.torsion_selection_settings.torsions_to_include_smarts,
             exclude_smarts=settings.torsion_selection_settings.torsions_to_exclude_smarts,
@@ -1593,10 +1597,10 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
 
         on_conformer_start = None
         record_force_groups = -1
-        if torsions:
+        if restrained_torsions:
             # Restrain every selected torsion during sampling. The targets are set
             # per conformer in the callback below; the force constant is fixed.
-            torsion_atoms_list = list(torsions.values())
+            torsion_atoms_list = list(restrained_torsions.values())
             force_constant = settings.md_torsion_restraint_force_constant.value_in_unit(
                 _OMM_KJ_PER_MOL / _OMM_RADIAN**2
             )

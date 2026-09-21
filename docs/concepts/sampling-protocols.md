@@ -29,7 +29,7 @@ This is also the default for `testing_sampling_settings`, where sampling cost is
 
 MM-driven MD with [well-tempered metadynamics](https://doi.org/10.1103/PhysRevLett.100.020603) on rotatable bonds. The metadynamics bias is updated on the fly to push the system out of conformational wells, giving much better torsional coverage than plain `mm_md` at modest extra cost.
 
-Options:
+Options, all nested under `metadynamics_settings`:
 
 - `bias_height`, `bias_frequency`, `bias_factor`, `bias_width` — control the metadynamics bias.
 - `torsion_selection_settings.torsions_to_include_smarts`, `torsion_selection_settings.torsions_to_exclude_smarts` — which torsions are biased (default: all rotatable bonds, with linear torsions excluded).
@@ -38,7 +38,7 @@ Options:
 
 `mm_md_metadynamics` plus short, (optionally torsion-restrained) minimisations at the end of each conformer's trajectory. The minimisations use both the MLP and the MM force field as relaxation potentials. Each minimised snapshot is added to the training set with configurable loss weights. These, epecially the MLP minimisations, improve torsion scan performance. Note that by default, no torsion restraints are applied.
 
-Additional options (on top of the metadynamics base class), all nested under `torsion_minimisation_settings`:
+Additional options (alongside `metadynamics_settings`), all nested under `torsion_minimisation_settings`:
 
 - `ml_minimisation_steps`, `mm_minimisation_steps` — how many minimisation iterations.
 - `torsion_restraint_force_constant` — strength of the torsion restraint during minimisation.

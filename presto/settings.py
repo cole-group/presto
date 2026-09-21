@@ -432,16 +432,8 @@ class TorsionMinimisationSettings(_DefaultSettings):
     )
 
 
-class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
-
-    The force field is initially taken from the parameterisation settings, but is
-    updated as the bespoke force field is trained.
-    """
-
-    sampling_protocol: Literal["mm_md_metadynamics"] = Field(
-        "mm_md_metadynamics", description="Sampling protocol to use."
-    )
+class MetadynamicsSettings(_DefaultSettings):
+    """Settings for the well-tempered metadynamics bias applied during MM MD."""
 
     torsion_selection_settings: TorsionSelectionSettings = Field(
         default_factory=TorsionSelectionSettings,
@@ -472,37 +464,61 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         description="How often to save the accumulated bias to disk (picoseconds).",
     )
 
-    # Make sure that the frequency and save_frequency are multiples of the timestep
-    @model_validator(mode="after")
-    def validate_frequencies(self) -> Self:
-        """Validate that bias frequencies and save frequencies divide evenly into the sampling time."""
+    def validate_frequencies(
+        self,
+        timestep: unit.Quantity,
+        production_sampling_time_per_conformer: unit.Quantity,
+    ) -> None:
+        """Check that the bias frequencies fit the timestep and sampling time."""
         for freq, name in [
             (self.bias_frequency, "frequency"),
             (self.bias_save_frequency, "save_frequency"),
         ]:
-            n_steps = freq / self.timestep
+            n_steps = freq / timestep
             if not n_steps.is_integer():
                 raise InvalidSettingsError(
-                    f"{name} ({freq}) must be divisible by the timestep ({self.timestep})."
+                    f"{name} ({freq}) must be divisible by the timestep ({timestep})."
                 )
 
             # Make sure that the sampling time per conformer is a multiple of the save frequency
-            n_saves = self.production_sampling_time_per_conformer / freq
+            n_saves = production_sampling_time_per_conformer / freq
             if not n_saves.is_integer():
                 raise InvalidSettingsError(
-                    f"production_sampling_time_per_conformer ({self.production_sampling_time_per_conformer}) must be divisible by the {name} ({freq})."
+                    f"production_sampling_time_per_conformer ({production_sampling_time_per_conformer}) must be divisible by the {name} ({freq})."
                 )
-        return self
 
-    @property
-    def n_steps_per_bias(self) -> int:
+    def n_steps_per_bias(self, timestep: unit.Quantity) -> int:
         """Number of simulation steps between each bias addition."""
-        return int(self.bias_frequency / self.timestep)
+        return int(self.bias_frequency / timestep)
 
-    @property
-    def n_steps_per_bias_save(self) -> int:
+    def n_steps_per_bias_save(self, timestep: unit.Quantity) -> int:
         """Number of simulation steps between each bias save."""
-        return int(self.bias_save_frequency / self.timestep)
+        return int(self.bias_save_frequency / timestep)
+
+
+class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
+    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
+
+    sampling_protocol: Literal["mm_md_metadynamics"] = Field(
+        "mm_md_metadynamics", description="Sampling protocol to use."
+    )
+
+    metadynamics_settings: MetadynamicsSettings = Field(
+        default_factory=MetadynamicsSettings,
+        description="Settings for the metadynamics bias.",
+    )
+
+    @model_validator(mode="after")
+    def validate_frequencies(self) -> Self:
+        """Validate the bias frequencies against the timestep and sampling time."""
+        self.metadynamics_settings.validate_frequencies(
+            self.timestep, self.production_sampling_time_per_conformer
+        )
+        return self
 
     @property
     def output_types(self) -> set[OutputType]:
@@ -510,24 +526,35 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
-class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-    MMMDMetadynamicsSamplingSettings
-):
+class MMMDMetadynamicsTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
     """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
 
-    Extends MMMDMetadynamicsSamplingSettings by generating additional training data
-    from torsion-restrained minimisations.
+    The same MD as `mm_md_metadynamics`, followed by torsion-restrained minimisations
+    which generate additional training data.
     """
 
-    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
+    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(
         "mm_md_metadynamics_torsion_minimisation",
         description="Sampling protocol to use.",
+    )
+
+    metadynamics_settings: MetadynamicsSettings = Field(
+        default_factory=MetadynamicsSettings,
+        description="Settings for the metadynamics bias.",
     )
 
     torsion_minimisation_settings: TorsionMinimisationSettings = Field(
         default_factory=TorsionMinimisationSettings,
         description="Settings for the torsion-restrained minimisation stage.",
     )
+
+    @model_validator(mode="after")
+    def validate_frequencies(self) -> Self:
+        """Validate the bias frequencies against the timestep and sampling time."""
+        self.metadynamics_settings.validate_frequencies(
+            self.timestep, self.production_sampling_time_per_conformer
+        )
+        return self
 
     @property
     def output_types(self) -> set[OutputType]:

@@ -45,6 +45,7 @@ from presto.sample import (
     sample_mmmd_torsion_restrained_with_torsion_minimisation,
 )
 from presto.settings import (
+    MetadynamicsSettings,
     MLMDSamplingSettings,
     MLPSettings,
     MMMDMetadynamicsSamplingSettings,
@@ -446,9 +447,11 @@ def test_sample_mmmd_metadynamics_no_rotatable_bonds(tmp_path):
         timestep=2.0 * omm_unit.femtoseconds,
         temperature=300.0 * omm_unit.kelvin,
         n_conformers=1,
-        bias_frequency=0.1 * omm_unit.picoseconds,
-        bias_save_frequency=0.1 * omm_unit.picoseconds,
-        bias_height=2.0 * omm_unit.kilojoules_per_mole,
+        metadynamics_settings=MetadynamicsSettings(
+            bias_frequency=0.1 * omm_unit.picoseconds,
+            bias_save_frequency=0.1 * omm_unit.picoseconds,
+            bias_height=2.0 * omm_unit.kilojoules_per_mole,
+        ),
         equilibration_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
         production_sampling_time_per_conformer=0.1 * omm_unit.picoseconds,
         snapshot_interval=0.1 * omm_unit.picoseconds,
@@ -803,9 +806,11 @@ class TestSamplingFunctionsValidation:
             timestep=2.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.1 * omm_unit.picoseconds,
-            bias_save_frequency=0.1 * omm_unit.picoseconds,
-            bias_height=2.0 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.1 * omm_unit.picoseconds,
+                bias_save_frequency=0.1 * omm_unit.picoseconds,
+                bias_height=2.0 * omm_unit.kilojoules_per_mole,
+            ),
         )
 
         with pytest.raises(ValueError, match="Output paths must contain exactly"):
@@ -826,9 +831,11 @@ class TestSamplingFunctionsValidation:
             timestep=2.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.1 * omm_unit.picoseconds,
-            bias_save_frequency=0.1 * omm_unit.picoseconds,
-            bias_height=2.0 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.1 * omm_unit.picoseconds,
+                bias_save_frequency=0.1 * omm_unit.picoseconds,
+                bias_height=2.0 * omm_unit.kilojoules_per_mole,
+            ),
         )
 
         with pytest.raises(ValueError, match="Output paths must contain exactly"):
@@ -1553,9 +1560,11 @@ class TestSampleMmmdMetadynamicsIntegration:
             timestep=1.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.001 * omm_unit.picoseconds,
-            bias_save_frequency=0.001 * omm_unit.picoseconds,
-            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.001 * omm_unit.picoseconds,
+                bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            ),
             equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             snapshot_interval=0.001 * omm_unit.picoseconds,
@@ -1605,9 +1614,11 @@ class TestSampleMmmdMetadynamicsIntegration:
             timestep=1.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.001 * omm_unit.picoseconds,
-            bias_save_frequency=0.001 * omm_unit.picoseconds,
-            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.001 * omm_unit.picoseconds,
+                bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            ),
             equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             snapshot_interval=0.001 * omm_unit.picoseconds,
@@ -1658,9 +1669,11 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
             timestep=1.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.001 * omm_unit.picoseconds,
-            bias_save_frequency=0.001 * omm_unit.picoseconds,
-            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.001 * omm_unit.picoseconds,
+                bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            ),
             equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             snapshot_interval=0.001 * omm_unit.picoseconds,
@@ -1720,9 +1733,11 @@ class TestSampleMmmdMetadynamicsTorsionMinIntegration:
             timestep=1.0 * omm_unit.femtoseconds,
             temperature=300.0 * omm_unit.kelvin,
             n_conformers=1,
-            bias_frequency=0.001 * omm_unit.picoseconds,
-            bias_save_frequency=0.001 * omm_unit.picoseconds,
-            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.001 * omm_unit.picoseconds,
+                bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            ),
             equilibration_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             production_sampling_time_per_conformer=0.001 * omm_unit.picoseconds,
             snapshot_interval=0.001 * omm_unit.picoseconds,
@@ -1939,8 +1954,10 @@ def _metadynamics_torsion_min_settings(**overrides):
         "timestep": 1.0 * omm_unit.femtoseconds,
         "temperature": 300.0 * omm_unit.kelvin,
         "n_conformers": 1,
-        "bias_frequency": 0.001 * omm_unit.picoseconds,
-        "bias_save_frequency": 0.001 * omm_unit.picoseconds,
+        "metadynamics_settings": MetadynamicsSettings(
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+        ),
         "equilibration_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
         "production_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
         "snapshot_interval": 0.001 * omm_unit.picoseconds,
@@ -1954,12 +1971,20 @@ _PROTOCOLS = [
         _metadynamics_torsion_min_settings,
         sample_mmmd_metadynamics_with_torsion_minimisation,
         {OutputType.METADYNAMICS_BIAS},
+        {
+            "metadynamics_settings": MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.001 * omm_unit.picoseconds,
+                torsion_selection_settings=_SELECT_NO_TORSIONS,
+            )
+        },
         id="metadynamics",
     ),
     pytest.param(
         _torsion_restrained_settings,
         sample_mmmd_torsion_restrained_with_torsion_minimisation,
         set(),
+        {"torsion_selection_settings": _SELECT_NO_TORSIONS},
         id="torsion_restrained",
     ),
 ]
@@ -2003,10 +2028,11 @@ class TestIndependentTorsionSelections:
             )
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs"), _PROTOCOLS
+        ("make_settings", "sample_fn", "extra_outputs", "select_no_md_torsions"),
+        _PROTOCOLS,
     )
     def test_minimisation_runs_when_md_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs
+        self, tmp_path, make_settings, sample_fn, extra_outputs, select_no_md_torsions
     ):
         """Test that an empty MD selection does not skip the minimisation stage."""
         result = self._run(
@@ -2014,7 +2040,7 @@ class TestIndependentTorsionSelections:
             make_settings,
             sample_fn,
             extra_outputs,
-            torsion_selection_settings=_SELECT_NO_TORSIONS,
+            **select_no_md_torsions,
         )
 
         # MD, ML-minimised and MM-minimised entries
@@ -2023,10 +2049,11 @@ class TestIndependentTorsionSelections:
         assert not (tmp_path / "bias").exists()
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs"), _PROTOCOLS
+        ("make_settings", "sample_fn", "extra_outputs", "select_no_md_torsions"),
+        _PROTOCOLS,
     )
     def test_minimisation_skipped_when_it_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs
+        self, tmp_path, make_settings, sample_fn, extra_outputs, select_no_md_torsions
     ):
         """Test that an empty minimisation selection skips only the minimisation."""
         result = self._run(
