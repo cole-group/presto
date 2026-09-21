@@ -2028,11 +2028,21 @@ class TestIndependentTorsionSelections:
             )
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs", "no_sampling_torsions_overrides"),
+        (
+            "make_settings",
+            "sample_fn",
+            "extra_outputs",
+            "no_sampling_torsions_overrides",
+        ),
         _PROTOCOLS,
     )
     def test_minimisation_runs_when_sampling_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs, no_sampling_torsions_overrides
+        self,
+        tmp_path,
+        make_settings,
+        sample_fn,
+        extra_outputs,
+        no_sampling_torsions_overrides,
     ):
         """Test that an empty sampling-stage selection does not skip the minimisation."""
         result = self._run(
@@ -2049,11 +2059,21 @@ class TestIndependentTorsionSelections:
         assert not (tmp_path / "bias").exists()
 
     @pytest.mark.parametrize(
-        ("make_settings", "sample_fn", "extra_outputs", "no_sampling_torsions_overrides"),
+        (
+            "make_settings",
+            "sample_fn",
+            "extra_outputs",
+            "no_sampling_torsions_overrides",
+        ),
         _PROTOCOLS,
     )
     def test_minimisation_skipped_when_it_selects_no_torsions(
-        self, tmp_path, make_settings, sample_fn, extra_outputs, no_sampling_torsions_overrides
+        self,
+        tmp_path,
+        make_settings,
+        sample_fn,
+        extra_outputs,
+        no_sampling_torsions_overrides,
     ):
         """Test that an empty minimisation selection skips only the minimisation."""
         result = self._run(
