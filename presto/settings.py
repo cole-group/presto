@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic_units import OpenMMQuantity
+from rdkit import Chem
 
 from . import __version__
 from ._exceptions import InvalidSettingsError
@@ -713,6 +714,49 @@ class TypeGenerationSettings(_DefaultSettings):
         " these patterns will remain the same as in the initial force field. This is mutually exclusive "
         "with the include field.",
     )
+
+    remove_atom_smarts: list[str] = Field(
+        default_factory=list,
+        description="Connected SMARTS patterns whose mapped atoms should be removed "
+        "from generated types and replaced at the retained boundary by an untagged "
+        "wildcard. Unmapped atoms provide optional matching context.",
+    )
+
+    @field_validator("remove_atom_smarts")
+    @classmethod
+    def validate_remove_atom_smarts(cls, value: list[str]) -> list[str]:
+        """Validate the static syntax of atom-removal SMARTS patterns."""
+        if len(value) != len(set(value)):
+            raise InvalidSettingsError(
+                "remove_atom_smarts contains duplicate patterns."
+            )
+
+        for smarts in value:
+            query = Chem.MolFromSmarts(smarts)
+            if query is None:
+                raise InvalidSettingsError(
+                    f"Could not parse remove_atom_smarts pattern: {smarts}"
+                )
+            if len(Chem.GetMolFrags(query)) != 1:
+                raise InvalidSettingsError(
+                    f"remove_atom_smarts patterns must be connected: {smarts}"
+                )
+
+            map_numbers = [
+                atom.GetAtomMapNum()
+                for atom in query.GetAtoms()  # type: ignore[no-untyped-call]
+                if atom.GetAtomMapNum() > 0
+            ]
+            if not map_numbers:
+                raise InvalidSettingsError(
+                    f"remove_atom_smarts patterns must map at least one atom: {smarts}"
+                )
+            if len(map_numbers) != len(set(map_numbers)):
+                raise InvalidSettingsError(
+                    f"remove_atom_smarts atom-map numbers must be unique: {smarts}"
+                )
+
+        return value
 
     @model_validator(mode="after")
     def validate_include_exclude(self) -> Self:

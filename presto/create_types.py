@@ -6,6 +6,7 @@ import copy
 import warnings
 from collections import defaultdict
 from collections.abc import Mapping
+from typing import Any
 
 import openff.toolkit
 from loguru import logger
@@ -14,6 +15,149 @@ from rdkit import Chem
 
 from .settings import TypeGenerationSettings
 from .utils.typing import NonLinearValenceType
+
+
+_SUPPORTED_CUT_BOND_TYPES = {
+    Chem.BondType.SINGLE,
+    Chem.BondType.DOUBLE,
+    Chem.BondType.TRIPLE,
+    Chem.BondType.AROMATIC,
+}
+_MAX_MASK_MATCHES = 10_000
+
+
+def _parameter_fingerprint(
+    parameter: openff.toolkit.typing.engines.smirnoff.parameters.ParameterType,
+) -> tuple[tuple[str, str], ...]:
+    """Return a stable, diagnostic fingerprint for a force-field parameter."""
+    return tuple(
+        sorted((key, str(value)) for key, value in parameter.to_dict().items())
+    )
+
+
+def _molecule_label(mol: openff.toolkit.Molecule, index: int | None = None) -> str:
+    """Return a stable human-readable molecule label for diagnostics."""
+    prefix = f"molecule {index}" if index is not None else "molecule"
+    return f"{prefix} ({mol.name or mol.to_smiles(explicit_hydrogens=False)})"
+
+
+def _find_atoms_to_remove(
+    mol: openff.toolkit.Molecule,
+    remove_atom_smarts: list[str],
+    handler_name: str,
+) -> set[int]:
+    """Match and validate mapped terminal atom-removal patterns on ``mol``."""
+    if not remove_atom_smarts:
+        return set()
+
+    rd_mol = mol.to_rdkit()
+    selections: list[tuple[str, frozenset[int]]] = []
+
+    for smarts in remove_atom_smarts:
+        query = Chem.MolFromSmarts(smarts)
+        assert query is not None  # Statically validated by TypeGenerationSettings.
+        mapped_query_indices = [
+            atom.GetIdx()
+            for atom in query.GetAtoms()  # type: ignore[no-untyped-call]
+            if atom.GetAtomMapNum() > 0
+        ]
+        matches = rd_mol.GetSubstructMatches(
+            query,
+            uniquify=False,
+            useChirality=False,
+            maxMatches=_MAX_MASK_MATCHES,
+        )
+        if len(matches) == _MAX_MASK_MATCHES:
+            raise ValueError(
+                f"Removal SMARTS {smarts!r} reached the {_MAX_MASK_MATCHES} match "
+                f"limit for {mol.name or mol.to_smiles()}; make the pattern more specific."
+            )
+
+        distinct = {
+            frozenset(match[query_idx] for query_idx in mapped_query_indices)
+            for match in matches
+        }
+        if not distinct:
+            raise ValueError(
+                f"Removal SMARTS {smarts!r} did not match molecule "
+                f"{mol.name or mol.to_smiles()} for handler {handler_name}."
+            )
+
+        logger.info(
+            f"Removal SMARTS {smarts!r} produced {len(matches)} raw matches and "
+            f"{len(distinct)} distinct deletion sets for handler {handler_name} on "
+            f"{mol.name or mol.to_smiles()}."
+        )
+
+        for selected in distinct:
+            expanded = set(selected)
+            for atom_idx in selected:
+                atom = rd_mol.GetAtomWithIdx(atom_idx)
+                expanded.update(
+                    neighbor.GetIdx()
+                    for neighbor in atom.GetNeighbors()
+                    if neighbor.GetAtomicNum() == 1 and neighbor.GetDegree() == 1
+                )
+            selections.append((smarts, frozenset(expanded)))
+
+    for index, (smarts, selected) in enumerate(selections):
+        selected_mol = Chem.PathToSubmol(
+            rd_mol,
+            [
+                bond.GetIdx()
+                for bond in rd_mol.GetBonds()
+                if bond.GetBeginAtomIdx() in selected
+                and bond.GetEndAtomIdx() in selected
+            ],
+        )
+        # A single selected atom has no bonds but is still connected.
+        if len(selected) > 1 and selected_mol.GetNumAtoms() != len(selected):
+            raise ValueError(
+                f"Mapped atoms selected by removal SMARTS {smarts!r} are not connected "
+                f"in molecule {mol.name or mol.to_smiles()}."
+            )
+
+        boundary_bonds = [
+            bond
+            for bond in rd_mol.GetBonds()
+            if (bond.GetBeginAtomIdx() in selected)
+            != (bond.GetEndAtomIdx() in selected)
+        ]
+        if len(boundary_bonds) != 1:
+            raise ValueError(
+                f"Removal SMARTS {smarts!r} must select a terminal component with "
+                f"exactly one attachment bond, but found {len(boundary_bonds)} on "
+                f"{mol.name or mol.to_smiles()}."
+            )
+        if boundary_bonds[0].GetBondType() not in _SUPPORTED_CUT_BOND_TYPES:
+            raise ValueError(
+                f"Removal SMARTS {smarts!r} cuts unsupported bond type "
+                f"{boundary_bonds[0].GetBondType()} on {mol.name or mol.to_smiles()}."
+            )
+
+        for other_smarts, other_selected in selections[:index]:
+            if selected & other_selected:
+                raise ValueError(
+                    f"Removal SMARTS {smarts!r} and {other_smarts!r} select "
+                    f"overlapping atoms on {mol.name or mol.to_smiles()}."
+                )
+            if any(
+                (
+                    bond.GetBeginAtomIdx() in selected
+                    and bond.GetEndAtomIdx() in other_selected
+                )
+                or (
+                    bond.GetEndAtomIdx() in selected
+                    and bond.GetBeginAtomIdx() in other_selected
+                )
+                for bond in rd_mol.GetBonds()
+            ):
+                raise ValueError(
+                    f"Removal SMARTS {smarts!r} and {other_smarts!r} select adjacent "
+                    f"components on {mol.name or mol.to_smiles()}."
+                )
+
+    return set().union(*(selected for _, selected in selections))
 
 
 def _add_parameter_with_overwrite(
@@ -41,6 +185,7 @@ def _create_smarts(
     mol: openff.toolkit.Molecule,
     idxs: tuple[int, ...],
     max_extend_distance: int = -1,
+    atoms_to_remove: set[int] | None = None,
 ) -> str:
     """Create a mapped SMARTS representation of a molecule.
 
@@ -58,12 +203,23 @@ def _create_smarts(
     max_extend_distance: int, default -1
         Maximum number of bonds to extend from the mapped atoms.
         If -1, include the entire molecule.
+    atoms_to_remove: set[int] | None, default None
+        Source-molecule atom indices to remove from the generated pattern. Each
+        represented cut bond is terminated by an untagged wildcard atom.
 
     Returns:
     -------
     str
         The SMARTS pattern with atom maps.
     """
+    if atoms_to_remove:
+        return _create_masked_smarts(
+            mol,
+            idxs,
+            max_extend_distance=max_extend_distance,
+            atoms_to_remove=atoms_to_remove,
+        )
+
     mol_rdkit = mol.to_rdkit()
 
     # Determine which atoms to include in the SMARTS
@@ -89,11 +245,11 @@ def _create_smarts(
         edit_mol = Chem.RWMol(mol_rdkit)
 
         # Remove atoms not in atoms_to_include (reverse order for indices)
-        atoms_to_remove = sorted(
+        excluded_atom_indices = sorted(
             [i for i in range(mol_rdkit.GetNumAtoms()) if i not in atoms_to_include],
             reverse=True,
         )
-        for atom_idx in atoms_to_remove:
+        for atom_idx in excluded_atom_indices:
             edit_mol.RemoveAtom(atom_idx)
 
         # Create mapping from old to new indices
@@ -118,6 +274,62 @@ def _create_smarts(
     smarts = Chem.MolToSmarts(h_merged_mol_rdkit)
 
     return smarts
+
+
+def _create_masked_smarts(
+    mol: openff.toolkit.Molecule,
+    idxs: tuple[int, ...],
+    max_extend_distance: int,
+    atoms_to_remove: set[int],
+) -> str:
+    """Create SMARTS after pruning selected source atoms and adding wildcard cuts."""
+    mol_rdkit = mol.to_rdkit()
+    for atom in mol_rdkit.GetAtoms():
+        atom.SetAtomMapNum(0)
+
+    if max_extend_distance == -1:
+        atoms_to_include = set(range(mol_rdkit.GetNumAtoms()))
+    else:
+        atoms_to_include = set(idxs)
+        for _ in range(max_extend_distance):
+            atoms_to_include.update(
+                neighbor.GetIdx()
+                for atom_idx in tuple(atoms_to_include)
+                for neighbor in mol_rdkit.GetAtomWithIdx(atom_idx).GetNeighbors()
+            )
+
+    represented_removals = atoms_to_include & atoms_to_remove
+    retained_atoms = atoms_to_include - represented_removals
+    assert not (set(idxs) & atoms_to_remove)
+
+    cut_bonds: list[tuple[int, Chem.BondType]] = []
+    for bond in mol_rdkit.GetBonds():
+        begin = bond.GetBeginAtomIdx()
+        end = bond.GetEndAtomIdx()
+        if begin in represented_removals and end in retained_atoms:
+            cut_bonds.append((end, bond.GetBondType()))
+        elif end in represented_removals and begin in retained_atoms:
+            cut_bonds.append((begin, bond.GetBondType()))
+
+    edit_mol = Chem.RWMol(mol_rdkit)
+    for atom_idx in sorted(
+        set(range(mol_rdkit.GetNumAtoms())) - retained_atoms,
+        reverse=True,
+    ):
+        edit_mol.RemoveAtom(atom_idx)
+
+    old_to_new = {
+        old_idx: new_idx for new_idx, old_idx in enumerate(sorted(retained_atoms))
+    }
+    for retained_idx, bond_type in cut_bonds:
+        wildcard_idx = edit_mol.AddAtom(Chem.AtomFromSmarts("*"))
+        edit_mol.AddBond(old_to_new[retained_idx], wildcard_idx, bond_type)
+
+    mol_rdkit = edit_mol.GetMol()
+    for map_number, old_idx in enumerate(idxs, start=1):
+        mol_rdkit.GetAtomWithIdx(old_to_new[old_idx]).SetAtomMapNum(map_number)
+
+    return Chem.MolToSmarts(Chem.MergeQueryHs(mol_rdkit, True))
 
 
 def _remove_redundant_smarts(
@@ -259,22 +471,58 @@ def add_types_to_forcefield(
     # Create a copy of the force field to avoid modifying the original
     ff_copy = copy.deepcopy(force_field)
 
+    if not mols_for_typing and any(
+        settings.remove_atom_smarts for settings in type_generation_settings.values()
+    ):
+        raise ValueError("Cannot apply remove_atom_smarts without any molecules.")
+
     for handler_name, settings in type_generation_settings.items():
         parameter_handler = ff_copy.get_parameter_handler(handler_name)
+        existing_smirks = {param.smirks for param in parameter_handler.parameters}
 
         # Collect all SMARTS patterns from all molecules
         all_bespoke_smarts: list[str] = []
         smarts_to_param: dict[
             str, openff.toolkit.typing.engines.smirnoff.parameters.ParameterType
         ] = {}
+        smarts_provenance: dict[str, dict[str, Any]] = {}
+        skipped_terms: list[
+            tuple[int, tuple[int, ...], tuple[tuple[str, str], ...], str]
+        ] = []
+        contained_count = 0
+        crossing_count = 0
 
-        for mol in mols_for_typing:
+        for mol_index, mol in enumerate(mols_for_typing):
+            atoms_to_remove = _find_atoms_to_remove(
+                mol, settings.remove_atom_smarts, handler_name
+            )
             # Find all matches for this handler on the molecule
             matches = parameter_handler.find_matches(mol.to_topology())
 
             for match_key, match in matches.items():
                 param = match.parameter_type
                 atom_indices = match_key
+
+                removed_term_atoms = set(atom_indices) & atoms_to_remove
+                if removed_term_atoms:
+                    classification = (
+                        "cap-contained"
+                        if removed_term_atoms == set(atom_indices)
+                        else "cap-crossing"
+                    )
+                    if classification == "cap-contained":
+                        contained_count += 1
+                    else:
+                        crossing_count += 1
+                    skipped_terms.append(
+                        (
+                            mol_index,
+                            atom_indices,
+                            _parameter_fingerprint(param),
+                            classification,
+                        )
+                    )
+                    continue
 
                 # Get the original parameter's SMIRKS
                 original_smirks = param.smirks
@@ -289,16 +537,50 @@ def add_types_to_forcefield(
 
                 # Create bespoke SMARTS pattern
                 bespoke_smarts = _create_smarts(
-                    mol, atom_indices, settings.max_extend_distance
+                    mol,
+                    atom_indices,
+                    settings.max_extend_distance,
+                    atoms_to_remove=atoms_to_remove,
                 )
 
-                if bespoke_smarts not in smarts_to_param:
+                provenance = {
+                    "molecule": _molecule_label(mol, mol_index),
+                    "handler": handler_name,
+                    "term": atom_indices,
+                    "parameter_id": param.id,
+                    "parameter_smirks": param.smirks,
+                    "fingerprint": _parameter_fingerprint(param),
+                }
+
+                if settings.remove_atom_smarts and bespoke_smarts in existing_smirks:
+                    raise ValueError(
+                        f"Masked SMARTS {bespoke_smarts!r} collides with an existing "
+                        f"{handler_name} parameter; source provenance: {provenance}."
+                    )
+
+                if bespoke_smarts in smarts_to_param:
+                    previous = smarts_provenance[bespoke_smarts]
+                    if (
+                        settings.remove_atom_smarts
+                        and previous["fingerprint"] != provenance["fingerprint"]
+                    ):
+                        raise ValueError(
+                            f"Masked SMARTS {bespoke_smarts!r} was generated from "
+                            f"different source parameters: {previous} and {provenance}."
+                        )
+                else:
                     all_bespoke_smarts.append(bespoke_smarts)
                     smarts_to_param[bespoke_smarts] = param
+                    smarts_provenance[bespoke_smarts] = provenance
 
         logger.info(
             f"Generated {len(all_bespoke_smarts)} bespoke SMARTS patterns for handler {handler_name} across {len(mols_for_typing)} molecules."
         )
+        if settings.remove_atom_smarts:
+            logger.info(
+                f"Skipped {contained_count} cap-contained and {crossing_count} "
+                f"cap-crossing {handler_name} terms."
+            )
 
         # Add the SMARTS patterns to the handler
         handler_copy = copy.deepcopy(parameter_handler)
@@ -325,6 +607,24 @@ def add_types_to_forcefield(
         # Update the force field with the modified parameter handler
         ff_copy.deregister_parameter_handler(handler_name)
         ff_copy.register_parameter_handler(handler_copy)
+
+        # A skipped cap term must retain precisely the parameter it had before any
+        # bespoke patterns were appended. A broad generated pattern must not silently
+        # override this fallback.
+        if skipped_terms:
+            final_handler = ff_copy.get_parameter_handler(handler_name)
+            final_matches_by_mol = [
+                final_handler.find_matches(mol.to_topology()) for mol in mols_for_typing
+            ]
+            for mol_index, term, expected, classification in skipped_terms:
+                assigned = final_matches_by_mol[mol_index][term].parameter_type
+                if _parameter_fingerprint(assigned) != expected:
+                    raise ValueError(
+                        f"A bespoke {handler_name} pattern overrode {classification} "
+                        f"term {term} on {_molecule_label(mols_for_typing[mol_index], mol_index)}. "
+                        f"Expected base parameter {dict(expected)}, but received "
+                        f"{assigned.id} ({assigned.smirks})."
+                    )
 
     # Remove redundant parameters that are not used by any molecule
     ff_copy = _remove_redundant_smarts(mols_for_typing, ff_copy, id_substring="bespoke")

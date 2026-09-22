@@ -39,6 +39,48 @@ The smaller the number, the more SMIRKS collisions across molecules in a congene
 
 You can set one or the other, not both. This is enforced by `TypeGenerationSettings.validate_include_exclude`. The default is empty `include` and empty `exclude`, which means "make everything bespoke".
 
+## Removing terminal caps from generated types
+
+`remove_atom_smarts` removes selected terminal fragments after PRESTO has identified
+the ordinary valence terms and chemical context. In each removal SMARTS, mapped atoms
+are removed; unmapped atoms provide optional recognition context. Every cut bond is
+terminated by an untagged wildcard with the same bond order. The wildcard requires an
+attachment without encoding the neighbouring atom's element or chemistry.
+
+For an ACE–amino-acid–NME input, representative masks are:
+
+```yaml
+param_settings:
+    type_generation_settings:
+        Bonds:
+            max_extend_distance: -1
+            remove_atom_smarts:
+                - "[CH3:1][C:2](=[O:3])N[C]"  # mapped ACE atoms are removed
+                - "C(=O)[NH:1][CH3:2]"        # mapped NME atoms are removed
+```
+
+The setting is per handler, so repeat the masks under `Angles`, `ProperTorsions`, and
+`ImproperTorsions` when those types should use the same residue boundary. The default
+is an empty list, which preserves the existing type-generation behaviour.
+
+Each mask must match at least once on every input molecule and each distinct selected
+fragment must be connected to the retained molecule by exactly one bond. Equivalent
+SMARTS embeddings are deduplicated by the atoms selected for removal; genuinely
+repeated caps are all removed. Directly attached hydrogens are removed with a selected
+heavy atom. PRESTO logs the raw and distinct match counts.
+
+If any force-defining atoms of a bond, angle, or torsion lie in a selected cap, PRESTO
+does not create a bespoke type for that term. The original force-field parameter must
+remain assigned; generation raises an error if another bespoke pattern would override
+it. A masked pattern that collapses parameters from different source types also raises
+rather than choosing one source arbitrarily.
+
+Removal masks are chemical queries, not residue labels. A poorly chosen SMARTS can
+legitimately select a pendant side chain that also has one attachment bond. Use enough
+unmapped context to distinguish the intended cap and inspect the logged match counts.
+`max_extend_distance` remains authoritative: caps outside the generated subgraph do
+not cause extra wildcard context to be added.
+
 ## Why we exclude linear torsions by default
 
 The default `ProperTorsions.exclude` list contains three SMARTS:

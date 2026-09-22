@@ -523,6 +523,7 @@ class TestTypeGenerationSettings:
         settings = TypeGenerationSettings()
         assert settings.max_extend_distance == -1
         assert settings.exclude == []
+        assert settings.remove_atom_smarts == []
 
     def test_custom_max_extend_distance(self):
         """Test custom max_extend_distance."""
@@ -548,7 +549,9 @@ class TestTypeGenerationSettings:
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = TypeGenerationSettings(
-            max_extend_distance=2, exclude=["[*:1]-[*:2]#[*:3]-[*:4]"]
+            max_extend_distance=2,
+            exclude=["[*:1]-[*:2]#[*:3]-[*:4]"],
+            remove_atom_smarts=["[CH3:1][C:2](=[O:3])N[C]"],
         )
         yaml_path = tmp_path / "type_gen_settings.yaml"
         settings.to_yaml(yaml_path)
@@ -556,6 +559,22 @@ class TestTypeGenerationSettings:
         loaded = TypeGenerationSettings.from_yaml(yaml_path)
         assert loaded.max_extend_distance == 2
         assert loaded.exclude == ["[*:1]-[*:2]#[*:3]-[*:4]"]
+        assert loaded.remove_atom_smarts == ["[CH3:1][C:2](=[O:3])N[C]"]
+
+    @pytest.mark.parametrize(
+        ("patterns", "message"),
+        [
+            (["not SMARTS"], "Could not parse"),
+            (["CC"], "map at least one atom"),
+            (["[C:1].[N:2]"], "must be connected"),
+            (["[C:1][N:1]"], "map numbers must be unique"),
+            (["[C:1]", "[C:1]"], "duplicate patterns"),
+        ],
+    )
+    def test_invalid_remove_atom_smarts(self, patterns, message):
+        """Removal SMARTS fail early when their selection syntax is ambiguous."""
+        with pytest.raises(ValidationError, match=message):
+            TypeGenerationSettings(remove_atom_smarts=patterns)
 
 
 class TestParamSettings:

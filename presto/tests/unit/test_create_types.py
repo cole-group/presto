@@ -1,6 +1,8 @@
 """Tests for the create_types module."""
 
+import hashlib
 import warnings
+from pathlib import Path
 
 import numpy as np
 import openff.interchange
@@ -13,12 +15,18 @@ from rdkit import Chem
 from presto.create_types import (
     _add_parameter_with_overwrite,
     _create_smarts,
+    _find_atoms_to_remove,
     _remove_redundant_smarts,
     _remove_stereochemical_information,
     add_library_charges_to_forcefield,
     add_types_to_forcefield,
 )
 from presto.settings import TypeGenerationSettings
+
+
+ACE_MASK = "[CH3:1][C:2](=[O:3])N[C]"
+NME_MASK = "C(=O)[NH:1][CH3:2]"
+CAP_MASKS = [ACE_MASK, NME_MASK]
 
 
 class TestAddParameterWithOverwrite:
@@ -1130,6 +1138,221 @@ class TestEdgeCases:
 
         assert len(labelled_bonds) > 0, "Sulfoxide bonds could not be matched"
         assert len(labelled_angles) > 0, "Sulfoxide angles could not be matched"
+
+
+class TestCapRemoval:
+    """Tests for residue-local types generated from capped amino acids."""
+
+    @staticmethod
+    def _alanine():
+        return openff.toolkit.Molecule.from_smiles(
+            "CC(=O)NC(C)C(=O)NC", allow_undefined_stereo=True
+        )
+
+    def test_masked_smarts_has_wildcard_stubs(self):
+        """Each represented cap-core cut becomes one untagged wildcard."""
+        mol = self._alanine()
+        removed = _find_atoms_to_remove(mol, CAP_MASKS, "Bonds")
+
+        smarts = _create_smarts(mol, (3, 4), -1, atoms_to_remove=removed)
+        query = Chem.MolFromSmarts(smarts)
+
+        assert query is not None
+        assert sum(atom.GetAtomicNum() == 0 for atom in query.GetAtoms()) == 2
+        assert sorted(
+            atom.GetAtomMapNum() for atom in query.GetAtoms() if atom.GetAtomMapNum()
+        ) == [1, 2]
+
+    def test_masking_respects_max_extend_distance(self):
+        """Caps outside the requested radius do not add wildcard context."""
+        mol = self._alanine()
+        removed = _find_atoms_to_remove(mol, CAP_MASKS, "Bonds")
+
+        assert _create_smarts(
+            mol, (3, 4), 0, atoms_to_remove=removed
+        ) == _create_smarts(mol, (3, 4), 0)
+
+    def test_wildcard_preserves_double_cut_bond(self):
+        """A wildcard stub retains the represented source bond order."""
+        mol = openff.toolkit.Molecule.from_smiles("CC=O")
+        removed = _find_atoms_to_remove(mol, ["[O:1]"], "Bonds")
+        query = Chem.MolFromSmarts(
+            _create_smarts(mol, (0, 1), -1, atoms_to_remove=removed)
+        )
+
+        wildcard = next(atom for atom in query.GetAtoms() if atom.GetAtomicNum() == 0)
+        assert wildcard.GetBonds()[0].GetBondType() == Chem.BondType.DOUBLE
+
+    def test_masks_include_attached_hydrogens(self):
+        """Removing ACE and NME includes their directly attached hydrogens."""
+        mol = self._alanine()
+        removed = _find_atoms_to_remove(mol, CAP_MASKS, "Bonds")
+        rd_mol = mol.to_rdkit()
+
+        assert len(removed) == 12
+        assert sum(rd_mol.GetAtomWithIdx(i).GetAtomicNum() > 1 for i in removed) == 5
+
+    @pytest.mark.parametrize(
+        ("patterns", "message"),
+        [
+            (["[F:1]"], "did not match"),
+            (["[C:1](=O)"], "exactly one attachment bond"),
+            (
+                [ACE_MASK, "[CH3:4][C:5](=[O:6])N[C]"],
+                "overlapping atoms",
+            ),
+        ],
+    )
+    def test_invalid_molecule_level_masks(self, patterns, message):
+        """Absent, nonterminal, and overlapping selections fail loudly."""
+        mol = self._alanine()
+        with pytest.raises(ValueError, match=message):
+            _find_atoms_to_remove(mol, patterns, "Bonds")
+
+    def test_openff_protein_dipeptide_corpus(self):
+        """Pinned OpenFF inputs remove only the hand-checked cap composition."""
+        # Source: openforcefield/qca-dataset-submission, submission
+        # 2021-11-18-OpenFF-Protein-Dipeptide-2D-TorsionDrive/dataset.smi.
+        dataset_path = (
+            Path(__file__).parents[1] / "data" / "openff_protein_dipeptide_dataset.smi"
+        )
+        contents = dataset_path.read_bytes()
+        assert hashlib.sha256(contents).hexdigest() == (
+            "82316c34321ae4811e37d1fcf3c498cd98059b3635a2db961157a091d0e8a98d"
+        )
+
+        smiles = dataset_path.read_text().splitlines()
+        assert len(smiles) == 26
+        for index, entry in enumerate(smiles):
+            mol = openff.toolkit.Molecule.from_smiles(entry)
+            rd_mol = mol.to_rdkit()
+            removed = _find_atoms_to_remove(mol, CAP_MASKS, "Bonds")
+            cap_count = 2 if index == 6 else 1  # CYX is a capped disulfide dimer.
+            removed_heavy_elements = sorted(
+                rd_mol.GetAtomWithIdx(atom_idx).GetSymbol()
+                for atom_idx in removed
+                if rd_mol.GetAtomWithIdx(atom_idx).GetAtomicNum() > 1
+            )
+            assert removed_heavy_elements == sorted("CCCON" * cap_count)
+
+            if index == 6:
+                retained_sulfurs = [
+                    atom.GetIdx()
+                    for atom in rd_mol.GetAtoms()
+                    if atom.GetAtomicNum() == 16 and atom.GetIdx() not in removed
+                ]
+                assert len(retained_sulfurs) == 2
+                assert rd_mol.GetBondBetweenAtoms(*retained_sulfurs) is not None
+
+    @pytest.mark.slow
+    def test_openff_corpus_generates_all_valence_handlers(self):
+        """The complete intended corpus has no masked cross-molecule collisions."""
+        dataset_path = (
+            Path(__file__).parents[1] / "data" / "openff_protein_dipeptide_dataset.smi"
+        )
+        mols = [
+            openff.toolkit.Molecule.from_smiles(smiles)
+            for smiles in dataset_path.read_text().splitlines()
+        ]
+        handlers = ["Bonds", "Angles", "ProperTorsions", "ImproperTorsions"]
+
+        with pytest.warns(UserWarning, match="stereochemical information"):
+            masked_ff = add_types_to_forcefield(
+                mols,
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                {
+                    handler: TypeGenerationSettings(remove_atom_smarts=CAP_MASKS)
+                    for handler in handlers
+                },
+            )
+
+        for handler in handlers:
+            assert any("bespoke" in param.id for param in masked_ff[handler].parameters)
+            for mol in mols:
+                assert masked_ff[handler].find_matches(mol.to_topology())
+
+    def test_skipped_terms_keep_base_parameters(self):
+        """Cap-contained and crossing bonds cannot be overridden by bespoke types."""
+        mol = self._alanine()
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        base_matches = ff["Bonds"].find_matches(mol.to_topology())
+        removed = _find_atoms_to_remove(mol, CAP_MASKS, "Bonds")
+        skipped = {
+            term: match.parameter_type.id
+            for term, match in base_matches.items()
+            if set(term) & removed
+        }
+
+        masked_ff = add_types_to_forcefield(
+            mol,
+            ff,
+            {"Bonds": TypeGenerationSettings(remove_atom_smarts=CAP_MASKS)},
+        )
+        final_matches = masked_ff["Bonds"].find_matches(mol.to_topology())
+
+        assert skipped
+        assert all(
+            final_matches[term].parameter_type.id == expected
+            for term, expected in skipped.items()
+        )
+        assert final_matches[(3, 4)].parameter_type.id.startswith("b-bespoke-")
+
+    def test_masked_type_matches_only_internal_residue_term(self):
+        """Alanine attachment wildcards ignore the identities of peptide neighbours."""
+        source = self._alanine()
+        ff = add_types_to_forcefield(
+            source,
+            ForceField("openff_unconstrained-2.3.0.offxml"),
+            {"Bonds": TypeGenerationSettings(remove_atom_smarts=CAP_MASKS)},
+        )
+        peptide = openff.toolkit.Molecule.from_smiles(
+            "CC(=O)NCC(=O)NC(C)C(=O)NC(C(C)C)C(=O)NC",
+            allow_undefined_stereo=True,
+        )
+        matches = ff["Bonds"].find_matches(peptide.to_topology())
+
+        assert matches[(7, 8)].parameter_type.id.startswith("b-bespoke-")
+        assert not matches[(5, 7)].parameter_type.id.startswith("b-bespoke-")
+        assert not matches[(10, 12)].parameter_type.id.startswith("b-bespoke-")
+
+    @pytest.mark.parametrize(
+        "handler_name",
+        ["Bonds", "Angles", "ProperTorsions", "ImproperTorsions"],
+    )
+    def test_every_retained_source_term_is_bespoke(self, handler_name):
+        """Output atom tags resolve to each retained source term for every handler."""
+        mol = (
+            openff.toolkit.Molecule.from_smiles(
+                "CC(=O)NC(Cc1ccccc1)C(=O)NC", allow_undefined_stereo=True
+            )
+            if handler_name == "ImproperTorsions"
+            else self._alanine()
+        )
+        base_ff = ForceField("openff_unconstrained-2.3.0.offxml")
+        removed = _find_atoms_to_remove(mol, CAP_MASKS, handler_name)
+        base_matches = base_ff[handler_name].find_matches(mol.to_topology())
+
+        masked_ff = add_types_to_forcefield(
+            mol,
+            base_ff,
+            {handler_name: TypeGenerationSettings(remove_atom_smarts=CAP_MASKS)},
+        )
+        final_matches = masked_ff[handler_name].find_matches(mol.to_topology())
+
+        retained_terms = [term for term in base_matches if not set(term) & removed]
+        assert retained_terms
+        for term in base_matches:
+            is_bespoke = "bespoke" in final_matches[term].parameter_type.id
+            assert is_bespoke == (not bool(set(term) & removed))
+
+    def test_masks_require_molecules(self):
+        """Configured masks cannot silently succeed without any source molecules."""
+        with pytest.raises(ValueError, match="without any molecules"):
+            add_types_to_forcefield(
+                [],
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                {"Bonds": TypeGenerationSettings(remove_atom_smarts=CAP_MASKS)},
+            )
 
 
 def _assigned_charges(ff, mol):
