@@ -345,44 +345,12 @@ class MLMDSamplingSettings(_SamplingSettingsBase):
     )
 
 
-class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
-    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
-
-    The force field is initially taken from the parameterisation settings, but is
-    updated as the bespoke force field is trained.
-    """
-
-    sampling_protocol: Literal["mm_md_metadynamics"] = Field(
-        "mm_md_metadynamics", description="Sampling protocol to use."
-    )
-
-    bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
-
-    bias_factor: float = Field(
-        20.0,
-        description="Bias factor for well-tempered metadynamics. Typical range: 5-20",
-    )
-
-    bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
-        1.0 * unit.kilojoules_per_mole,
-        description="Initial height of the Gaussian bias (kJ/mol). In well-tempered "
-        "metadynamics this is scaled down over time according to `bias_factor`.",
-    )
-
-    bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        0.1 * unit.picoseconds,
-        description="How often to add a Gaussian to the bias (picoseconds). Must "
-        "divide evenly into the timestep.",
-    )
-
-    bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
-        10 * unit.picoseconds,
-        description="How often to save the accumulated bias to disk (picoseconds).",
-    )
+class TorsionSelectionSettings(_DefaultSettings):
+    """Settings selecting which torsions a sampling stage acts on."""
 
     torsions_to_include_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_INCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for torsions to include in metadynamics biasing. "
+        description="SMARTS patterns for torsions this stage acts on. "
         "Note that the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
         "RDKIT default gives more sane aromaticty perception. These should match the "
         "entire torsion (4 atoms), not just the rotatable bond. ",
@@ -390,66 +358,27 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
 
     torsions_to_exclude_smarts: list[str] = Field(
         default_factory=lambda: DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS.copy(),
-        description="SMARTS patterns for bonds to exclude from metadynamics biasing. Note that "
+        description="SMARTS patterns for bonds this stage should not act on. Note that "
         "the RDKit default aromaticity model is used rather than OpenFF's default MDL model, as the "
         "RDKIT default gives more sane aromaticty perception. Matches are removed from the list of "
         "torsions matched by the include patterns. These should match only the rotatable bond "
         "(2 atoms), not the full torsion.",
     )
 
-    # Make sure that the frequency and save_frequency are multiples of the timestep
-    @model_validator(mode="after")
-    def validate_frequencies(self) -> Self:
-        """Validate that bias frequencies and save frequencies divide evenly into the sampling time."""
-        for freq, name in [
-            (self.bias_frequency, "frequency"),
-            (self.bias_save_frequency, "save_frequency"),
-        ]:
-            n_steps = freq / self.timestep
-            if not n_steps.is_integer():
-                raise InvalidSettingsError(
-                    f"{name} ({freq}) must be divisible by the timestep ({self.timestep})."
-                )
 
-            # Make sure that the sampling time per conformer is a multiple of the save frequency
-            n_saves = self.production_sampling_time_per_conformer / freq
-            if not n_saves.is_integer():
-                raise InvalidSettingsError(
-                    f"production_sampling_time_per_conformer ({self.production_sampling_time_per_conformer}) must be divisible by the {name} ({freq})."
-                )
-        return self
+class TorsionMinimisationSettings(_DefaultSettings):
+    """Settings for the torsion-restrained ML and MM minimisation stage.
 
-    @property
-    def n_steps_per_bias(self) -> int:
-        """Number of simulation steps between each bias addition."""
-        return int(self.bias_frequency / self.timestep)
-
-    @property
-    def n_steps_per_bias_save(self) -> int:
-        """Number of simulation steps between each bias save."""
-        return int(self.bias_save_frequency / self.timestep)
-
-    @property
-    def output_types(self) -> set[OutputType]:
-        """Return the expected output types for this sampling protocol."""
-        return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
-
-
-class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-    MMMDMetadynamicsSamplingSettings
-):
-    """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
-
-    Extends MMMDMetadynamicsSamplingSettings by generating additional training data
-    from torsion-restrained minimisations.
+    Snapshots taken during MD sampling are relaxed with the MLP and then the MM force
+    field, with the selected torsions restrained, and the relaxed structures are added
+    to the training set with their own loss weights.
     """
 
-    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(  # type: ignore[assignment]
-        "mm_md_metadynamics_torsion_minimisation",
-        description="Sampling protocol to use.",
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to restrain during minimisation.",
     )
 
-    # Settings for torsion-restrained minimisation
     ml_minimisation_steps: int = Field(
         10,
         description="Number of MLP minimisation steps with restrained torsions.",
@@ -502,11 +431,217 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(
         "loss_force_weight field.",
     )
 
+
+class MetadynamicsSettings(_DefaultSettings):
+    """Settings for the well-tempered metadynamics bias applied during MM MD.
+
+    These settings are read-only once created, because the bias frequencies are
+    validated against the timestep and sampling time of the sampling settings they
+    belong to, and that check only runs when the whole object is assigned. To change
+    a value, replace the object, e.g.::
+
+        settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+            update={"bias_factor": 15.0}
+        )
+    """
+
+    # Revalidate on assignment to the parent, so values set via model_copy are checked
+    model_config = ConfigDict(
+        **_DEFAULT_MODEL_CONFIG, frozen=True, revalidate_instances="always"
+    )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Raise an error explaining how to change these read-only settings."""
+        raise InvalidSettingsError(
+            f"MetadynamicsSettings are read-only, so `{name}` cannot be set directly. "
+            "Replace the whole object instead, e.g. `settings.metadynamics_settings = "
+            f"settings.metadynamics_settings.model_copy(update={{{name!r}: value}})`."
+        )
+
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to apply the metadynamics bias to.",
+    )
+
+    bias_width: float = Field(np.pi / 10, description="Width of the bias (in radians)")
+
+    bias_factor: float = Field(
+        20.0,
+        description="Bias factor for well-tempered metadynamics. Typical range: 5-20",
+    )
+
+    bias_height: OpenMMQuantity[unit.kilojoules_per_mole] = Field(  # type: ignore[type-arg]
+        1.0 * unit.kilojoules_per_mole,
+        description="Initial height of the Gaussian bias (kJ/mol). In well-tempered "
+        "metadynamics this is scaled down over time according to `bias_factor`.",
+    )
+
+    bias_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
+        0.1 * unit.picoseconds,
+        description="How often to add a Gaussian to the bias (picoseconds). Must "
+        "divide evenly into the timestep.",
+    )
+
+    bias_save_frequency: OpenMMQuantity[unit.picoseconds] = Field(  # type: ignore[type-arg]
+        10 * unit.picoseconds,
+        description="How often to save the accumulated bias to disk (picoseconds).",
+    )
+
+    def validate_frequencies(
+        self,
+        timestep: unit.Quantity,
+        production_sampling_time_per_conformer: unit.Quantity,
+    ) -> None:
+        """Check that the bias frequencies fit the timestep and sampling time."""
+        for freq, name in [
+            (self.bias_frequency, "frequency"),
+            (self.bias_save_frequency, "save_frequency"),
+        ]:
+            n_steps = freq / timestep
+            if not n_steps.is_integer():
+                raise InvalidSettingsError(
+                    f"{name} ({freq}) must be divisible by the timestep ({timestep})."
+                )
+
+            # Make sure that the sampling time per conformer is a multiple of the save frequency
+            n_saves = production_sampling_time_per_conformer / freq
+            if not n_saves.is_integer():
+                raise InvalidSettingsError(
+                    f"production_sampling_time_per_conformer ({production_sampling_time_per_conformer}) must be divisible by the {name} ({freq})."
+                )
+
+    def n_steps_per_bias(self, timestep: unit.Quantity) -> int:
+        """Number of simulation steps between each bias addition."""
+        return int(self.bias_frequency / timestep)
+
+    def n_steps_per_bias_save(self, timestep: unit.Quantity) -> int:
+        """Number of simulation steps between each bias save."""
+        return int(self.bias_save_frequency / timestep)
+
+
+class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
+    """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
+
+    The force field is initially taken from the parameterisation settings, but is
+    updated as the bespoke force field is trained.
+    """
+
+    sampling_protocol: Literal["mm_md_metadynamics"] = Field(
+        "mm_md_metadynamics", description="Sampling protocol to use."
+    )
+
+    metadynamics_settings: MetadynamicsSettings = Field(
+        default_factory=MetadynamicsSettings,
+        description="Settings for the metadynamics bias.",
+    )
+
+    @model_validator(mode="after")
+    def validate_frequencies(self) -> Self:
+        """Validate the bias frequencies against the timestep and sampling time."""
+        self.metadynamics_settings.validate_frequencies(
+            self.timestep, self.production_sampling_time_per_conformer
+        )
+        return self
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
+        return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
+
+
+class MMMDMetadynamicsTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
+    """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
+
+    The same MD as `mm_md_metadynamics`, followed by torsion-restrained minimisations
+    which generate additional training data.
+    """
+
+    sampling_protocol: Literal["mm_md_metadynamics_torsion_minimisation"] = Field(
+        "mm_md_metadynamics_torsion_minimisation",
+        description="Sampling protocol to use.",
+    )
+
+    metadynamics_settings: MetadynamicsSettings = Field(
+        default_factory=MetadynamicsSettings,
+        description="Settings for the metadynamics bias.",
+    )
+
+    torsion_minimisation_settings: TorsionMinimisationSettings = Field(
+        default_factory=TorsionMinimisationSettings,
+        description="Settings for the torsion-restrained minimisation stage.",
+    )
+
+    @model_validator(mode="after")
+    def validate_frequencies(self) -> Self:
+        """Validate the bias frequencies against the timestep and sampling time."""
+        self.metadynamics_settings.validate_frequencies(
+            self.timestep, self.production_sampling_time_per_conformer
+        )
+        return self
+
     @property
     def output_types(self) -> set[OutputType]:
         """Return the expected output types for this sampling protocol."""
         return {
             OutputType.METADYNAMICS_BIAS,
+            OutputType.PDB_TRAJECTORY,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+
+
+class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
+    """Settings for torsion-restrained MM MD sampling with torsion-restrained minimisations.
+
+    The same protocol as `mm_md_metadynamics_torsion_minimisation`, but with no
+    metadynamics bias. Instead, the selected torsions are restrained to the values they
+    take in the conformer each trajectory started from, so sampling stays close to the
+    supplied starting conformers rather than exploring away from them.
+    """
+
+    sampling_protocol: Literal["mm_md_torsion_restrained_torsion_minimisation"] = Field(
+        "mm_md_torsion_restrained_torsion_minimisation",
+        description="Sampling protocol to use.",
+    )
+
+    torsion_selection_settings: TorsionSelectionSettings = Field(
+        default_factory=TorsionSelectionSettings,
+        description="The torsions to restrain during MD sampling.",
+    )
+
+    torsion_minimisation_settings: TorsionMinimisationSettings = Field(
+        default_factory=TorsionMinimisationSettings,
+        description="Settings for the torsion-restrained minimisation stage.",
+    )
+
+    md_torsion_restraint_force_constant: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
+        unit.kilojoules_per_mole / unit.radian**2
+    ] = Field(
+        100.0 * unit.kilojoules_per_mole / unit.radian**2,
+        description="Force constant for the torsion restraints applied during MD "
+        "sampling. Each torsion is restrained to the value it takes in the conformer the "
+        "trajectory started from. For a harmonic restraint the spread about that value is "
+        "roughly sqrt(RT/k), so the default (100 kJ/mol/rad^2) allows around 12 degrees at "
+        "the default 500 K. Note this is separate from "
+        "`torsion_minimisation_settings.torsion_restraint_force_constant`, which applies "
+        "only to the minimisation stage.",
+    )
+
+    @model_validator(mode="after")
+    def warn_if_no_starting_conformers(self) -> Self:
+        """Warn if there are no supplied conformers to restrain the torsions to."""
+        if self.starting_conformers is None:
+            logger.warning(
+                "No starting_conformers set, so torsions will be restrained to "
+                "ETKDG-generated conformers. This protocol is intended to be used with "
+                "an SDF of the conformers you want to sample around."
+            )
+        return self
+
+    @property
+    def output_types(self) -> set[OutputType]:
+        """Return the expected output types for this sampling protocol."""
+        return {
             OutputType.PDB_TRAJECTORY,
             OutputType.ML_MINIMISED_PDB,
             OutputType.MM_MINIMISED_PDB,
@@ -550,6 +685,7 @@ SamplingSettings = (
     | MLMDSamplingSettings
     | MMMDMetadynamicsSamplingSettings
     | MMMDMetadynamicsTorsionMinimisationSamplingSettings
+    | MMMDTorsionRestrainedTorsionMinimisationSamplingSettings
     | PreComputedDatasetSettings
 )
 """Union type for all sampling settings. See the associated `sampling_protocol` field

@@ -101,7 +101,7 @@ def _sample_worker(
     try:
         dataset = _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
             mols=[Molecule.from_json(molecule_json)],
-            off_ff=ForceField(offxml_path),
+            off_ff=ForceField(offxml_path, load_plugins=True),
             device=torch.device(device or _WORKER_DEVICE),
             settings=sampling_settings,
             output_paths=output_paths,
@@ -131,7 +131,7 @@ def sample_ligands(
     if precomputed:
         raw = _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
             mols=mols,
-            off_ff=ForceField(str(offxml_path)),
+            off_ff=ForceField(str(offxml_path), load_plugins=True),
             device=torch.device(device_type),
             settings=sampling_settings,
             output_paths=output_paths,
