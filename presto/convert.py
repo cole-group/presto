@@ -226,7 +226,7 @@ def parameterise(
     # Create molecules from SMILES
     mols = settings.openff_molecules
 
-    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
+    off_ff = openff.toolkit.ForceField(settings.initial_force_field, load_plugins=True)
 
     # First check required as Parsely does not contain constraints
     if "Constraints" in off_ff.registered_parameter_handlers:
