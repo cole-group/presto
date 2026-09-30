@@ -11,6 +11,7 @@ Short, task-oriented recipes. Each page assumes you've finished **[Get started](
 - **[Use custom charges](use-custom-charges.md)** — bake your own partial charges into the force field as library charges.
 - **[Sample with implicit solvent](use-implicit-solvent.md)** — broaden the sampled conformers with a generalised Born model, while still fitting in vacuum.
 - **[Wipe output and rerun](clean-rerun.md)**
+- **[Speed up fitting with parallelism](speed-up-with-parallelism.md)** — sample independent ligands concurrently on one node.
 
 ## By component
 

@@ -75,6 +75,10 @@ _SAMPLING_FNS_REGISTRY: dict[type[settings.SamplingSettings], SampleFn] = {}
 
 _register_sampling_fn = get_registry_decorator(_SAMPLING_FNS_REGISTRY)
 
+_MOL_INDEX_OFFSET: int = 0
+"""Set only by a coordinator worker sampling one molecule in isolation, so that its
+per-molecule output filenames keep the molecule's index in the whole workflow."""
+
 
 def _copy_mol_and_add_conformers(
     mol: openff.toolkit.Molecule,
@@ -128,11 +132,11 @@ def _create_simulation(
     """Create an OpenMM simulation with a standard Langevin integrator."""
     integrator = _get_integrator(temperature, timestep)
     platform = _get_openmm_platform(device)
+    properties = None
+    if device.type == "cuda" and device.index is not None:
+        properties = {"DeviceIndex": str(device.index)}
     simulation = Simulation(
-        topology,
-        system,
-        integrator,
-        platform=platform,
+        topology, system, integrator, platform=platform, platformProperties=properties
     )
     return simulation, integrator
 
@@ -384,7 +388,7 @@ def sample_mmmd(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -485,7 +489,7 @@ def sample_mlmd(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -613,7 +617,7 @@ def sample_mmmd_metadynamics(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )
@@ -1239,7 +1243,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
     all_datasets = []
 
-    for mol_idx, mol in enumerate(mols):
+    for mol_idx, mol in enumerate(mols, start=_MOL_INDEX_OFFSET):
         mol_with_conformers = _copy_mol_and_add_conformers(
             mol, settings.n_conformers, settings.starting_conformers
         )

@@ -7,7 +7,7 @@ See https://doi.org/10.1021/acs.jctc.7b00785.
 import json
 import math
 from importlib.resources import files
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch, sentinel
 
 import numpy as np
 import pytest
@@ -23,6 +23,7 @@ from presto.msm import (
     _calculate_linear_angle_force_constant,
     _dot_product,
     _get_arbitrary_perpendicular,
+    _is_linear_angle,
     _mean_angle_params,
     _mean_bond_params,
     apply_msm_to_molecule,
@@ -465,26 +466,64 @@ class TestCalculateAngleForceConstant:
 class TestCalculateLinearAngleForceConstant:
     """Tests for _calculate_linear_angle_force_constant function."""
 
-    def test_linear_angle_returns_valid_result(self):
-        """Test that linear angle calculation returns valid results."""
-        # Linear configuration along x
-        u_ab = np.array([1.0, 0.0, 0.0])
-        u_cb = np.array([-1.0, 0.0, 0.0])  # Opposite direction (linear)
-        bond_lens = (1.0, 1.0)
-        # Simple eigenvalues/eigenvectors
-        eigenvals = (
-            np.array([100.0, 50.0, 50.0]),
-            np.array([100.0, 50.0, 50.0]),
-        )
-        eigenvecs = (np.eye(3, dtype=complex), np.eye(3, dtype=complex))
-
+    def test_exact_linear_angle_has_analytic_force_constant(self):
+        """The one-direction two-spring result is 1 / (1/50 + 1/50) = 25."""
         k_theta, theta_0 = _calculate_linear_angle_force_constant(
-            u_ab, u_cb, bond_lens, eigenvals, eigenvecs, n_samples=50
+            u_ab=np.array([1.0, 0.0, 0.0]),
+            u_cb=np.array([-1.0, 0.0, 0.0]),
+            bond_lens=(1.0, 1.0),
+            eigenvals=(np.array([100.0, 50.0, 50.0]), np.array([100.0, 50.0, 50.0])),
+            eigenvecs=(np.eye(3, dtype=complex), np.eye(3, dtype=complex)),
+            n_samples=1,
         )
-        # Force constant should be positive
-        assert k_theta > 0
-        # Angle should be close to 180 degrees
-        assert np.abs(theta_0 - 180.0) < 1.0
+        assert k_theta == pytest.approx(25.0)
+        assert theta_0 == pytest.approx(180.0)
+
+    def test_matches_qubekit_full_pipeline_for_near_linear_nitrile(self):
+        """Compare directly with QUBEKit's final stored acetonitrile parameter."""
+        reference = _QUBEKIT_REFERENCE_DATA["near_linear_nitrile_reference"]
+        inputs = reference["inputs"]
+        qubekit_output = reference["qubekit_output"]
+        target_angle = tuple(reference["molecule"]["target_angle"])
+
+        coords_nm = np.asarray(inputs["coordinates_angstrom"]) / 10.0
+        hessian_kcal_mol_nm2 = np.asarray(inputs["hessian_kcal_mol_angstrom2"]) * 100.0
+
+        decomposer = HessianDecomposer(hessian_kcal_mol_nm2, coords_nm)
+        u_ab = unit_vector_along_bond(coords_nm, target_angle[0], target_angle[1])
+        u_cb = unit_vector_along_bond(coords_nm, target_angle[2], target_angle[1])
+        assert _is_linear_angle(u_ab, u_cb)
+
+        calculated = calculate_angle_params([target_angle], decomposer, 1.0)[
+            target_angle
+        ]
+        np.testing.assert_allclose(
+            calculated.angle.m_as(_ANGLE_UNIT),
+            qubekit_output["angle_radians"],
+            rtol=0.0,
+            atol=1e-12,
+        )
+        # QUBEKit samples integer-radian directions while presto samples a
+        # uniform 200-point circle. One percent accommodates that quadrature
+        # difference while decisively rejecting the former factor-of-two result.
+        assert calculated.force_constant.m_as(_ANGLE_K_UNIT) == pytest.approx(
+            qubekit_output["k_kj_mol_rad2"] / 4.184, rel=0.01
+        )
+
+    def test_production_handles_exact_linear_angle(self):
+        """Exercise exact collinearity through scaling and parameter assembly."""
+        coords = np.array([[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        decomposer = HessianDecomposer(create_mock_hessian(3), coords)
+        target_angle = (0, 1, 2)
+
+        with np.errstate(divide="raise", invalid="raise"):
+            result = calculate_angle_params([target_angle], decomposer, 1.0)
+
+        parameter = result[target_angle]
+        assert parameter.angle.m_as(_ANGLE_UNIT) == pytest.approx(np.pi)
+        force_constant = parameter.force_constant.m_as(_ANGLE_K_UNIT)
+        assert np.isfinite(force_constant)
+        assert force_constant > 0.0
 
 
 # --- Parameter Calculation Tests ---
@@ -887,6 +926,49 @@ class TestApplyMSMToMolecule:
         assert len(angle_params) == len(angle_indices)
 
 
+def test_apply_msm_to_molecule_cleans_up_on_failure():
+    """A failing molecule releases its simulation, so the next molecule has its GPU."""
+    import presto.msm as msm_module
+
+    mol = Molecule.from_smiles("CCO")
+    simulation = MagicMock()
+    simulation.minimizeEnergy.side_effect = RuntimeError("CUDA out of memory")
+    settings = MSMSettings(
+        n_conformers=1, mlp_settings=MLPSettings(ml_potential="aimnet2")
+    )
+
+    with (
+        patch.object(
+            msm_module,
+            "_build_ml_simulation",
+            return_value=(simulation, sentinel.integrator),
+        ),
+        patch.object(msm_module, "cleanup_simulation") as cleanup,
+        pytest.raises(RuntimeError, match="CUDA out of memory"),
+    ):
+        apply_msm_to_molecule(mol, [], [], settings, device=torch.device("cpu"))
+
+    cleanup.assert_called_once_with(simulation, sentinel.integrator)
+
+
+def test_apply_msm_to_molecules_collects_failures(base_forcefield, msm_settings):
+    """A molecule MSM cannot handle is collected, not raised, so all failures surface."""
+    mols = [Molecule.from_smiles("CCO"), Molecule.from_smiles("CC")]
+
+    def fake_apply(mol, bond_indices, angle_indices, settings, device):
+        if mol.n_atoms == mols[1].n_atoms:
+            raise ValueError("RDKit conformer generation failed.")
+        return {}, {}
+
+    with patch("presto.msm.apply_msm_to_molecule", side_effect=fake_apply):
+        _modified_ff, failures = apply_msm_to_molecules(
+            mols, base_forcefield, msm_settings, device=torch.device("cpu")
+        )
+
+    assert list(failures) == [1]
+    assert "RDKit conformer generation failed." in failures[1]
+
+
 @pytest.mark.slow
 class TestApplyMSMToMolecules:
     """Integration tests for apply_msm_to_molecules function."""
@@ -896,7 +978,7 @@ class TestApplyMSMToMolecules:
         mol = Molecule.from_smiles("CCO")
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -910,7 +992,7 @@ class TestApplyMSMToMolecules:
         ]
         ff = base_forcefield
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             mols, ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -925,7 +1007,7 @@ class TestApplyMSMToMolecules:
         bond_handler = ff.get_parameter_handler("Bonds")
         original_params = [(p.smirks, p.k, p.length) for p in bond_handler.parameters]
 
-        _modified_ff = apply_msm_to_molecules(
+        _modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -950,7 +1032,7 @@ class TestApplyMSMToMolecules:
             if p.smirks in used_bond_smirks
         }
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -988,7 +1070,7 @@ class TestApplyMSMToMolecules:
         original_angle_k_units = angle_handler.parameters[0].k.units
         original_angle_angle_units = angle_handler.parameters[0].angle.units
 
-        modified_ff = apply_msm_to_molecules(
+        modified_ff, _failures = apply_msm_to_molecules(
             [mol], ff, msm_settings, device=torch.device("cpu")
         )
 
@@ -1062,7 +1144,7 @@ def _parse_reference_data():
     bonds = [tuple(b) for b in _QUBEKIT_REFERENCE_DATA["bonds"]]
     angles = [tuple(a) for a in _QUBEKIT_REFERENCE_DATA["angles"]]
 
-    # QUBEKit bond parameters (OpenMM convention: U = k*x^2)
+    # QUBEKit bond parameters (SMIRNOFF / OpenMM convention: U = k*x^2/2)
     # Reference data is in kJ/mol/nm², convert to kcal/mol/nm²
     bond_params = {
         tuple(map(int, k.strip("()").split(", "))): (
@@ -1072,7 +1154,7 @@ def _parse_reference_data():
         for k, v in _QUBEKIT_REFERENCE_DATA["bond_params"].items()
     }
 
-    # QUBEKit angle parameters (OpenMM convention: U = k*x^2)
+    # QUBEKit angle parameters (SMIRNOFF / OpenMM convention: U = k*x^2/2)
     # Reference data is in kJ/mol/rad², convert to kcal/mol/rad²
     angle_params = {
         tuple(map(int, k.strip("()").split(", "))): (
@@ -1212,7 +1294,7 @@ class TestMSMQubekitComparison:
 
         print("\nBOND PARAMETERS:")
         print("-" * 70)
-        print(f"{'Bond':<10} {'Length (nm)':<18} {'Force Const (kJ/mol/nm²)':<30}")
+        print(f"{'Bond':<10} {'Length (nm)':<18} {'Force Const (kcal/mol/nm²)':<30}")
         print(f"{'':10} {'Calc':<9}{'Ref':<9} {'Calc':<14}{'Ref':<14}{'Diff %':<8}")
         print("-" * 70)
 
@@ -1229,7 +1311,7 @@ class TestMSMQubekitComparison:
 
         print("\nANGLE PARAMETERS:")
         print("-" * 70)
-        print(f"{'Angle':<12} {'Value (deg)':<18} {'Force Const (kJ/mol/rad²)':<28}")
+        print(f"{'Angle':<12} {'Value (deg)':<18} {'Force Const (kcal/mol/rad²)':<28}")
         print(f"{'':12} {'Calc':<9}{'Ref':<9} {'Calc':<13}{'Ref':<13}{'Diff %':<8}")
         print("-" * 70)
 

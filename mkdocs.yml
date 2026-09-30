@@ -25,6 +25,7 @@ nav:
 - Get started:
   - get-started/index.md
   - Installation: get-started/installation.md
+  - Run with containers: get-started/containers.md
   - Quickstart: get-started/quickstart.md
   - Walk-through (CLI): examples/basic-walk-through-cli.ipynb
   - Walk-through (Python API): examples/basic-walk-through-python-api.ipynb
@@ -38,6 +39,7 @@ nav:
   - Clean and rerun a fit: how-to/clean-rerun.md
   - Choose an MLP: how-to/choose-an-mlp.md
   - Use an ASE calculator: how-to/use-ase-calculator.md
+  - Speed up fitting with parallelism: how-to/speed-up-with-parallelism.md
   - Inspect outputs and plots: how-to/inspect-outputs.md
   - Run from Python: how-to/run-from-python.md
 - Concepts:
