@@ -44,6 +44,31 @@ Additional options (on top of the metadynamics base class):
 - `torsion_restraint_force_constant` — strength of the torsion restraint during minimisation.
 - `loss_*_weight_*_torsion_min` — separate loss weights for the minimised snapshots, in case you want them weighted differently from the MD snapshots.
 
+## Implicit solvent (MM protocols only)
+
+All of the MM protocols (`mm_md`, `mm_md_metadynamics` and `mm_md_metadynamics_torsion_minimisation`) sample in vacuum by default. Setting `implicit_solvent` switches on a generalised Born solvent model, which is useful when gas-phase sampling collapses onto conformers held together by intramolecular interactions that would be broken in solution.
+
+The solvent term is applied **only to the MM system used to generate configurations** (the MD, the metadynamics bias, and the MM torsion minimisation). Everything else is unchanged and remains in vacuum:
+
+- Reference energies and forces are always recalculated with the MLP in vacuum, so no solvated MM energy ever enters a dataset.
+- The MM energies compared against the MLP (the training loss, the scatter plots and outlier filtering) are computed in vacuum.
+- The MLP minimisations are performed in vacuum.
+
+In other words, implicit solvent changes *which* configurations you fit to, not *what* you fit them to. The `ml_md` and `pre_computed` protocols do not accept this option.
+
+```yaml
+training_sampling_settings:
+    sampling_protocol: mm_md_metadynamics_torsion_minimisation
+    implicit_solvent:
+        model: obc2
+        solvent_dielectric: 78.5
+        solute_dielectric: 1.0
+        surface_area_model: ACE
+        salt_concentration: 0.0 M
+```
+
+See **[How-to → Sample with implicit solvent](../how-to/use-implicit-solvent.md)** for the recipe.
+
 ## `pre_computed`
 
 Skip MD entirely and load a saved dataset from disk. Useful when:

@@ -17,6 +17,7 @@ from presto import __version__
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
+    ImplicitSolventSettings,
     MLMDSamplingSettings,
     MLPSettings,
     MMMDMetadynamicsSamplingSettings,
@@ -169,6 +170,62 @@ class TestSamplingSettingsBase:
         }
 
 
+class TestImplicitSolventSettings:
+    """Tests for implicit solvent settings."""
+
+    def test_defaults(self):
+        """Test that the default implicit solvent model is OBC2 water."""
+        settings = ImplicitSolventSettings()
+        assert settings.model == "obc2"
+        assert settings.solvent_dielectric == 78.5
+        assert settings.solute_dielectric == 1.0
+        assert settings.surface_area_model == "ACE"
+        assert settings.salt_concentration.value_in_unit(omm_unit.molar) == 0.0
+
+    def test_custom_values(self):
+        """Test that custom values are set correctly."""
+        settings = ImplicitSolventSettings(
+            model="gbn2",
+            solvent_dielectric=4.0,
+            solute_dielectric=2.0,
+            surface_area_model=None,
+            salt_concentration=0.15 * omm_unit.molar,
+        )
+        assert settings.model == "gbn2"
+        assert settings.solvent_dielectric == 4.0
+        assert settings.solute_dielectric == 2.0
+        assert settings.surface_area_model is None
+        assert settings.salt_concentration.value_in_unit(omm_unit.molar) == 0.15
+
+    def test_unknown_model_raises(self):
+        """Test that an unsupported generalised Born model is rejected."""
+        with pytest.raises(ValidationError):
+            ImplicitSolventSettings(model="obc3")
+
+    @pytest.mark.parametrize("field", ["solvent_dielectric", "solute_dielectric"])
+    def test_non_positive_dielectric_raises(self, field):
+        """Test that non-positive dielectric constants are rejected."""
+        with pytest.raises(ValidationError, match="Dielectric constants"):
+            ImplicitSolventSettings(**{field: 0.0})
+
+    def test_negative_salt_concentration_raises(self):
+        """Test that a negative salt concentration is rejected."""
+        with pytest.raises(ValidationError, match="salt_concentration"):
+            ImplicitSolventSettings(salt_concentration=-0.1 * omm_unit.molar)
+
+    def test_to_yaml_and_from_yaml(self, tmp_path):
+        """Test YAML serialization round-trip."""
+        settings = ImplicitSolventSettings(
+            model="hct", salt_concentration=0.15 * omm_unit.molar
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = ImplicitSolventSettings.from_yaml(yaml_path)
+        assert loaded.model == "hct"
+        assert loaded.salt_concentration.value_in_unit(omm_unit.molar) == 0.15
+
+
 class TestMMMDSamplingSettings:
     """Tests for MM MD sampling settings."""
 
@@ -189,6 +246,38 @@ class TestMMMDSamplingSettings:
         assert loaded.n_conformers == 5
         assert loaded.temperature.value_in_unit(omm_unit.kelvin) == 600.0
 
+    @pytest.mark.parametrize(
+        "settings_class",
+        [
+            MMMDSamplingSettings,
+            MMMDMetadynamicsSamplingSettings,
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+        ],
+    )
+    def test_sampling_is_in_vacuum_by_default(self, settings_class):
+        """Test that all MM protocols sample in vacuum unless asked otherwise."""
+        assert settings_class().implicit_solvent is None
+
+    @pytest.mark.parametrize(
+        "settings_class",
+        [
+            MMMDSamplingSettings,
+            MMMDMetadynamicsSamplingSettings,
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+        ],
+    )
+    def test_implicit_solvent_round_trip(self, settings_class, tmp_path):
+        """Test that the implicit solvent settings survive a YAML round-trip."""
+        settings = settings_class(
+            implicit_solvent=ImplicitSolventSettings(model="obc1")
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = settings_class.from_yaml(yaml_path)
+        assert loaded.implicit_solvent is not None
+        assert loaded.implicit_solvent.model == "obc1"
+
 
 class TestMLMDSamplingSettings:
     """Tests for ML MD sampling settings."""
@@ -197,6 +286,11 @@ class TestMLMDSamplingSettings:
         """Test that sampling protocol is set correctly."""
         settings = MLMDSamplingSettings()
         assert settings.sampling_protocol == "ml_md"
+
+    def test_implicit_solvent_is_not_supported(self):
+        """Test that implicit solvent cannot be requested for ML sampling."""
+        with pytest.raises(ValidationError):
+            MLMDSamplingSettings(implicit_solvent=ImplicitSolventSettings())
 
 
 class TestMMMDMetadynamicsSamplingSettings:

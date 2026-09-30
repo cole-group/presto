@@ -173,6 +173,66 @@ class MLPSettings(_DefaultSettings):
         return self
 
 
+class ImplicitSolventSettings(_DefaultSettings):
+    """Settings for a generalised Born implicit solvent model.
+
+    This is only ever applied to the molecular mechanics system used to *generate*
+    configurations during MM sampling. Reference energies and forces are always
+    recalculated in vacuum with the ML potential, and the MM energies compared against
+    them during training are also computed in vacuum, so the solvent term only
+    influences which conformers are visited.
+    """
+
+    model: Literal["obc2", "obc1", "hct", "gbn", "gbn2"] = Field(
+        "obc2",
+        description="The generalised Born model to use. These correspond to the Amber "
+        "models `igb=5` (obc2), `igb=2` (obc1), `igb=1` (hct), `igb=7` (gbn) and "
+        "`igb=8` (gbn2).",
+    )
+
+    solvent_dielectric: float = Field(
+        78.5,
+        description="Dielectric constant of the solvent. The default corresponds to "
+        "water.",
+    )
+
+    solute_dielectric: float = Field(
+        1.0, description="Dielectric constant of the solute."
+    )
+
+    surface_area_model: Literal["ACE"] | None = Field(
+        "ACE",
+        description="Model used for the non-polar (surface area) contribution, or "
+        "`null` to omit it.",
+    )
+
+    salt_concentration: OpenMMQuantity[unit.molar] = Field(  # type: ignore[type-arg]
+        0.0 * unit.molar,
+        description="Concentration of monovalent salt (molar), used to compute the "
+        "Debye screening parameter. Zero corresponds to no salt screening.",
+    )
+
+    @field_validator("solvent_dielectric", "solute_dielectric")
+    @classmethod
+    def validate_dielectric(cls, value: float) -> float:
+        """Validate that the dielectric constants are positive."""
+        if value <= 0:
+            raise InvalidSettingsError(
+                f"Dielectric constants must be positive: {value}"
+            )
+        return value
+
+    @field_validator("salt_concentration")
+    @classmethod
+    def validate_salt_concentration(cls, value: unit.Quantity) -> unit.Quantity:
+        """Validate that the salt concentration is not negative."""
+        if value.value_in_unit(unit.molar) < 0:
+            raise InvalidSettingsError(
+                f"salt_concentration must not be negative: {value}"
+            )
+        return value
+
+
 def _validate_starting_conformers_path(value: Path | None) -> Path | None:
     """Validate an optional starting-conformers SDF path.
 
@@ -319,7 +379,21 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         return self
 
 
-class MMMDSamplingSettings(_SamplingSettingsBase):
+class _MMSamplingSettingsBase(_SamplingSettingsBase, ABC):
+    """Settings shared by all sampling protocols which use an MM force field."""
+
+    implicit_solvent: ImplicitSolventSettings | None = Field(
+        None,
+        description="Optional implicit solvent model applied only to the MM system "
+        "used to generate configurations. It influences which conformers are sampled, "
+        "but is discarded everywhere else: reference energies and forces are always "
+        "recalculated in vacuum with the ML potential, and the MM energies compared "
+        "against them during training are computed in vacuum. Defaults to `null`, "
+        "i.e. sampling in vacuum.",
+    )
+
+
+class MMMDSamplingSettings(_MMSamplingSettingsBase):
     """Settings for molecular dynamics sampling using a molecular mechanics force field.
 
     The force field is initially taken from the parameterisation settings, but is
@@ -343,7 +417,7 @@ class MLMDSamplingSettings(_SamplingSettingsBase):
     )
 
 
-class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
+class MMMDMetadynamicsSamplingSettings(_MMSamplingSettingsBase):
     """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
 
     The force field is initially taken from the parameterisation settings, but is

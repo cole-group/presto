@@ -16,6 +16,8 @@ from presto.find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
 )
+from presto.implicit_solvent import add_implicit_solvent_force
+from presto.metadynamics import Metadynamics
 from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
@@ -39,6 +41,7 @@ from presto.sample import (
     sample_mmmd_metadynamics_with_torsion_minimisation,
 )
 from presto.settings import (
+    ImplicitSolventSettings,
     MLMDSamplingSettings,
     MLPSettings,
     MMMDMetadynamicsSamplingSettings,
@@ -46,6 +49,13 @@ from presto.settings import (
     MMMDSamplingSettings,
     PreComputedDatasetSettings,
 )
+
+
+def _get_gb_forces(system: openmm.System) -> list[openmm.CustomGBForce]:
+    """Return the generalised Born (implicit solvent) forces in a system."""
+    return [
+        force for force in system.getForces() if isinstance(force, openmm.CustomGBForce)
+    ]
 
 
 class TestLoadPrecomputedDataset:
@@ -365,6 +375,29 @@ def test_build_mm_simulation_creates_system_and_simulation():
     assert isinstance(simulation, openmm.app.Simulation)
     assert simulation.system.getNumParticles() == mol.n_atoms
     assert simulation.context.getPlatform().getName() == "CPU"
+    assert not _get_gb_forces(simulation.system)
+
+
+def test_build_mm_simulation_adds_implicit_solvent():
+    """Build mm simulation adds an implicit solvent force when requested."""
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=1)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+    interchange = openff.interchange.Interchange.from_smirnoff(
+        ff, Topology.from_molecules(mol)
+    )
+
+    simulation, _ = _build_mm_simulation(
+        interchange,
+        300 * omm_unit.kelvin,
+        1.0 * omm_unit.femtosecond,
+        torch.device("cpu"),
+        implicit_solvent=ImplicitSolventSettings(),
+    )
+
+    gb_forces = _get_gb_forces(simulation.system)
+    assert len(gb_forces) == 1
+    assert gb_forces[0].getNumParticles() == mol.n_atoms
 
 
 class TestTorsionRestraints:
@@ -1540,6 +1573,177 @@ class TestSampleMmmdMetadynamicsIntegration:
         assert "forces" in entry
         assert "energy_weights" in entry
         assert "forces_weights" in entry
+
+
+class TestImplicitSolventSampling:
+    """Tests that implicit solvent reaches every MM system used for sampling."""
+
+    @staticmethod
+    def _mock_ml_system(mol):
+        def create_mock_system(*args, **kwargs):
+            mock_system = openmm.System()
+            for _ in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+            mock_system.addForce(openmm.CustomExternalForce("0"))
+            return mock_system
+
+        return create_mock_system
+
+    @staticmethod
+    def _short_md_kwargs():
+        return {
+            "timestep": 1.0 * omm_unit.femtoseconds,
+            "temperature": 300.0 * omm_unit.kelvin,
+            "n_conformers": 1,
+            "equilibration_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+            "production_sampling_time_per_conformer": 0.001 * omm_unit.picoseconds,
+            "snapshot_interval": 0.001 * omm_unit.picoseconds,
+        }
+
+    def test_sample_mmmd_uses_implicit_solvent(self, tmp_path):
+        """The system used for plain MM MD is solvated when requested."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=1)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDSamplingSettings(
+            implicit_solvent=ImplicitSolventSettings(),
+            **self._short_md_kwargs(),
+        )
+
+        with (
+            patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys,
+            patch(
+                "presto.sample._create_simulation", wraps=_create_simulation
+            ) as mock_create_simulation,
+        ):
+            mock_ml_sys.side_effect = self._mock_ml_system(mol)
+
+            result = sample_mmmd(
+                [mol],
+                ff,
+                torch.device("cpu"),
+                settings_obj,
+                {OutputType.PDB_TRAJECTORY: tmp_path},
+            )
+
+        # The first simulation created is the MM one; the ML simulation which follows
+        # it must stay in vacuum.
+        mm_system = mock_create_simulation.call_args_list[0].args[1]
+        assert len(_get_gb_forces(mm_system)) == 1
+
+        ml_system = mock_create_simulation.call_args_list[1].args[1]
+        assert not _get_gb_forces(ml_system)
+
+        assert len(result) == 1
+        entry = result[0][0]
+        assert {"smiles", "coords", "energy", "forces"} <= set(entry)
+
+    def test_metadynamics_biases_the_solvated_system(self, tmp_path):
+        """The implicit solvent is added before the metadynamics bias forces."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDMetadynamicsSamplingSettings(
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            implicit_solvent=ImplicitSolventSettings(),
+            **self._short_md_kwargs(),
+        )
+
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+        }
+
+        with (
+            patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys,
+            patch("presto.sample.Metadynamics", wraps=Metadynamics) as mock_metad,
+        ):
+            mock_ml_sys.side_effect = self._mock_ml_system(mol)
+
+            sample_mmmd_metadynamics(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        biased_system = mock_metad.call_args.kwargs["system"]
+        assert len(_get_gb_forces(biased_system)) == 1
+
+    def test_torsion_minimisation_uses_implicit_solvent(self, tmp_path):
+        """Both the metadynamics and the MM minimisation systems are solvated."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+            bias_frequency=0.001 * omm_unit.picoseconds,
+            bias_save_frequency=0.001 * omm_unit.picoseconds,
+            bias_height=0.5 * omm_unit.kilojoules_per_mole,
+            ml_minimisation_steps=1,
+            mm_minimisation_steps=1,
+            implicit_solvent=ImplicitSolventSettings(),
+            **self._short_md_kwargs(),
+        )
+
+        bias_dir = tmp_path / "bias"
+        bias_dir.mkdir()
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path,
+            OutputType.METADYNAMICS_BIAS: bias_dir,
+            OutputType.ML_MINIMISED_PDB: tmp_path / "ml_min",
+            OutputType.MM_MINIMISED_PDB: tmp_path / "mm_min",
+        }
+        (tmp_path / "ml_min").mkdir()
+        (tmp_path / "mm_min").mkdir()
+
+        with (
+            patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys,
+            patch(
+                "presto.sample.add_implicit_solvent_force",
+                wraps=add_implicit_solvent_force,
+            ) as mock_add_solvent,
+        ):
+            mock_ml_sys.side_effect = self._mock_ml_system(mol)
+
+            sample_mmmd_metadynamics_with_torsion_minimisation(
+                [mol], ff, torch.device("cpu"), settings_obj, output_paths
+            )
+
+        # Once for the metadynamics system, once for the MM minimisation system.
+        assert mock_add_solvent.call_count == 2
+        for call in mock_add_solvent.call_args_list:
+            assert len(_get_gb_forces(call.args[0])) == 1
+
+    def test_no_implicit_solvent_by_default(self, tmp_path):
+        """No solvent force is added when implicit solvent is not requested."""
+        mol = Molecule.from_smiles("CCO")
+        mol.generate_conformers(n_conformers=1)
+        ff = ForceField("openff_unconstrained-2.3.0.offxml")
+
+        settings_obj = MMMDSamplingSettings(**self._short_md_kwargs())
+
+        with (
+            patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys,
+            patch(
+                "presto.sample.add_implicit_solvent_force",
+                wraps=add_implicit_solvent_force,
+            ) as mock_add_solvent,
+        ):
+            mock_ml_sys.side_effect = self._mock_ml_system(mol)
+
+            sample_mmmd(
+                [mol],
+                ff,
+                torch.device("cpu"),
+                settings_obj,
+                {OutputType.PDB_TRAJECTORY: tmp_path},
+            )
+
+        mock_add_solvent.assert_not_called()
 
 
 class TestSampleMmmdMetadynamicsTorsionMinIntegration:

@@ -4,6 +4,7 @@
 
 ### Features
 
+- Add an optional `implicit_solvent` setting to the MM sampling protocols (`mm_md`, `mm_md_metadynamics`, `mm_md_metadynamics_torsion_minimisation`). When set, a generalised Born model (`obc2`, `obc1`, `hct`, `gbn` or `gbn2`) is added to the MM system used to generate configurations, including the metadynamics and MM torsion-minimisation stages. It is discarded everywhere else: the MLP reference energies and forces, the MLP minimisations, and the MM energies compared against the MLP are all still evaluated in vacuum. The default remains sampling in vacuum.
 - Add an optional `starting_conformers` setting to each sampling stage (`training_sampling_settings`, `testing_sampling_settings`) and to `msm_settings`. When set to an SDF path, that stage starts from the supplied conformers (matched to each molecule by graph isomorphism and realigned automatically) instead of generating them with ETKDG; `n_conformers` is ignored for that stage. The default remains ETKDG.In [#78](https://github.com/cole-group/presto/pull/78).
 - Add `presto.create_types.add_library_charges_to_forcefield` to write custom partial charges from OpenFF `Molecule` objects into a force field as library charges, addressing [#64](https://github.com/cole-group/presto/issues/64).
 
@@ -13,6 +14,7 @@
 
 ### Documentation
 
+- Add [Sample with implicit solvent](how-to/use-implicit-solvent.md) how-to guide.
 - Add [Use custom charges](how-to/use-custom-charges.md) how-to guide.
 - Add [Use your own starting conformers](how-to/use-starting-conformers.md) how-to guide.
 - Add a `CITATION.cff` file and cite the presto preprint in the README and docs, and point users to the OpenFF publications to cite, in [#76](https://github.com/cole-group/presto/pull/76).

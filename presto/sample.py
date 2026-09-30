@@ -33,6 +33,7 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
+from .implicit_solvent import add_implicit_solvent_force
 from .load_molecules import load_conformers_for_molecule
 from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
@@ -169,14 +170,39 @@ def _build_ml_simulation(
     )
 
 
+def _build_mm_system(
+    interchange: openff.interchange.Interchange,
+    implicit_solvent: settings.ImplicitSolventSettings | None,
+    temperature: openmm.unit.Quantity,
+) -> openmm.System:
+    """Create an MM system from an Interchange object, optionally with implicit solvent.
+
+    The implicit solvent is only ever used to influence the configurations generated
+    during MM sampling; energies and forces are always recalculated in vacuum with the
+    ML potential.
+    """
+    mm_system = interchange.to_openmm_system()
+
+    if implicit_solvent is not None:
+        add_implicit_solvent_force(
+            mm_system,
+            interchange.topology.to_openmm(),
+            implicit_solvent,
+            temperature,
+        )
+
+    return mm_system
+
+
 def _build_mm_simulation(
     interchange: openff.interchange.Interchange,
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
+    implicit_solvent: settings.ImplicitSolventSettings | None = None,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an MM system from an Interchange object."""
-    mm_system = interchange.to_openmm_system()
+    mm_system = _build_mm_system(interchange, implicit_solvent, temperature)
     mm_topology = interchange.topology.to_openmm()
     return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
 
@@ -367,7 +393,11 @@ def sample_mmmd(
         )
 
         simulation, integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            implicit_solvent=settings.implicit_solvent,
         )
 
         # Create molecule-specific PDB path
@@ -602,7 +632,11 @@ def sample_mmmd_metadynamics(
             )
             # Fall back to regular MD for this molecule
             simulation, integrator = _build_mm_simulation(
-                interchange, settings.temperature, settings.timestep, device
+                interchange,
+                settings.temperature,
+                settings.timestep,
+                device,
+                implicit_solvent=settings.implicit_solvent,
             )
 
             pdb_path = None
@@ -631,7 +665,11 @@ def sample_mmmd_metadynamics(
                 bias_width=settings.bias_width,
             )
 
-            system = interchange.to_openmm_system()
+            # Any implicit solvent must be added before the metadynamics bias forces so
+            # that the biased sampling is performed in solvent.
+            system = _build_mm_system(
+                interchange, settings.implicit_solvent, settings.temperature
+            )
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
@@ -1214,7 +1252,11 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             include_smarts=settings.torsions_to_include_smarts,
             exclude_smarts=settings.torsions_to_exclude_smarts,
         )
-        system = interchange.to_openmm_system()
+        # Any implicit solvent must be added before the metadynamics bias forces so
+        # that the biased sampling is performed in solvent.
+        system = _build_mm_system(
+            interchange, settings.implicit_solvent, settings.temperature
+        )
 
         if not torsions:
             logger.warning(
@@ -1360,9 +1402,15 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
         )
 
         # Step 3: Generate torsion-minimised structures
-        # Create a fresh MM simulation for minimisation (without metadynamics biases)
+        # Create a fresh MM simulation for minimisation (without metadynamics biases).
+        # This only generates configurations (its energies are discarded), so it uses
+        # the same implicit solvent as the rest of the MM sampling.
         mm_min_simulation, mm_min_integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            implicit_solvent=settings.implicit_solvent,
         )
 
         # Create a fresh ML simulation for minimisation
