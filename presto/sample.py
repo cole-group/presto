@@ -278,6 +278,18 @@ def recalculate_energies_and_forces(
     )
 
 
+def _interchange_to_openmm_system(
+    interchange: openff.interchange.Interchange,
+) -> openmm.System:
+    """Create an OpenMM system from an Interchange object.
+
+    vdW and electrostatics are kept in separate forces, as custom vdW forms from
+    SMIRNOFF plugins (e.g. double exponential) cannot be represented by a single
+    combined ``NonbondedForce``.
+    """
+    return interchange.to_openmm_system(combine_nonbonded_forces=False)
+
+
 @_register_sampling_fn(settings.MMMDSamplingSettings)
 def sample_mmmd(
     mols: list[openff.toolkit.Molecule],
@@ -319,7 +331,7 @@ def sample_mmmd(
             off_ff, openff.toolkit.Topology.from_molecules(mol_with_conformers)
         )
 
-        system = interchange.to_openmm_system()
+        system = _interchange_to_openmm_system(interchange)
         integrator = _get_integrator(settings.temperature, settings.timestep)
         simulation = Simulation(interchange.topology.to_openmm(), system, integrator)
 
@@ -548,7 +560,7 @@ def sample_mmmd_metadynamics(
                 f"No rotatable bonds found in molecule {mol_idx}. Skipping metadynamics."
             )
             # Fall back to regular MD for this molecule
-            system = interchange.to_openmm_system()
+            system = _interchange_to_openmm_system(interchange)
             integrator = _get_integrator(settings.temperature, settings.timestep)
             simulation = Simulation(
                 interchange.topology.to_openmm(), system, integrator
@@ -580,7 +592,7 @@ def sample_mmmd_metadynamics(
                 bias_width=settings.bias_width,
             )
 
-            system = interchange.to_openmm_system()
+            system = _interchange_to_openmm_system(interchange)
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
@@ -1158,7 +1170,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             include_smarts=settings.torsions_to_include_smarts,
             exclude_smarts=settings.torsions_to_exclude_smarts,
         )
-        system = interchange.to_openmm_system()
+        system = _interchange_to_openmm_system(interchange)
 
         if not torsions:
             logger.warning(
@@ -1298,7 +1310,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
 
         # Step 3: Generate torsion-minimised structures
         # Create a fresh MM simulation for minimisation (without metadynamics biases)
-        mm_min_system = interchange.to_openmm_system()
+        mm_min_system = _interchange_to_openmm_system(interchange)
         mm_min_integrator = _get_integrator(settings.temperature, settings.timestep)
         mm_min_simulation = Simulation(
             interchange.topology.to_openmm(),

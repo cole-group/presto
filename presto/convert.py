@@ -11,6 +11,7 @@ import openff.toolkit
 import smee
 import smee.converters
 import torch
+from openff.toolkit.typing.engines.smirnoff.parameters import ParameterAttribute
 from openff.units import Quantity
 from openff.units import unit as off_unit
 
@@ -50,7 +51,11 @@ def convert_to_smirnoff(
     Returns:
         A SMIRNOFF force field containing the valence terms of the input force field.
     """
-    ff_smirnoff = openff.toolkit.ForceField() if base is None else copy.deepcopy(base)
+    ff_smirnoff = (
+        openff.toolkit.ForceField(load_plugins=True)
+        if base is None
+        else copy.deepcopy(base)
+    )
 
     for potential in ff.potentials:
         if potential.type in {"Bonds", "Angles", "ProperTorsions", "ImproperTorsions"}:
@@ -179,6 +184,39 @@ def convert_to_smirnoff(
     return ff_smirnoff
 
 
+def coerce_dimensionless_attributes(off_ff: openff.toolkit.ForceField) -> None:
+    """Restore ``Quantity`` typing for dimensionless handler attributes, in place.
+
+    The toolkit skips the ``ParameterAttribute`` setter when a value read from an
+    offxml already equals the declared default, so the raw ``float`` parsed from the
+    XML survives. ``openff-interchange`` then rejects it, because the corresponding
+    collection field is typed as a ``Quantity``. This only bites for dimensionless
+    attributes (a value with units is always parsed into a ``Quantity``), the
+    ``DoubleExponential`` ``alpha``/``beta`` pair being the case that matters here.
+
+    Args:
+        off_ff: The force field to fix up. Modified in place.
+    """
+    for handler_name in off_ff.registered_parameter_handlers:
+        handler = off_ff.get_parameter_handler(handler_name)
+
+        for attr_name, attribute in type(handler)._get_parameter_attributes().items():
+            if (
+                not isinstance(attribute, ParameterAttribute)
+                or getattr(attribute, "_unit", None) != _UNITLESS
+            ):
+                continue
+
+            value = getattr(handler, attr_name)
+            if isinstance(value, Quantity):
+                continue
+
+            logger.debug(
+                f"Coercing {handler_name}.{attr_name} to a dimensionless Quantity"
+            )
+            setattr(handler, attr_name, float(value) * _UNITLESS)
+
+
 def parameterise(
     settings: ParameterisationSettings,
     device: TorchDevice = "cuda",
@@ -214,7 +252,8 @@ def parameterise(
     # Create molecules from SMILES
     mols = settings.molecules
 
-    off_ff = openff.toolkit.ForceField(settings.initial_force_field)
+    off_ff = openff.toolkit.ForceField(settings.initial_force_field, load_plugins=True)
+    coerce_dimensionless_attributes(off_ff)
 
     if "[#1:1]-[*:2]" in off_ff["Constraints"].parameters:
         logger.warning(

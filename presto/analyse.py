@@ -100,7 +100,7 @@ def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
 
 def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
     """Load the .offxml files from the given paths."""
-    return {i: ForceField(p) for i, p in paths_by_iter.items()}
+    return {i: ForceField(p, load_plugins=True) for i, p in paths_by_iter.items()}
 
 
 def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:

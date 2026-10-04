@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (051_double_exponential)
+
+### Improvements
+
+- Load force fields with ``load_plugins=True`` so that SMIRNOFF plugin handlers (e.g. ``DoubleExponential``) can be used as the initial force field. Valence terms are fitted as normal and the plugin vdW parameters are kept fixed.
+- Keep vdW and electrostatics as separate OpenMM forces when building MM systems, as plugin vdW forms cannot be combined into a single ``NonbondedForce``.
+
+### Fixes
+
+- Never remove parameters without an ID when dropping unused bespoke parameters.
+- Coerce dimensionless handler attributes (e.g. ``DoubleExponential`` ``alpha``/``beta``) read as raw floats into ``Quantity`` objects, which Interchange requires.
+
 ## 0.5.1
 
 ### Fixes
