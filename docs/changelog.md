@@ -9,6 +9,7 @@
 
 ### Fixes
 
+- Guard against lack of any constraints in the input force field ([#56](https://github.com/cole-group/presto/pull/56)). This allows use of the unconstrained version of Parsely.
 - Never remove parameters without an ID when dropping unused bespoke parameters.
 - Coerce dimensionless handler attributes (e.g. ``DoubleExponential`` ``alpha``/``beta``) read as raw floats into ``Quantity`` objects, which Interchange requires.
 
