@@ -66,7 +66,7 @@ from datasets import load_from_disk
 ds = load_from_disk("training_iteration_2/energy_and_force_data_mol0")
 ```
 
-Each row holds energies and forces for one snapshot, plus the coordinates.
+Each row holds energies and forces for one snapshot, plus the coordinates. If corrections such as implicit solvent were used, `energy` and `forces` hold the uncorrected reference, and the corrections are in the `reference_energy_correction`, `reference_forces_correction`, `mm_energy_correction` and `mm_forces_correction` columns. The `energies_and_forces_mol<n>.hdf5` scatter files include the corrections in the reference and predicted values, and store the energy corrections as `energy_reference_correction` and `energy_mm_correction`.
 
 ## Where to look first when a fit looks off
 

@@ -27,7 +27,7 @@ Outputs from the untrained force field, after the modified Seminario method has 
 
 Validation dataset that drives the diagnostic plots in `plots/`. Held fixed across iterations.
 
-- `energy_and_force_data_mol<n>/` — per-molecule energies/forces (HuggingFace datasets format).
+- `energy_and_force_data_mol<n>/` — per-molecule energies/forces (HuggingFace datasets format). `energy` and `forces` hold the uncorrected reference; any corrections (e.g. implicit solvent) are stored in the `reference_*_correction` and `mm_*_correction` columns.
 - `trajectory_mol<n>.pdb` — sampled snapshots (only for non-`pre_computed` protocols).
 
 ## `training_iteration_<n>/`

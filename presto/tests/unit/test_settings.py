@@ -8,23 +8,36 @@ import torch
 from hypothesis import given
 from hypothesis import settings as hypothesis_settings
 from hypothesis import strategies as st
+from loguru import logger as loguru_logger
 from openff.toolkit import Molecule
 from openmm import unit as omm_unit
 from pydantic import ValidationError
 from rdkit import Chem
 
 from presto import __version__
+from presto._exceptions import InvalidSettingsError
+from presto.find_torsions import (
+    DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+    DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+)
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
+    AnySolvSMDCorrectionSettings,
+    GBn2SASACorrectionSettings,
+    MetadynamicsSettings,
     MLMDSamplingSettings,
     MLPSettings,
     MMMDMetadynamicsSamplingSettings,
     MMMDMetadynamicsTorsionMinimisationSamplingSettings,
     MMMDSamplingSettings,
+    MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
     MSMSettings,
     OutlierFilterSettings,
     ParamSettings,
+    PreComputedDatasetSettings,
+    TorsionMinimisationSettings,
+    TorsionSelectionSettings,
     TrainingSettings,
     TypeGenerationSettings,
     WorkflowSettings,
@@ -209,33 +222,32 @@ class TestMMMDMetadynamicsSamplingSettings:
 
     def test_default_metadynamics_parameters(self):
         """Test that default metadynamics parameters are set."""
-        settings = MMMDMetadynamicsSamplingSettings()
-        assert settings.bias_factor == 20.0
-        assert settings.bias_width == np.pi / 10
-        assert settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole) == 1.0
+        metad_settings = MMMDMetadynamicsSamplingSettings().metadynamics_settings
+        assert metad_settings.bias_factor == 20.0
+        assert metad_settings.bias_width == np.pi / 10
+        assert (
+            metad_settings.bias_height.value_in_unit(omm_unit.kilojoules_per_mole)
+            == 1.0
+        )
 
     def test_n_steps_per_bias(self):
         """Test calculation of steps per bias."""
-        settings = MMMDMetadynamicsSamplingSettings(
-            timestep=1.0 * omm_unit.femtoseconds,
-            bias_frequency=0.5 * omm_unit.picoseconds,
-        )
-        assert settings.n_steps_per_bias == 500
+        settings = MetadynamicsSettings(bias_frequency=0.5 * omm_unit.picoseconds)
+        assert settings.n_steps_per_bias(1.0 * omm_unit.femtoseconds) == 500
 
     def test_n_steps_per_bias_save(self):
         """Test calculation of steps per bias save."""
-        settings = MMMDMetadynamicsSamplingSettings(
-            timestep=1.0 * omm_unit.femtoseconds,
-            bias_save_frequency=1.0 * omm_unit.picoseconds,
-        )
-        assert settings.n_steps_per_bias_save == 1000
+        settings = MetadynamicsSettings(bias_save_frequency=1.0 * omm_unit.picoseconds)
+        assert settings.n_steps_per_bias_save(1.0 * omm_unit.femtoseconds) == 1000
 
     def test_invalid_bias_frequency_not_divisible_by_timestep(self):
         """Test that invalid bias frequency raises error."""
         with pytest.raises(ValidationError, match="must be divisible by the timestep"):
             MMMDMetadynamicsSamplingSettings(
                 timestep=1.5 * omm_unit.femtoseconds,
-                bias_frequency=1.0 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=1.0 * omm_unit.picoseconds
+                ),
             )
 
     def test_invalid_bias_save_frequency_not_divisible_by_timestep(self):
@@ -243,7 +255,9 @@ class TestMMMDMetadynamicsSamplingSettings:
         with pytest.raises(ValidationError, match="must be divisible by the timestep"):
             MMMDMetadynamicsSamplingSettings(
                 timestep=1.5 * omm_unit.femtoseconds,
-                bias_save_frequency=1.0 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_save_frequency=1.0 * omm_unit.picoseconds
+                ),
             )
 
     def test_production_time_not_divisible_by_bias_frequency(self):
@@ -251,8 +265,38 @@ class TestMMMDMetadynamicsSamplingSettings:
         with pytest.raises(ValidationError, match="must be divisible by"):
             MMMDMetadynamicsSamplingSettings(
                 production_sampling_time_per_conformer=10.3 * omm_unit.picoseconds,
-                bias_frequency=0.5 * omm_unit.picoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=0.5 * omm_unit.picoseconds
+                ),
             )
+
+    def test_metadynamics_settings_are_read_only(self):
+        """Test that nested fields cannot be set, as that would skip validation."""
+        settings = MMMDMetadynamicsSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds
+        )
+        with pytest.raises(InvalidSettingsError, match="model_copy"):
+            settings.metadynamics_settings.bias_frequency = (
+                0.1005 * omm_unit.picoseconds
+            )
+
+    def test_replacing_metadynamics_settings_is_validated(self):
+        """Test that replacing the whole object revalidates the bias frequencies."""
+        settings = MMMDMetadynamicsSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds
+        )
+        with pytest.raises(ValidationError, match="must be divisible by the timestep"):
+            settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+                update={"bias_frequency": 0.1005 * omm_unit.picoseconds}
+            )
+
+    def test_replacing_metadynamics_settings_via_model_copy(self):
+        """Test the documented way of changing a metadynamics setting."""
+        settings = MMMDMetadynamicsSamplingSettings()
+        settings.metadynamics_settings = settings.metadynamics_settings.model_copy(
+            update={"bias_factor": 15.0}
+        )
+        assert settings.metadynamics_settings.bias_factor == 15.0
 
     def test_output_types_includes_metadynamics_bias(self):
         """Test that output types include metadynamics bias."""
@@ -271,22 +315,17 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert settings.sampling_protocol == "mm_md_metadynamics_torsion_minimisation"
 
-    def test_inherits_from_metadynamics_settings(self):
-        """Test that it inherits from MMMDMetadynamicsSamplingSettings."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert isinstance(settings, MMMDMetadynamicsSamplingSettings)
-
     def test_default_minimisation_steps(self):
         """Test default minimisation steps."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert settings.ml_minimisation_steps == 10
-        assert settings.mm_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 10
 
     def test_default_torsion_restraint_force_constant(self):
         """Test default torsion restraint force constant."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert (
-            settings.torsion_restraint_force_constant.value_in_unit(
+            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
                 omm_unit.kilojoules_per_mole / omm_unit.radian**2
             )
             == 0.0
@@ -301,59 +340,36 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
     def test_default_torsion_min_loss_weights(self):
         """Test default loss weights for torsion-minimised samples."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
-        assert settings.loss_energy_weight_mm_torsion_min == 1000.0
-        assert settings.loss_force_weight_mm_torsion_min == 0.1
-        assert settings.loss_energy_weight_ml_torsion_min == 1000.0
-        assert settings.loss_force_weight_ml_torsion_min == 0.1
-
-    def test_custom_minimisation_steps(self):
-        """Test custom minimisation steps."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            ml_minimisation_steps=20,
-            mm_minimisation_steps=15,
-        )
-        assert settings.ml_minimisation_steps == 20
-        assert settings.mm_minimisation_steps == 15
-
-    def test_custom_torsion_restraint_force_constant(self):
-        """Test custom torsion restraint force constant."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            torsion_restraint_force_constant=500.0
-            * omm_unit.kilojoules_per_mole
-            / omm_unit.radian**2,
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
+            == 1000.0
         )
         assert (
-            settings.torsion_restraint_force_constant.value_in_unit(
-                omm_unit.kilojoules_per_mole / omm_unit.radian**2
-            )
-            == 500.0
+            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
+            == 0.1
         )
-
-    def test_custom_loss_weights(self):
-        """Test custom loss weights."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            loss_energy_weight=500.0,
-            loss_force_weight=0.5,
-            loss_energy_weight_mm_torsion_min=200.0,
-            loss_force_weight_mm_torsion_min=0.0,
-            loss_energy_weight_ml_torsion_min=100.0,
-            loss_force_weight_ml_torsion_min=0.1,
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_ml_torsion_min
+            == 1000.0
         )
-        assert settings.loss_energy_weight == 500.0
-        assert settings.loss_force_weight == 0.5
-        assert settings.loss_energy_weight_mm_torsion_min == 200.0
-        assert settings.loss_force_weight_mm_torsion_min == 0.0
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_ml_torsion_min
+            == 0.1
+        )
 
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            ml_minimisation_steps=25,
-            mm_minimisation_steps=30,
-            torsion_restraint_force_constant=750.0
-            * omm_unit.kilojoules_per_mole
-            / omm_unit.radian**2,
             loss_energy_weight=800.0,
-            loss_force_weight_mm_torsion_min=0.05,
+            metadynamics_settings=MetadynamicsSettings(bias_factor=15.0),
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=25,
+                mm_minimisation_steps=30,
+                torsion_restraint_force_constant=750.0
+                * omm_unit.kilojoules_per_mole
+                / omm_unit.radian**2,
+                loss_force_weight_mm_torsion_min=0.05,
+            ),
         )
         yaml_path = tmp_path / "settings.yaml"
         settings.to_yaml(yaml_path)
@@ -361,23 +377,17 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         loaded = MMMDMetadynamicsTorsionMinimisationSamplingSettings.from_yaml(
             yaml_path
         )
-        assert loaded.ml_minimisation_steps == 25
-        assert loaded.mm_minimisation_steps == 30
-        assert (
-            loaded.torsion_restraint_force_constant.value_in_unit(
-                omm_unit.kilojoules_per_mole / omm_unit.radian**2
-            )
-            == 750.0
-        )
-        assert loaded.loss_energy_weight == 800.0
-        assert loaded.loss_force_weight_mm_torsion_min == 0.05
+        assert loaded == settings
 
-    def test_inherits_metadynamics_parameters(self):
-        """Test that metadynamics parameters are inherited."""
-        settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-            bias_factor=15.0,
-        )
-        assert settings.bias_factor == 15.0
+    def test_invalid_bias_frequency_not_divisible_by_timestep(self):
+        """Test that the bias frequencies are validated against the timestep."""
+        with pytest.raises(ValidationError, match="must be divisible by the timestep"):
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings(
+                timestep=1.5 * omm_unit.femtoseconds,
+                metadynamics_settings=MetadynamicsSettings(
+                    bias_frequency=1.0 * omm_unit.picoseconds
+                ),
+            )
 
     def test_output_types_includes_metadynamics_bias(self):
         """Test that output types include metadynamics bias."""
@@ -386,6 +396,168 @@ class TestMMMDMetadynamicsTorsionMinimisationSamplingSettings:
         settings = MMMDMetadynamicsTorsionMinimisationSamplingSettings()
         assert OutputType.METADYNAMICS_BIAS in settings.output_types
         assert OutputType.PDB_TRAJECTORY in settings.output_types
+
+
+class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
+    """Tests for torsion-restrained MM MD with torsion minimisation sampling settings."""
+
+    def test_sampling_protocol(self):
+        """Test that sampling protocol is set correctly."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert (
+            settings.sampling_protocol
+            == "mm_md_torsion_restrained_torsion_minimisation"
+        )
+
+    def test_default_md_torsion_restraint_force_constant(self):
+        """Test the default force constant for the restraints applied during MD."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert (
+            settings.md_torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 100.0
+        )
+
+    def test_md_and_minimisation_force_constants_are_independent(self):
+        """Test that the MD and minimisation restraint force constants are separate."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            md_torsion_restraint_force_constant=500.0
+            * omm_unit.kilojoules_per_mole
+            / omm_unit.radian**2,
+        )
+        assert (
+            settings.md_torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 500.0
+        )
+        # The minimisation restraint keeps its own default of 0.0
+        assert (
+            settings.torsion_minimisation_settings.torsion_restraint_force_constant.value_in_unit(
+                omm_unit.kilojoules_per_mole / omm_unit.radian**2
+            )
+            == 0.0
+        )
+
+    def test_torsion_minimisation_defaults(self):
+        """Test the defaults of the nested minimisation stage settings."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.torsion_minimisation_settings.ml_minimisation_steps == 10
+        assert settings.torsion_minimisation_settings.mm_minimisation_steps == 10
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_mm_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_mm_torsion_min
+            == 0.1
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_energy_weight_ml_torsion_min
+            == 1000.0
+        )
+        assert (
+            settings.torsion_minimisation_settings.loss_force_weight_ml_torsion_min
+            == 0.1
+        )
+
+    def test_torsion_selection_defaults(self):
+        """Test the default torsion selection SMARTS."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.torsion_selection_settings.torsions_to_include_smarts == (
+            DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        assert settings.torsion_selection_settings.torsions_to_exclude_smarts == (
+            DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+        )
+
+    def test_md_and_minimisation_torsion_selections_are_independent(self):
+        """Test that MD and minimisation can restrain different torsions."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            torsion_selection_settings=TorsionSelectionSettings(
+                torsions_to_include_smarts=["[*:1]-[#6:2]-[#8:3]-[*:4]"]
+            ),
+        )
+        assert settings.torsion_selection_settings.torsions_to_include_smarts == [
+            "[*:1]-[#6:2]-[#8:3]-[*:4]"
+        ]
+        assert (
+            settings.torsion_minimisation_settings.torsion_selection_settings.torsions_to_include_smarts
+            == DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+
+    def test_has_no_metadynamics_settings(self):
+        """Test that metadynamics settings are rejected, as there is no bias."""
+        assert "bias_height" not in (
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings.model_fields
+        )
+        with pytest.raises(ValidationError):
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+                bias_height=1.0 * omm_unit.kilojoules_per_mole,
+            )
+
+    def test_output_types_exclude_metadynamics_bias(self):
+        """Test that no metadynamics bias output is expected."""
+        from presto.outputs import OutputType
+
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings()
+        assert settings.output_types == {
+            OutputType.PDB_TRAJECTORY,
+            OutputType.ML_MINIMISED_PDB,
+            OutputType.MM_MINIMISED_PDB,
+        }
+
+    @staticmethod
+    def _capture_logs(build_settings) -> list[str]:
+        """Return the log messages emitted while building a settings object."""
+        messages: list[str] = []
+        sink_id = loguru_logger.add(messages.append)
+        try:
+            build_settings()
+        finally:
+            loguru_logger.remove(sink_id)
+        return messages
+
+    def test_warns_when_no_starting_conformers(self):
+        """Test that omitting starting_conformers warns, as it is the intended input."""
+        messages = self._capture_logs(
+            MMMDTorsionRestrainedTorsionMinimisationSamplingSettings
+        )
+        assert any("starting_conformers" in message for message in messages)
+
+    def test_no_warning_with_starting_conformers(
+        self, tmp_path, ethanol_with_conformers, write_multiconformer_sdf
+    ):
+        """Test that supplying starting_conformers does not warn."""
+        sdf_path = tmp_path / "conformers.sdf"
+        write_multiconformer_sdf(ethanol_with_conformers, sdf_path)
+
+        messages = self._capture_logs(
+            lambda: MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+                starting_conformers=sdf_path
+            )
+        )
+        assert not any("starting_conformers" in message for message in messages)
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Test YAML serialization round-trip."""
+        settings = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(
+            md_torsion_restraint_force_constant=250.0
+            * omm_unit.kilojoules_per_mole
+            / omm_unit.radian**2,
+            torsion_minimisation_settings=TorsionMinimisationSettings(
+                ml_minimisation_steps=25
+            ),
+            loss_energy_weight=800.0,
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = MMMDTorsionRestrainedTorsionMinimisationSamplingSettings.from_yaml(
+            yaml_path
+        )
+        assert loaded == settings
 
 
 class TestMSMSettings:
@@ -460,18 +632,15 @@ class TestOutlierFilterSettings:
         settings = OutlierFilterSettings()
         assert settings.energy_outlier_threshold == 2.0
         assert settings.force_outlier_threshold == 500.0
-        assert settings.min_conformations == 1
 
     def test_custom_thresholds(self):
         """Test custom threshold values."""
         settings = OutlierFilterSettings(
             energy_outlier_threshold=5.0,
             force_outlier_threshold=25.0,
-            min_conformations=5,
         )
         assert settings.energy_outlier_threshold == 5.0
         assert settings.force_outlier_threshold == 25.0
-        assert settings.min_conformations == 5
 
     def test_disable_energy_filtering(self):
         """Test that energy filtering can be disabled."""
@@ -494,17 +663,11 @@ class TestOutlierFilterSettings:
         assert settings.energy_outlier_threshold is None
         assert settings.force_outlier_threshold is None
 
-    def test_min_conformations_must_be_at_least_one(self):
-        """Test that min_conformations cannot be less than 1."""
-        with pytest.raises(ValidationError, match="greater than or equal to 1"):
-            OutlierFilterSettings(min_conformations=0)
-
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = OutlierFilterSettings(
             energy_outlier_threshold=7.5,
             force_outlier_threshold=40.0,
-            min_conformations=3,
         )
         yaml_path = tmp_path / "outlier_settings.yaml"
         settings.to_yaml(yaml_path)
@@ -512,7 +675,6 @@ class TestOutlierFilterSettings:
         loaded = OutlierFilterSettings.from_yaml(yaml_path)
         assert loaded.energy_outlier_threshold == 7.5
         assert loaded.force_outlier_threshold == 40.0
-        assert loaded.min_conformations == 3
 
 
 class TestTypeGenerationSettings:
@@ -944,8 +1106,8 @@ class TestWorkflowSettings:
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=7.5,  # kcal/mol/atom
                 force_outlier_threshold=30.0,
-                min_conformations=2,
             ),
+            min_conformations=2,
         )
         yaml_path = tmp_path / "workflow_with_outlier.yaml"
         settings.to_yaml(yaml_path)
@@ -954,7 +1116,7 @@ class TestWorkflowSettings:
         assert loaded.outlier_filter_settings is not None
         assert loaded.outlier_filter_settings.energy_outlier_threshold == 7.5
         assert loaded.outlier_filter_settings.force_outlier_threshold == 30.0
-        assert loaded.outlier_filter_settings.min_conformations == 2
+        assert loaded.min_conformations == 2
 
 
 def _write_single_conformer_sdf(smiles: str, path: Path) -> None:
@@ -1037,4 +1199,163 @@ class TestStartingConformersField:
                     msm_settings=MSMSettings(starting_conformers=sdf),
                 ),
                 device_type="cpu",
+            )
+
+
+def _workflow_with(**kwargs) -> WorkflowSettings:
+    return WorkflowSettings(
+        param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+        device_type="cpu",
+        **kwargs,
+    )
+
+
+def _capture_warnings() -> tuple[list[str], int]:
+    messages: list[str] = []
+    sink = loguru_logger.add(lambda message: messages.append(str(message)))
+    return messages, sink
+
+
+class TestCorrectionSettings:
+    """Tests for the energy and force correction settings."""
+
+    def test_defaults_are_gas_phase(self):
+        """By default nothing is corrected, so fits are unchanged."""
+        settings = _workflow_with()
+        assert settings.reference_corrections == []
+        assert settings.mm_corrections == []
+        assert settings.min_conformations == 50
+        assert settings.training_sampling_settings.mm_sampling_corrections == "from_fit"
+        assert settings.training_sampling_settings.ml_sampling_corrections == []
+
+    def test_min_conformations_must_be_at_least_one(self):
+        """Entries may never be emptied by removing conformations."""
+        with pytest.raises(ValidationError, match="greater than or equal to 1"):
+            _workflow_with(min_conformations=0)
+
+    def test_correction_defaults(self):
+        """The defaults follow the ff19SB-style GBneck2 + SASA and AnySolv setup."""
+        gb = GBn2SASACorrectionSettings()
+        assert gb.solvent_dielectric == 78.5
+        assert gb.solute_dielectric == 1.0
+        assert gb.sasa_model == "lcpo"
+        assert gb.surface_tension.value_in_unit(
+            omm_unit.kilocalorie_per_mole / omm_unit.angstrom**2
+        ) == pytest.approx(0.005)
+        anysolv = AnySolvSMDCorrectionSettings()
+        assert anysolv.checkpoint == "model_moe"
+        assert anysolv.solvent == "water"
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Corrections survive a YAML round trip, including 'from_fit'."""
+        settings = _workflow_with(
+            reference_corrections=[
+                AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+            ],
+            mm_corrections=[GBn2SASACorrectionSettings(sasa_model="ace")],
+            training_sampling_settings=MMMDSamplingSettings(
+                ml_sampling_corrections="from_fit",
+                mm_sampling_corrections=[],
+            ),
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+
+        assert loaded.reference_corrections == settings.reference_corrections
+        assert loaded.mm_corrections == settings.mm_corrections
+        assert loaded.training_sampling_settings.ml_sampling_corrections == "from_fit"
+        assert loaded.training_sampling_settings.mm_sampling_corrections == []
+
+    def test_corrections_load_from_plain_yaml(self, tmp_path):
+        """Corrections can be written by hand, discriminated by correction_type."""
+        yaml_path = tmp_path / "settings.yaml"
+        yaml_path.write_text(
+            "param_settings:\n"
+            "  molecule_input_type: smiles\n"
+            "  molecules: CCO\n"
+            "device_type: cpu\n"
+            "reference_corrections:\n"
+            "  - correction_type: anysolv_smd\n"
+            "    checkpoint: model_compact\n"
+            "mm_corrections:\n"
+            "  - correction_type: gbn2_sasa\n"
+        )
+
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+
+        assert isinstance(loaded.reference_corrections[0], AnySolvSMDCorrectionSettings)
+        assert isinstance(loaded.mm_corrections[0], GBn2SASACorrectionSettings)
+
+    def test_wrong_side_is_rejected(self):
+        """An MM correction cannot be applied to the reference, or vice versa."""
+        with pytest.raises(ValidationError):
+            _workflow_with(reference_corrections=[GBn2SASACorrectionSettings()])
+        with pytest.raises(ValidationError):
+            MMMDSamplingSettings(
+                mm_sampling_corrections=[AnySolvSMDCorrectionSettings()]
+            )
+
+    def test_duplicate_corrections_are_rejected(self):
+        """The same correction cannot be applied twice."""
+        with pytest.raises(ValidationError, match="duplicate"):
+            _workflow_with(
+                mm_corrections=[
+                    GBn2SASACorrectionSettings(),
+                    GBn2SASACorrectionSettings(),
+                ]
+            )
+        with pytest.raises(ValidationError, match="duplicate"):
+            MMMDSamplingSettings(
+                mm_sampling_corrections=[
+                    GBn2SASACorrectionSettings(),
+                    GBn2SASACorrectionSettings(),
+                ]
+            )
+
+    def test_missing_checkpoint_path_is_rejected(self, tmp_path):
+        """A checkpoint given as a path must exist."""
+        with pytest.raises(ValidationError, match="does not exist"):
+            AnySolvSMDCorrectionSettings(checkpoint=str(tmp_path / "missing.pt"))
+        checkpoint = tmp_path / "weights.pt"
+        checkpoint.write_bytes(b"")
+        assert AnySolvSMDCorrectionSettings(checkpoint=str(checkpoint))
+
+    def test_one_sided_corrections_warn(self):
+        """Correcting only one side is allowed, but probably a mistake."""
+        messages, sink = _capture_warnings()
+        try:
+            _workflow_with(mm_corrections=[GBn2SASACorrectionSettings()])
+        finally:
+            loguru_logger.remove(sink)
+
+        assert any("only one of the reference and MM" in m for m in messages)
+
+    def test_zeroed_precomputed_test_data_warns(self, tmp_path):
+        """Test data must use the same reference as training data to be comparable."""
+        messages, sink = _capture_warnings()
+        try:
+            _workflow_with(
+                reference_corrections=[
+                    AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+                ],
+                mm_corrections=[GBn2SASACorrectionSettings()],
+                testing_sampling_settings=PreComputedDatasetSettings(
+                    dataset_paths=[tmp_path],
+                    reference_corrections_mode="zero",
+                ),
+            )
+        finally:
+            loguru_logger.remove(sink)
+
+        assert any("test reference differs" in m for m in messages)
+
+    def test_precomputed_reference_corrections_mode(self, tmp_path):
+        """Stored reference corrections are kept by default."""
+        settings = PreComputedDatasetSettings(dataset_paths=[tmp_path])
+        assert settings.reference_corrections_mode == "keep"
+        with pytest.raises(ValidationError):
+            PreComputedDatasetSettings(
+                dataset_paths=[tmp_path], reference_corrections_mode="invalid"
             )

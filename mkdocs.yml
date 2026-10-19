@@ -34,7 +34,9 @@ nav:
   - Fit a single molecule: how-to/fit-single-molecule.md
   - Fit a congeneric series: how-to/fit-congeneric-series.md
   - Use SDF inputs: how-to/use-sdf-inputs.md
+  - Use starting conformers: how-to/use-starting-conformers.md
   - Use custom charges: how-to/use-custom-charges.md
+  - Fit in implicit solvent: how-to/fit-in-implicit-solvent.md
   - Clean and rerun a fit: how-to/clean-rerun.md
   - Choose an MLP: how-to/choose-an-mlp.md
   - Use an ASE calculator: how-to/use-ase-calculator.md
@@ -48,6 +50,7 @@ nav:
   - Sampling protocols: concepts/sampling-protocols.md
   - Type generation and SMIRKS specificity: concepts/type-generation.md
   - MLPs in presto: concepts/mlps.md
+  - Implicit solvent: concepts/implicit-solvent.md
   - Output directory layout: concepts/output-layout.md
 - Reference:
   - reference/index.md

@@ -14,6 +14,8 @@ The dataset must be in `descent.train`-compatible format, which is HuggingFace `
 
 The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved dataset directory from a previous run — for example, `training_iteration_1/energy_and_force_data_mol0`.
 
+Datasets saved by `presto` also hold weight and correction columns. Datasets without them (e.g. made with `descent.targets.energy.create_dataset`) are given uniform weights and zero corrections. To control whether stored reference corrections (e.g. implicit solvent) are kept, recomputed or removed, set `reference_corrections_mode`; see **[Fit in implicit solvent → Pre-computed datasets](fit-in-implicit-solvent.md#pre-computed-datasets)**.
+
 ## Set `sampling_protocol: pre_computed`
 
 In YAML:

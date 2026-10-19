@@ -53,6 +53,10 @@ testing_sampling_settings:
     # left unset -> ETKDG
 ```
 
+!!! tip "Staying near the supplied conformers"
+
+    `starting_conformers` only decides where each trajectory *starts*. The MD is then free to wander, and with a metadynamics protocol it is actively pushed out of the starting well. If you want sampling to stay close to the conformers you supplied, use the [`mm_md_torsion_restrained_torsion_minimisation`](../concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation) protocol, which restrains specified torsions (by default rotatable torsions) to the values they take in the conformer that trajectory started from.
+
 ## Preparing the SDF
 
 The SDF should contain one record per conformer, all of the same molecule (multiple

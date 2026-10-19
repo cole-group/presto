@@ -5,13 +5,14 @@ from __future__ import annotations
 import multiprocessing
 import os
 import pickle
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import TypeVar
 
 import datasets
 import loguru
+import numpy as np
 import torch
 from loguru import logger
 from openff.toolkit import ForceField, Molecule
@@ -25,9 +26,21 @@ from rich.progress import (
 
 from . import mlp
 from . import sample as sample_module
+from .corrections import (
+    apply_corrections_to_dataset,
+    prepare_corrections,
+    release_corrections,
+    resolve_sampling_corrections,
+)
+from .data_utils import drop_nonfinite_conformers
 from .outputs import OutputType
 from .sample import _SAMPLING_FNS_REGISTRY
-from .settings import PreComputedDatasetSettings, SamplingSettings
+from .settings import (
+    MMCorrectionSettings,
+    PreComputedDatasetSettings,
+    ReferenceCorrectionSettings,
+    SamplingSettings,
+)
 from .utils._suppress_output import suppress_unwanted_output
 from .utils.gpu import free_gpu_memory
 
@@ -90,22 +103,41 @@ def _sample_worker(
     device: str | None,
     sampling_settings: SamplingSettings,
     output_paths: dict[OutputType, Path],
+    reference_corrections: Sequence[ReferenceCorrectionSettings] = (),
+    mm_corrections: Sequence[MMCorrectionSettings] = (),
+    mm_charges: np.ndarray | None = None,
+    min_conformations: int = 1,
 ) -> tuple[datasets.Dataset, list[tuple[str, str]]]:
     """Sample one molecule, naming its side outputs with its workflow index.
 
-    Returns the dataset and any log records buffered by ``_init_worker``. The
-    buffer is empty in the parent, where logging reaches the real sinks directly.
+    Any fit corrections are then evaluated on the sampled coordinates, on the same
+    device, and conformations with non-finite values are removed. Returns the dataset
+    and any log records buffered by ``_init_worker``. The buffer is empty in the
+    parent, where logging reaches the real sinks directly.
     """
     sample_module._MOL_INDEX_OFFSET = molecule_index  # type: ignore[attr-defined]
     _WORKER_LOGS.clear()
     try:
+        mol = Molecule.from_json(molecule_json)
+        torch_device = torch.device(device or _WORKER_DEVICE)
         dataset = _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
-            mols=[Molecule.from_json(molecule_json)],
-            off_ff=ForceField(offxml_path),
-            device=torch.device(device or _WORKER_DEVICE),
+            mols=[mol],
+            off_ff=ForceField(offxml_path, load_plugins=True),
+            device=torch_device,
             settings=sampling_settings,
             output_paths=output_paths,
         )[0]
+        # Sampled datasets already hold zero corrections, so only set them if needed
+        if reference_corrections or mm_corrections:
+            dataset = apply_corrections_to_dataset(
+                dataset,
+                mol,
+                reference_corrections=reference_corrections,
+                mm_corrections=mm_corrections,
+                device=torch_device,
+                mm_charges=mm_charges,
+            )
+        dataset = drop_nonfinite_conformers(dataset, min_conformations)
         return dataset, list(_WORKER_LOGS)
     finally:
         sample_module._MOL_INDEX_OFFSET = 0  # type: ignore[attr-defined]
@@ -121,22 +153,85 @@ def sample_ligands(
     dataset_output_paths: list[Path],
     n_processes: int,
     process_dataset: Callable[[int, datasets.Dataset], datasets.Dataset] | None = None,
+    reference_corrections: Sequence[ReferenceCorrectionSettings] = (),
+    mm_corrections: Sequence[MMCorrectionSettings] = (),
+    mm_charges: Sequence[np.ndarray] | None = None,
+    min_conformations: int = 1,
 ) -> list[datasets.Dataset]:
     """Sample every ligand, process it in the parent, and save it.
 
     Generated sampling is an internal, non-resumable workflow operation: the
     workflow rejects non-clean output before calling it, so destinations are absent.
+
+    The fit corrections (``reference_corrections`` and ``mm_corrections``) are
+    evaluated on the sampled coordinates and stored in the datasets' correction
+    columns, and any sampling corrections set to 'from_fit' use them. Conformations
+    with non-finite values are then removed, before ``process_dataset`` runs.
+    ``mm_charges`` gives the MM partial charges of each molecule for MM corrections
+    which depend on them.
     """
+    if mm_charges is not None and len(mm_charges) != len(mols):
+        raise ValueError("mm_charges must contain one array of charges per molecule.")
+    charges = list(mm_charges) if mm_charges is not None else [None] * len(mols)
+
     precomputed = isinstance(sampling_settings, PreComputedDatasetSettings)
-    if precomputed:
-        raw = _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
-            mols=mols,
-            off_ff=ForceField(str(offxml_path)),
-            device=torch.device(device_type),
-            settings=sampling_settings,
-            output_paths=output_paths,
+    if isinstance(sampling_settings, PreComputedDatasetSettings):
+        reference_mode = sampling_settings.reference_corrections_mode
+        prepare_corrections(
+            [
+                *(reference_corrections if reference_mode == "recompute" else ()),
+                *mm_corrections,
+            ]
         )
+        device = torch.device(device_type)
+        # Always rewrite the MM corrections, so that stale stored values never leak
+        # into a fit with a different MM model
+        raw = [
+            drop_nonfinite_conformers(
+                apply_corrections_to_dataset(
+                    dataset,
+                    mol,
+                    reference_corrections=reference_corrections,
+                    mm_corrections=mm_corrections,
+                    device=device,
+                    mm_charges=mol_charges,
+                    reference_mode=reference_mode,
+                ),
+                min_conformations,
+            )
+            for dataset, mol, mol_charges in zip(
+                _SAMPLING_FNS_REGISTRY[type(sampling_settings)](
+                    mols=mols,
+                    off_ff=ForceField(str(offxml_path), load_plugins=True),
+                    device=device,
+                    settings=sampling_settings,
+                    output_paths=output_paths,
+                ),
+                mols,
+                charges,
+                strict=True,
+            )
+        ]
+        release_corrections([*reference_corrections, *mm_corrections])
     else:
+        sampling_settings = sampling_settings.model_copy(
+            update={
+                "ml_sampling_corrections": resolve_sampling_corrections(
+                    sampling_settings.ml_sampling_corrections, reference_corrections
+                ),
+                "mm_sampling_corrections": resolve_sampling_corrections(
+                    sampling_settings.mm_sampling_corrections, mm_corrections
+                ),
+            }
+        )
+        prepare_corrections(
+            [
+                *reference_corrections,
+                *mm_corrections,
+                *sampling_settings.ml_sampling_corrections,
+                *sampling_settings.mm_sampling_corrections,
+            ]
+        )
         raw = _sample_every_ligand(
             mols=mols,
             offxml_path=offxml_path,
@@ -144,6 +239,10 @@ def sample_ligands(
             sampling_settings=sampling_settings,
             output_paths=output_paths,
             n_processes=n_processes,
+            reference_corrections=reference_corrections,
+            mm_corrections=mm_corrections,
+            mm_charges=charges,
+            min_conformations=min_conformations,
         )
 
     results = [
@@ -198,9 +297,14 @@ def _sample_every_ligand(
     sampling_settings: SamplingSettings,
     output_paths: dict[OutputType, Path],
     n_processes: int,
+    reference_corrections: Sequence[ReferenceCorrectionSettings] = (),
+    mm_corrections: Sequence[MMCorrectionSettings] = (),
+    mm_charges: Sequence[np.ndarray | None] | None = None,
+    min_conformations: int = 1,
 ) -> list[datasets.Dataset]:
     """Sample every molecule, reporting all per-ligand failures together."""
     workers = max(1, min(n_processes, len(mols)))
+    charges = list(mm_charges) if mm_charges is not None else [None] * len(mols)
 
     # Each worker claims one GPU at start-up and keeps it, so oversubscribing a GPU
     # stays deliberate rather than depending on which worker picks up a molecule.
@@ -214,6 +318,10 @@ def _sample_every_ligand(
             device_type if workers == 1 else None,
             sampling_settings,
             output_paths,
+            tuple(reference_corrections),
+            tuple(mm_corrections),
+            charges[mol_idx],
+            min_conformations,
         )
         for mol_idx, mol in enumerate(mols)
     ]
@@ -230,6 +338,16 @@ def _sample_every_ligand(
                 sampled[mol_idx], worker_logs[mol_idx] = _sample_worker(*args)
             except Exception as exc:
                 failures[mol_idx] = exc
+        # Free any correction models (e.g. AnySolv) before training. Worker
+        # processes release theirs when they exit.
+        release_corrections(
+            [
+                *reference_corrections,
+                *mm_corrections,
+                *sampling_settings.ml_sampling_corrections,  # type: ignore[union-attr]
+                *sampling_settings.mm_sampling_corrections,  # type: ignore[union-attr]
+            ]
+        )
     else:
         try:
             pickle.dumps(sampling_settings)

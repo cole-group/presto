@@ -1,5 +1,7 @@
 """Unit tests for data_utils module."""
 
+import datasets
+import descent.targets.energy
 import openff.interchange
 import pytest
 import smee
@@ -8,10 +10,14 @@ import torch
 from openff.toolkit import ForceField, Molecule
 
 from presto.data_utils import (
+    CORRECTION_COLUMNS,
     WeightedEntry,
     create_dataset_with_uniform_weights,
     create_weighted_dataset,
+    drop_nonfinite_conformers,
+    ensure_correction_columns,
     filter_dataset_outliers,
+    get_corrections_from_entry,
     get_weights_from_entry,
     has_weights,
     merge_weighted_datasets,
@@ -140,33 +146,44 @@ class TestCreateDatasetWithUniformWeights:
 
         assert torch.all(entry["forces_weights"] == 0.1)
 
-    def test_nan_forces_get_zero_weight(self, sample_data):
-        """Test that conformations with NaN forces get zero forces weight."""
+    def test_nan_forces_keep_uniform_weights(self, sample_data):
+        """Test that NaN forces are kept with uniform weights.
+
+        Zero weights cannot remove NaN from the loss, so non-finite conformations are
+        removed later by `drop_nonfinite_conformers` instead.
+        """
         forces = sample_data["forces"].clone()
-        # Set forces for conformation 1 to NaN
         forces[1] = float("nan")
-        sample_data["forces"] = forces
-
-        dataset = create_dataset_with_uniform_weights(**sample_data)
-        entry = dataset[0]
-
-        # Conformation 1 should have zero weight, others should have 1.0
-        expected_weights = torch.tensor([1.0, 0.0, 1.0, 1.0])
-        assert torch.allclose(entry["forces_weights"], expected_weights)
-
-    def test_nan_forces_with_custom_weight(self, sample_data):
-        """Test that NaN forces get zero weight even with custom weight specified."""
-        forces = sample_data["forces"].clone()
-        forces[2] = float("nan")
         sample_data["forces"] = forces
         sample_data["forces_weight"] = 0.5
 
         dataset = create_dataset_with_uniform_weights(**sample_data)
         entry = dataset[0]
 
-        # Conformation 2 should have zero weight, others should have 0.5
-        expected_weights = torch.tensor([0.5, 0.5, 0.0, 0.5])
-        assert torch.allclose(entry["forces_weights"], expected_weights)
+        assert torch.allclose(entry["forces_weights"], torch.full((4,), 0.5))
+        assert torch.isnan(entry["forces"].reshape(4, -1, 3)[1]).all()
+
+    def test_correction_columns_are_zero(self, sample_data):
+        """Test that the correction columns default to zero."""
+        dataset = create_dataset_with_uniform_weights(**sample_data)
+        entry = dataset[0]
+
+        for column in CORRECTION_COLUMNS:
+            assert torch.all(entry[column] == 0.0)
+        assert entry["reference_energy_correction"].shape == entry["energy"].shape
+        assert entry["reference_forces_correction"].shape == entry["forces"].shape
+        assert entry["reference_energy_coords"] is None
+
+    def test_reference_energy_coords_are_stored(self, sample_data):
+        """Test that reference energy coordinates are stored when given."""
+        energy_coords = sample_data["coords"] + 1.0
+        dataset = create_dataset_with_uniform_weights(
+            **sample_data, reference_energy_coords=energy_coords
+        )
+
+        assert torch.allclose(
+            dataset[0]["reference_energy_coords"].double(), energy_coords.flatten()
+        )
 
 
 class TestMergeWeightedDatasets:
@@ -601,7 +618,6 @@ class TestFilterDatasetOutliers:
         settings = OutlierFilterSettings(
             energy_outlier_threshold=0.001,  # Very aggressive
             force_outlier_threshold=0.001,
-            min_conformations=original_n_confs,  # Keep all
         )
         with pytest.raises(ValueError, match="fewer than min_conformations"):
             filter_dataset_outliers(
@@ -609,7 +625,25 @@ class TestFilterDatasetOutliers:
                 tensor_ff,
                 tensor_top,
                 settings=settings,
+                min_conformations=original_n_confs,  # Keep all
             )
+
+    def test_small_entries_pass_when_nothing_is_removed(self, dataset_with_outlier):
+        """An entry smaller than the minimum is only rejected if filtering removes some."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+        settings = OutlierFilterSettings(
+            energy_outlier_threshold=1e6, force_outlier_threshold=1e6
+        )
+
+        filtered = filter_dataset_outliers(
+            dataset,
+            tensor_ff,
+            tensor_top,
+            settings=settings,
+            min_conformations=len(dataset[0]["energy"]) + 1,
+        )
+
+        assert len(filtered[0]["energy"]) == len(dataset[0]["energy"])
 
     def test_no_filtering_when_disabled(self, dataset_with_outlier):
         """Test that no filtering occurs when both thresholds are None."""
@@ -648,3 +682,148 @@ class TestFilterDatasetOutliers:
             filter_dataset_outliers(
                 empty_dataset, tensor_ff, tensor_top, settings=settings
             )
+
+
+def _corrected_entry(n_confs: int = 4, n_atoms: int = 3) -> WeightedEntry:
+    """An entry with distinct, non-zero values in every correction column."""
+    shape = (n_confs, n_atoms, 3)
+    return WeightedEntry(
+        smiles="CCO",
+        coords=torch.rand(shape, dtype=torch.float64),
+        energy=torch.arange(n_confs, dtype=torch.float64) + 1.0,
+        forces=torch.rand(shape, dtype=torch.float64),
+        energy_weights=torch.ones(n_confs, dtype=torch.float64),
+        forces_weights=torch.ones(n_confs, dtype=torch.float64),
+        reference_energy_correction=torch.arange(n_confs, dtype=torch.float64) + 10,
+        reference_forces_correction=torch.rand(shape, dtype=torch.float64),
+        mm_energy_correction=torch.arange(n_confs, dtype=torch.float64) + 20,
+        mm_forces_correction=torch.rand(shape, dtype=torch.float64),
+    )
+
+
+class TestCorrectionColumns:
+    """Tests for carrying the correction columns through dataset operations."""
+
+    def test_merge_preserves_corrections(self):
+        """Merging keeps each entry's corrections alongside its energies."""
+        entry = _corrected_entry()
+        merged = merge_weighted_datasets(
+            [create_weighted_dataset([entry]), create_weighted_dataset([entry])]
+        )
+
+        assert len(merged) == 2
+        for merged_entry in merged:
+            for column in CORRECTION_COLUMNS:
+                assert torch.allclose(
+                    merged_entry[column].double(), entry[column].flatten(), atol=1e-6
+                )
+
+    def test_merge_ignores_non_finite_energies_for_the_minimum(self):
+        """A non-finite energy does not make every energy in the entry NaN."""
+        entry = _corrected_entry()
+        entry["energy"] = torch.tensor([float("nan"), 2.0, 3.0, 5.0])
+        other = _corrected_entry()
+        merged = merge_weighted_datasets(
+            [create_weighted_dataset([entry]), create_weighted_dataset([other])]
+        )
+
+        assert torch.allclose(merged[0]["energy"][1:], torch.tensor([0.0, 1.0, 3.0]))
+
+    def test_get_corrections_from_entry_defaults_to_zero(self):
+        """Entries without correction columns have zero corrections."""
+        entry = {
+            "energy": torch.zeros(2),
+            "forces": torch.zeros(2 * 3 * 3),
+        }
+        ref_e, ref_f, mm_e, mm_f = get_corrections_from_entry(entry)
+
+        assert ref_e.shape == mm_e.shape == (2,)
+        assert ref_f.shape == mm_f.shape == (2, 3, 3)
+        assert all(torch.all(t == 0) for t in (ref_e, ref_f, mm_e, mm_f))
+
+    def test_ensure_correction_columns_completes_descent_datasets(self):
+        """Datasets with only the descent columns gain weights and corrections."""
+        dataset = descent.targets.energy.create_dataset(
+            [
+                {
+                    "smiles": "CCO",
+                    "coords": torch.rand(2, 3, 3, dtype=torch.float64),
+                    "energy": torch.rand(2, dtype=torch.float64),
+                    "forces": torch.rand(2, 3, 3, dtype=torch.float64),
+                }
+            ]
+        )
+
+        completed = ensure_correction_columns(dataset)
+        entry = completed[0]
+
+        assert torch.all(entry["energy_weights"] == 1.0)
+        assert torch.all(entry["forces_weights"] == 1.0)
+        for column in CORRECTION_COLUMNS:
+            assert torch.all(entry[column] == 0.0)
+
+    def test_concatenated_datasets_keep_their_corrections(self):
+        """Memory mode concatenates datasets, which needs a uniform schema."""
+        corrected = create_weighted_dataset([_corrected_entry()])
+        uncorrected = create_dataset_with_uniform_weights(
+            smiles="CCO",
+            coords=torch.rand(2, 3, 3, dtype=torch.float64),
+            energy=torch.rand(2, dtype=torch.float64),
+            forces=torch.rand(2, 3, 3, dtype=torch.float64),
+        )
+
+        combined = datasets.concatenate_datasets([corrected, uncorrected])
+
+        assert len(combined) == 2
+        assert torch.all(combined[1]["mm_energy_correction"] == 0.0)
+
+
+class TestDropNonfiniteConformers:
+    """Tests for removing conformations with non-finite values."""
+
+    @pytest.mark.parametrize(
+        "column",
+        ["energy", "forces", *CORRECTION_COLUMNS],
+    )
+    def test_drops_conformations_with_non_finite_values(self, column):
+        """A non-finite value in any column removes only that conformation."""
+        entry = _corrected_entry(n_confs=4)
+        values = entry[column].clone()
+        values[2] = float("inf") if column.startswith("mm") else float("nan")
+        entry[column] = values
+        dataset = create_weighted_dataset([entry])
+
+        cleaned = drop_nonfinite_conformers(dataset, min_conformations=3)
+
+        cleaned_entry = cleaned[0]
+        assert len(cleaned_entry["energy"]) == 3
+        assert torch.allclose(
+            cleaned_entry["mm_energy_correction"].double(),
+            torch.tensor([20.0, 21.0, 23.0], dtype=torch.float64),
+        )
+        assert cleaned_entry["coords"].numel() == 3 * 3 * 3
+
+    def test_returns_the_dataset_unchanged_when_finite(self):
+        """Fully finite datasets are returned as they are."""
+        dataset = create_weighted_dataset([_corrected_entry()])
+        assert drop_nonfinite_conformers(dataset, min_conformations=50) is dataset
+
+    def test_raises_when_too_few_remain(self):
+        """Removing conformations may not leave fewer than the minimum."""
+        entry = _corrected_entry(n_confs=4)
+        entry["energy"] = torch.tensor([1.0, float("nan"), float("nan"), 2.0])
+        dataset = create_weighted_dataset([entry])
+
+        with pytest.raises(
+            ValueError, match=r"non-finite.*fewer than min_conformations"
+        ):
+            drop_nonfinite_conformers(dataset, min_conformations=3)
+
+    def test_raises_when_all_are_non_finite(self):
+        """An entry is never emptied."""
+        entry = _corrected_entry(n_confs=2)
+        entry["forces"] = torch.full((2, 3, 3), float("nan"))
+        dataset = create_weighted_dataset([entry])
+
+        with pytest.raises(ValueError, match="non-finite"):
+            drop_nonfinite_conformers(dataset, min_conformations=1)

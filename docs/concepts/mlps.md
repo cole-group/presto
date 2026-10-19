@@ -14,6 +14,8 @@ An MLP here is a machine learning potential trained on QM energies and forces, e
 - For `ml_md`, both sampling and reference are the MLP.
 - For `pre_computed`, there is no sampling; the reference is implicit in the saved dataset.
 
+Corrections such as implicit solvent can be added to either role independently; see **[Implicit solvent](implicit-solvent.md)**.
+
 Both roles are configured via `MLPSettings`. The MSM step (modified Seminario for initial bond/angle parameters) uses its own `MLPSettings` under `param_settings.msm_settings`. By default, each `MLPSettings` instance is constructed independently — see **[Choose an MLP → Pin the same MLP across stages](../how-to/choose-an-mlp.md#pin-the-same-mlp-across-stages)** if you want consistency.
 
 ## What changes when you swap MLPs

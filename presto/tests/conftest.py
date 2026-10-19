@@ -1,8 +1,11 @@
 """Shared test fixtures used across the test suite."""
 
 import importlib
+import sys
+import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 import smee
 from descent.train import ParameterConfig, Trainable
@@ -109,3 +112,28 @@ def simple_trainable(ethanol_tensor_topology_and_ff):
     }
 
     return Trainable(tensor_ff, parameter_configs, {})
+
+
+@pytest.fixture
+def fake_anysolv(monkeypatch):
+    """Replace AnySolv with a fake predicting E = -0.1 * sum(x) eV.
+
+    Returns the list of keyword arguments of every call to the fake.
+    """
+    from presto import corrections
+
+    calls = []
+
+    def predict_solvation_energy(atoms_or_arrays, **kwargs):
+        atomic_numbers, positions = atoms_or_arrays
+        calls.append({"atomic_numbers": atomic_numbers, **kwargs})
+        forces = np.zeros_like(positions)
+        forces[:, 0] = 0.1
+        return -0.1 * float(np.sum(positions[:, 0])), forces
+
+    module = types.ModuleType("anysolv")
+    module.predict_solvation_energy = predict_solvation_energy
+    monkeypatch.setitem(sys.modules, "anysolv", module)
+    corrections._resolve_anysolv_checkpoint.cache_clear()
+    yield calls
+    corrections._resolve_anysolv_checkpoint.cache_clear()

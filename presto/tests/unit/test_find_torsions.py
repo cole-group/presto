@@ -235,8 +235,13 @@ class TestDefaultSmarts:
     def test_settings_use_default_constants(self):
         """Test that settings class uses the same default constants."""
         settings = MMMDMetadynamicsSamplingSettings()
-        assert settings.torsions_to_include_smarts == DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
-        assert settings.torsions_to_exclude_smarts == DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+        selection = settings.metadynamics_settings.torsion_selection_settings
+        assert (
+            selection.torsions_to_include_smarts == DEFAULT_TORSIONS_TO_INCLUDE_SMARTS
+        )
+        assert (
+            selection.torsions_to_exclude_smarts == DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS
+        )
 
 
 class TestRingSpecificTorsions:

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+
+### Breaking changes
+
+- `presto.sampling_coordinator.sample_ligands` and `_sample_worker` take new arguments for the fit corrections, MM charges and `min_conformations`, and `_force_groups_excluding` takes any number of force groups.
+- Conformations with non-finite energies, forces or corrections are now removed from the training and testing data, rather than given zero forces weights. Zero weights did not remove NaN from the loss (`NaN * 0 = NaN`), and a single non-finite energy corrupted the energy referencing of its whole entry. An error is raised if this would leave an entry with fewer than `WorkflowSettings.min_conformations` conformations. `create_dataset_with_uniform_weights` no longer zero-weights NaN forces.
+- `min_conformations` has moved from `OutlierFilterSettings` to `WorkflowSettings`, so that it also applies when outlier filtering is disabled, and its default has increased from 1 to 50. It now applies to any removal of conformations (non-finite values and outliers), and entries sampled with fewer conformations are only rejected if some are removed. `filter_dataset_outliers` takes it as a `min_conformations` argument. Settings files which set `outlier_filter_settings.min_conformations` must move it to the top level.
+- Weighted datasets have five new columns: `reference_energy_correction`, `reference_forces_correction`, `mm_energy_correction`, `mm_forces_correction` and `reference_energy_coords`. Pre-computed datasets without them are still accepted, and `load_precomputed_dataset` now returns in-memory datasets on the CPU.
+
+### Features
+
+- Add implicit-solvent fitting in the style of ff19SB. `WorkflowSettings.reference_corrections` adds corrections to the reference (MLP) energies and forces, such as SMD implicit-solvent corrections from [AnySolv](https://github.com/Ant-on-knee/anysolv) (`AnySolvSMDCorrectionSettings`). `WorkflowSettings.mm_corrections` adds fixed corrections to the MM energies and forces, such as GBneck2 (Amber `igb=8`) with an LCPO surface area term (Amber `gbsa=1`) (`GBn2SASACorrectionSettings`). The corrections are stored in separate dataset columns and applied in `predict_with_weights`, so the stored reference stays uncorrected.
+- Add `ml_sampling_corrections` and `mm_sampling_corrections` to every sampling protocol to choose, independently of the fit, which corrections are present while sampling (e.g. MM MD in implicit solvent). By default MM sampling uses the fit's `mm_corrections` and ML sampling uses no corrections. Recorded reference energies and forces always exclude sampling corrections.
+- Add `reference_corrections_mode` (`keep`, `recompute` or `zero`) to `PreComputedDatasetSettings`. MM corrections are always recomputed for pre-computed datasets.
+- New `presto.corrections` module with a registry of correction types, so further corrections can be added.
+- New optional `anysolv` pixi feature, included in the full environments. AnySolv is not available from conda-forge; `presto` fails before parameterisation with installation instructions if a configured correction cannot be evaluated.
+
+### Documentation
+
+- Add [Fit in implicit solvent](how-to/fit-in-implicit-solvent.md) how-to guide and [Implicit solvent](concepts/implicit-solvent.md) concepts page.
+
 ## 0.9.0
 
 ### Breaking changes
