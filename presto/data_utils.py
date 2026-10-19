@@ -444,7 +444,7 @@ def filter_dataset_outliers(
         filtered_entries.append(_select_conformers(entry, keep_indices.cpu()))
 
     # Create new dataset
-    return create_weighted_dataset(typing.cast(list[WeightedEntry], filtered_entries))
+    return create_weighted_dataset(filtered_entries)
 
 
 def _select_conformers(entry: WeightedEntry, indices: torch.Tensor) -> WeightedEntry:

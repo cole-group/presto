@@ -212,7 +212,7 @@ def get_smee_charges(
         @ potential.parameters.detach()
     )
     charge_col = potential.parameter_cols.index("charge")
-    return parameters[:, charge_col].cpu().numpy().astype(float)
+    return np.asarray(parameters[:, charge_col].cpu().numpy(), dtype=np.float64)
 
 
 def build_correction(

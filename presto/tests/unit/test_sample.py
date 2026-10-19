@@ -15,6 +15,7 @@ from openmm import unit as omm_unit
 from rdkit import Chem
 from rdkit.Chem import rdMolTransforms
 
+from presto.corrections import CORRECTION_FORCE_NAME_PREFIX, correction_force_groups
 from presto.data_utils import create_dataset_with_uniform_weights, has_weights
 from presto.find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
@@ -47,7 +48,6 @@ from presto.sample import (
     sample_mmmd_metadynamics_with_torsion_minimisation,
     sample_mmmd_torsion_restrained_with_torsion_minimisation,
 )
-from presto.corrections import CORRECTION_FORCE_NAME_PREFIX, correction_force_groups
 from presto.settings import (
     AnySolvSMDCorrectionSettings,
     GBn2SASACorrectionSettings,
