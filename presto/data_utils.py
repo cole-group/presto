@@ -1,7 +1,12 @@
 """Utilities for creating and manipulating datasets with energy and force weights.
 
 This module provides a custom dataset schema that extends the descent.targets.energy
-schema with energy_weights and forces_weights fields for per-conformation loss weighting.
+schema with energy_weights and forces_weights fields for per-conformation loss
+weighting, and with additive correction fields. The ``energy`` and ``forces`` fields
+always hold the uncorrected reference (e.g. gas-phase MLP) values. The
+``reference_*_correction`` fields are added to them to form the fitting target, and
+the ``mm_*_correction`` fields are added to the MM predictions (see
+`presto.loss.predict_with_weights`).
 """
 
 from __future__ import annotations
@@ -32,7 +37,34 @@ WEIGHTED_DATA_SCHEMA = pyarrow.schema(
         ("forces", pyarrow.list_(pyarrow.float64())),
         ("energy_weights", pyarrow.list_(pyarrow.float64())),
         ("forces_weights", pyarrow.list_(pyarrow.float64())),
+        ("reference_energy_correction", pyarrow.list_(pyarrow.float64())),
+        ("reference_forces_correction", pyarrow.list_(pyarrow.float64())),
+        ("mm_energy_correction", pyarrow.list_(pyarrow.float64())),
+        ("mm_forces_correction", pyarrow.list_(pyarrow.float64())),
+        ("reference_energy_coords", pyarrow.list_(pyarrow.float64())),
     ]
+)
+
+CORRECTION_COLUMNS = (
+    "reference_energy_correction",
+    "reference_forces_correction",
+    "mm_energy_correction",
+    "mm_forces_correction",
+)
+"""The additive correction columns, all zero when no corrections are applied."""
+
+_PER_CONFORMER_ENERGY_COLUMNS = (
+    "energy",
+    "energy_weights",
+    "forces_weights",
+    "reference_energy_correction",
+    "mm_energy_correction",
+)
+_PER_CONFORMER_ATOM_COLUMNS = (
+    "coords",
+    "forces",
+    "reference_forces_correction",
+    "mm_forces_correction",
 )
 
 
@@ -59,8 +91,55 @@ class WeightedEntry(typing.TypedDict):
 
     forces_weights: torch.Tensor
     """The weights for forces loss contributions with ``shape=(n_confs,)``.
-    Values of 0 will exclude that conformation from forces loss.
-    NaN forces should have weight 0."""
+    Values of 0 will exclude that conformation from forces loss."""
+
+    reference_energy_correction: typing.NotRequired[torch.Tensor]
+    """Correction [kcal/mol] added to ``energy`` to form the fitting target, with
+    ``shape=(n_confs,)``. Zero if absent."""
+
+    reference_forces_correction: typing.NotRequired[torch.Tensor]
+    """Correction [kcal/mol/Å] added to ``forces`` to form the fitting target, with
+    ``shape=(n_confs, n_particles, 3)``. Zero if absent."""
+
+    mm_energy_correction: typing.NotRequired[torch.Tensor]
+    """Fixed correction [kcal/mol] added to the MM energies, with ``shape=(n_confs,)``.
+    Zero if absent."""
+
+    mm_forces_correction: typing.NotRequired[torch.Tensor]
+    """Fixed correction [kcal/mol/Å] added to the MM forces, with
+    ``shape=(n_confs, n_particles, 3)``. Zero if absent."""
+
+    reference_energy_coords: typing.NotRequired[torch.Tensor | None]
+    """The coordinates [Å] the reference energies were evaluated at, with
+    ``shape=(n_confs, n_particles, 3)``, if they differ from ``coords`` (e.g. when MLP
+    energies of ML-minimised structures are mapped onto MM-minimised structures).
+    None if the energies were evaluated at ``coords``."""
+
+
+def _flat_list(value: typing.Any) -> list[float]:
+    return torch.as_tensor(value).detach().cpu().flatten().tolist()
+
+
+def _entry_to_row(entry: WeightedEntry) -> dict[str, typing.Any]:
+    n_confs = len(entry["energy"])
+    n_coords = torch.as_tensor(entry["coords"]).numel()
+    row: dict[str, typing.Any] = {
+        "smiles": entry["smiles"],
+        "coords": _flat_list(entry["coords"]),
+        "energy": _flat_list(entry["energy"]),
+        "forces": _flat_list(entry["forces"]),
+        "energy_weights": _flat_list(entry["energy_weights"]),
+        "forces_weights": _flat_list(entry["forces_weights"]),
+    }
+    for column in CORRECTION_COLUMNS:
+        value = entry.get(column)
+        size = n_confs if column.endswith("energy_correction") else n_coords
+        row[column] = [0.0] * size if value is None else _flat_list(value)
+    energy_coords = entry.get("reference_energy_coords")
+    row["reference_energy_coords"] = (
+        None if energy_coords is None else _flat_list(energy_coords)
+    )
+    return row
 
 
 def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
@@ -68,27 +147,14 @@ def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
 
     Args:
         entries: The entries to create the dataset from. Each entry must include
-            energy_weights and forces_weights tensors.
+            energy_weights and forces_weights tensors. Missing correction tensors are
+            filled with zeros.
 
     Returns:
         The created dataset with torch format.
     """
     table = pyarrow.Table.from_pylist(
-        [
-            {
-                "smiles": entry["smiles"],
-                "coords": torch.as_tensor(entry["coords"]).flatten().tolist(),
-                "energy": torch.as_tensor(entry["energy"]).flatten().tolist(),
-                "forces": torch.as_tensor(entry["forces"]).flatten().tolist(),
-                "energy_weights": torch.as_tensor(entry["energy_weights"])
-                .flatten()
-                .tolist(),
-                "forces_weights": torch.as_tensor(entry["forces_weights"])
-                .flatten()
-                .tolist(),
-            }
-            for entry in entries
-        ],
+        [_entry_to_row(entry) for entry in entries],
         schema=WEIGHTED_DATA_SCHEMA,
     )
 
@@ -105,6 +171,7 @@ def create_dataset_with_uniform_weights(
     forces: torch.Tensor,
     energy_weight: float = 1.0,
     forces_weight: float = 1.0,
+    reference_energy_coords: torch.Tensor | None = None,
 ) -> datasets.Dataset:
     """Create a weighted dataset with uniform weights for all conformations.
 
@@ -118,20 +185,16 @@ def create_dataset_with_uniform_weights(
         forces: The reference forces [kcal/mol/Å] with ``shape=(n_confs, n_particles, 3)``.
         energy_weight: The uniform weight for energy loss contributions.
         forces_weight: The uniform weight for forces loss contributions.
+        reference_energy_coords: The coordinates [Å] the energies were evaluated at,
+            if different from ``coords``. See `WeightedEntry.reference_energy_coords`.
 
     Returns:
-        The created dataset with torch format.
+        The created dataset with torch format. Correction columns are zero.
     """
     n_confs = len(energy)
 
-    # Check if forces contain NaN - set forces_weight to 0 for those conformations
-    forces_reshaped = forces.reshape(n_confs, -1, 3) if forces.dim() == 2 else forces
-    forces_weights_array = torch.full((n_confs,), forces_weight, dtype=torch.float64)
-
-    for i in range(n_confs):
-        if torch.isnan(forces_reshaped[i]).any():
-            forces_weights_array[i] = 0.0
-
+    # Non-finite values are not handled here: zero weights cannot remove them from
+    # the loss (NaN * 0 = NaN), so they are dropped by `drop_nonfinite_conformers`.
     return create_weighted_dataset(
         [
             {
@@ -142,7 +205,10 @@ def create_dataset_with_uniform_weights(
                 "energy_weights": torch.full(
                     (n_confs,), energy_weight, dtype=torch.float64
                 ),
-                "forces_weights": forces_weights_array,
+                "forces_weights": torch.full(
+                    (n_confs,), forces_weight, dtype=torch.float64
+                ),
+                "reference_energy_coords": reference_energy_coords,
             }
         ]
     )
@@ -184,23 +250,13 @@ def merge_weighted_datasets(datasets_list: list[datasets.Dataset]) -> datasets.D
                     f"Found {smiles} and {entry['smiles']}"
                 )
 
-            n_confs = len(entry["energy"])
-            coords = entry["coords"].reshape(n_confs, -1, 3)
-            forces = entry["forces"].reshape(n_confs, -1, 3)
+            # Make energies relative to the minimum (finite) energy within this entry
+            new_entry = dict(entry)
+            finite_energy = entry["energy"][torch.isfinite(entry["energy"])]
+            if len(finite_energy) > 0:
+                new_entry["energy"] = entry["energy"] - finite_energy.min()
 
-            # Make energies relative to minimum within this entry
-            energy = entry["energy"] - entry["energy"].min()
-
-            all_entries.append(
-                {
-                    "smiles": smiles,
-                    "coords": coords,
-                    "energy": energy,
-                    "forces": forces,
-                    "energy_weights": entry["energy_weights"],
-                    "forces_weights": entry["forces_weights"],
-                }
-            )
+            all_entries.append(new_entry)
 
     return create_weighted_dataset(typing.cast(list[WeightedEntry], all_entries))
 
@@ -263,6 +319,7 @@ def filter_dataset_outliers(
     topology: smee.TensorTopology,
     settings: OutlierFilterSettings,
     device: torch.device = _CPU_DEVICE,
+    min_conformations: int = 1,
 ) -> datasets.Dataset:
     """Filter outliers from a dataset based on MM vs reference energy/force differences.
 
@@ -274,14 +331,17 @@ def filter_dataset_outliers(
         dataset: The dataset to filter. Must have energy, forces, and coords columns.
         force_field: The MM force field to use for computing predicted values.
         topology: The topology for the molecule in the dataset.
-        settings: Outlier filter settings containing thresholds and min_conformations.
+        settings: Outlier filter settings containing the thresholds.
         device: Device to use for computation.
+        min_conformations: The minimum number of conformations to keep per entry if
+            any are removed.
 
     Returns:
         A new dataset with outliers removed.
 
     Raises:
-        ValueError: If the dataset is empty or has no conformations after filtering.
+        ValueError: If the dataset is empty, or if filtering would leave an entry with
+            fewer than ``min_conformations`` conformations.
     """
     from presto.loss import predict_with_weights
 
@@ -290,7 +350,6 @@ def filter_dataset_outliers(
 
     energy_outlier_threshold = settings.energy_outlier_threshold
     force_outlier_threshold = settings.force_outlier_threshold
-    min_conformations = settings.min_conformations
 
     if energy_outlier_threshold is None and force_outlier_threshold is None:
         logger.info("No outlier filtering enabled, returning original dataset")
@@ -368,13 +427,12 @@ def filter_dataset_outliers(
                     f"(threshold: {force_outlier_threshold:.4f} kcal/mol/Å)"
                 )
 
-        # Ensure we keep at least min_conformations
-        n_kept = keep_mask.sum().item()
-        if n_kept < min_conformations:
-            raise ValueError(
-                f"Filtering would keep only {n_kept} conformations for {entry_smiles}, "
-                f"which is fewer than min_conformations={min_conformations}."
-            )
+        _check_min_conformations(
+            int(keep_mask.sum().item()),
+            n_confs,
+            min_conformations,
+            f"Outlier filtering of {entry_smiles}",
+        )
 
         # Extract kept conformations
         keep_indices = keep_mask.nonzero(as_tuple=True)[0]
@@ -382,22 +440,186 @@ def filter_dataset_outliers(
 
         logger.info(f"Keeping {n_kept}/{n_confs} conformations for {entry_smiles}")
 
-        # Get original reference values (not reference-subtracted) for the filtered entry
-        original_energy = entry["energy"].to(device)
-        original_forces = entry["forces"].reshape(n_confs, n_atoms, 3).to(device)
-        coords = entry["coords"].reshape(n_confs, n_atoms, 3)
-
-        # Build filtered entry
-        filtered_entry: dict[str, typing.Any] = {
-            "smiles": entry_smiles,
-            "coords": coords.to(device)[keep_indices],
-            "energy": original_energy.to(device)[keep_indices],
-            "forces": original_forces.to(device)[keep_indices],
-            "energy_weights": entry["energy_weights"].to(device)[keep_indices],
-            "forces_weights": entry["forces_weights"].to(device)[keep_indices],
-        }
-
-        filtered_entries.append(filtered_entry)
+        # Keep the original (not reference-subtracted) values for the filtered entry
+        filtered_entries.append(_select_conformers(entry, keep_indices.cpu()))
 
     # Create new dataset
     return create_weighted_dataset(typing.cast(list[WeightedEntry], filtered_entries))
+
+
+def _select_conformers(entry: WeightedEntry, indices: torch.Tensor) -> WeightedEntry:
+    """Return a copy of a dataset entry containing only the selected conformations.
+
+    Args:
+        entry: A single entry from a weighted dataset.
+        indices: The indices of the conformations to keep.
+
+    Returns:
+        The entry with every per-conformation field indexed by ``indices``.
+    """
+    n_confs = len(entry["energy"])
+    selected: dict[str, typing.Any] = {"smiles": entry["smiles"]}
+    for column in _PER_CONFORMER_ENERGY_COLUMNS:
+        value = entry.get(column)
+        if value is not None:
+            selected[column] = torch.as_tensor(value).cpu()[indices]
+    for column in (*_PER_CONFORMER_ATOM_COLUMNS, "reference_energy_coords"):
+        value = entry.get(column)
+        if value is not None:
+            selected[column] = (
+                torch.as_tensor(value).cpu().reshape(n_confs, -1, 3)[indices]
+            )
+    return typing.cast(WeightedEntry, selected)
+
+
+def get_corrections_from_entry(
+    entry: WeightedEntry,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Get the additive corrections from a dataset entry, defaulting to zero.
+
+    Args:
+        entry: A single entry from a dataset.
+
+    Returns:
+        Tuple of (reference_energy_correction, reference_forces_correction,
+        mm_energy_correction, mm_forces_correction). Energy corrections have
+        ``shape=(n_confs,)`` and forces corrections ``shape=(n_confs, n_atoms, 3)``.
+    """
+    energy = torch.as_tensor(entry["energy"])
+    forces = torch.as_tensor(entry["forces"]).reshape(len(energy), -1, 3)
+
+    def _get(column: str, like: torch.Tensor) -> torch.Tensor:
+        value = entry.get(column)
+        if value is None:
+            return torch.zeros_like(like, dtype=torch.float64)
+        return torch.as_tensor(value).reshape(like.shape)
+
+    return (
+        _get("reference_energy_correction", energy),
+        _get("reference_forces_correction", forces),
+        _get("mm_energy_correction", energy),
+        _get("mm_forces_correction", forces),
+    )
+
+
+def ensure_correction_columns(dataset: datasets.Dataset) -> datasets.Dataset:
+    """Return a weighted dataset with every column of `WEIGHTED_DATA_SCHEMA`.
+
+    Missing weights default to 1 and missing corrections to 0, so datasets created
+    with older versions of presto or with `descent.targets.energy.create_dataset`
+    can be used directly. The result is built in memory, so the source dataset (and
+    any directory it was loaded from) is never modified.
+
+    Args:
+        dataset: The dataset to complete.
+
+    Returns:
+        A new in-memory dataset with torch format.
+    """
+    entries = []
+    for entry in dataset:
+        energy_weights, forces_weights = get_weights_from_entry(entry)
+        ref_e, ref_f, mm_e, mm_f = get_corrections_from_entry(entry)
+        n_confs = len(entry["energy"])
+        entries.append(
+            {
+                "smiles": entry["smiles"],
+                "coords": torch.as_tensor(entry["coords"]).cpu(),
+                "energy": torch.as_tensor(entry["energy"]).cpu(),
+                "forces": torch.as_tensor(entry["forces"]).cpu(),
+                "energy_weights": torch.as_tensor(energy_weights).cpu(),
+                "forces_weights": torch.as_tensor(forces_weights).cpu(),
+                "reference_energy_correction": ref_e.cpu(),
+                "reference_forces_correction": ref_f.cpu(),
+                "mm_energy_correction": mm_e.cpu(),
+                "mm_forces_correction": mm_f.cpu(),
+                "reference_energy_coords": (
+                    None
+                    if entry.get("reference_energy_coords") is None
+                    else torch.as_tensor(entry["reference_energy_coords"])
+                    .cpu()
+                    .reshape(n_confs, -1, 3)
+                ),
+            }
+        )
+    return create_weighted_dataset(typing.cast(list[WeightedEntry], entries))
+
+
+def _check_min_conformations(
+    n_kept: int, n_confs: int, min_conformations: int, action: str, hint: str = ""
+) -> None:
+    """Raise if removing conformations leaves fewer than ``min_conformations``.
+
+    Entries sampled with fewer conformations are only rejected if any are removed.
+    """
+    if n_kept < n_confs and n_kept < min_conformations:
+        raise ValueError(
+            f"{action} would keep only {n_kept}/{n_confs} conformations, which is "
+            f"fewer than min_conformations={min_conformations}. {hint}".rstrip()
+        )
+
+
+def drop_nonfinite_conformers(
+    dataset: datasets.Dataset, min_conformations: int = 1
+) -> datasets.Dataset:
+    """Remove conformations with non-finite energies, forces or corrections.
+
+    Zero weights cannot remove non-finite values from the loss (``NaN * 0 = NaN``),
+    and a single non-finite energy also corrupts the per-entry energy referencing, so
+    such conformations are removed instead.
+
+    Args:
+        dataset: The weighted dataset to clean.
+        min_conformations: The minimum number of conformations to keep per entry if
+            any are removed.
+
+    Returns:
+        The dataset with non-finite conformations removed. The input dataset is
+        returned unchanged if every value is finite.
+
+    Raises:
+        ValueError: If removing the non-finite conformations would leave an entry with
+            fewer than ``min_conformations`` conformations.
+    """
+    cleaned_entries = []
+    n_dropped_total = 0
+
+    for entry_idx, entry in enumerate(dataset):
+        n_confs = len(entry["energy"])
+        finite = torch.ones(n_confs, dtype=torch.bool)
+        for column in ("energy", "reference_energy_correction", "mm_energy_correction"):
+            if entry.get(column) is not None:
+                finite &= torch.isfinite(torch.as_tensor(entry[column]).cpu())
+        for column in (
+            "forces",
+            "reference_forces_correction",
+            "mm_forces_correction",
+        ):
+            if entry.get(column) is not None:
+                values = torch.as_tensor(entry[column]).cpu().reshape(n_confs, -1)
+                finite &= torch.isfinite(values).all(dim=1)
+
+        n_dropped = n_confs - int(finite.sum())
+        if n_dropped > 0:
+            _check_min_conformations(
+                n_confs - n_dropped,
+                n_confs,
+                min_conformations,
+                f"Removing {n_dropped} conformations with non-finite energies, forces "
+                f"or corrections from entry {entry_idx} of {entry['smiles']}",
+                hint="Check the reference potential and corrections.",
+            )
+            logger.warning(
+                f"Removing {n_dropped}/{n_confs} conformations with non-finite "
+                f"energies, forces or corrections from entry {entry_idx} of "
+                f"{entry['smiles']}."
+            )
+        n_dropped_total += n_dropped
+        cleaned_entries.append(
+            _select_conformers(entry, finite.nonzero(as_tuple=True)[0])
+        )
+
+    if n_dropped_total == 0:
+        return dataset
+
+    return create_weighted_dataset(cleaned_entries)

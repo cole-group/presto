@@ -3,7 +3,7 @@
 import copy
 import functools
 import pathlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Protocol, TypedDict, Unpack
 
 import datasets
@@ -24,8 +24,15 @@ from openmm.unit import Quantity, angstrom
 from rich.progress import track
 
 from . import mlp, settings
+from .corrections import (
+    CorrectionSettings,
+    add_correction_forces,
+    correction_force_groups,
+    get_system_charges,
+)
 from .data_utils import (
     create_dataset_with_uniform_weights,
+    ensure_correction_columns,
     merge_weighted_datasets,
 )
 from .find_torsions import (
@@ -158,13 +165,19 @@ def _build_ml_simulation(
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
+    corrections: list[CorrectionSettings] | None = None,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
-    """Create a simulation that uses an ML potential system."""
+    """Create a simulation that uses an ML potential system.
+
+    Any ``corrections`` (e.g. an implicit-solvent model) are added to the system in
+    their own force group, which recorded energies and forces should exclude.
+    """
     ml_system = mlp.get_ml_omm_system(
         mol,
         mlp_settings,
         device,
     )
+    add_correction_forces(ml_system, mol, corrections or [], device=device)
 
     # As a temporary hack to get around an OpeMM-ML issue, set the device to CPU for the ML simulation
     # This doesn't slow things down as the MLP is still loaded on the GPU when requested.
@@ -173,16 +186,58 @@ def _build_ml_simulation(
     )
 
 
+def _build_mm_system(
+    interchange: openff.interchange.Interchange,
+    mol: openff.toolkit.Molecule,
+    corrections: list[CorrectionSettings],
+    device: torch.device,
+) -> openmm.System:
+    """Create an MM system from an Interchange object, adding any corrections.
+
+    The corrections (e.g. an implicit-solvent model) are added in their own force
+    group and use the charges of the system's NonbondedForce.
+    """
+    mm_system = interchange.to_openmm_system()
+    if corrections:
+        add_correction_forces(
+            mm_system,
+            mol,
+            corrections,
+            device=device,
+            charges=get_system_charges(mm_system),
+        )
+    return mm_system
+
+
 def _build_mm_simulation(
     interchange: openff.interchange.Interchange,
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
+    mol: openff.toolkit.Molecule | None = None,
+    corrections: list[CorrectionSettings] | None = None,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an MM system from an Interchange object."""
-    mm_system = interchange.to_openmm_system()
+    if corrections and mol is None:
+        raise ValueError("A molecule is required to add corrections to the MM system.")
+    mm_system = (
+        _build_mm_system(interchange, mol, corrections, device)
+        if corrections and mol is not None
+        else interchange.to_openmm_system()
+    )
     mm_topology = interchange.topology.to_openmm()
     return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
+
+
+def _sampling_corrections(
+    value: Sequence[CorrectionSettings] | str,
+) -> list[CorrectionSettings]:
+    """Return a sampling stage's corrections.
+
+    'from_fit' is resolved by `presto.sampling_coordinator.sample_ligands`; when a
+    sampling function is called directly there are no fit corrections to use.
+    """
+    return [] if isinstance(value, str) else list(value)
 
 
 def _run_md(
@@ -389,7 +444,12 @@ def sample_mmmd(
         )
 
         simulation, integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            mol=mol_with_conformers,
+            corrections=_sampling_corrections(settings.mm_sampling_corrections),
         )
 
         # Create molecule-specific PDB path
@@ -488,6 +548,7 @@ def sample_mlmd(
             settings.temperature,
             settings.timestep,
             device,
+            corrections=_sampling_corrections(settings.ml_sampling_corrections),
         )
 
         # Create molecule-specific PDB path
@@ -504,6 +565,8 @@ def sample_mlmd(
             settings.production_n_snapshots_per_conformer,
             settings.production_n_steps_per_snapshot_per_conformer,
             pdb_path,
+            # Record the uncorrected reference; fit corrections are added separately
+            record_force_groups=_recording_force_groups(ml_simulation.system),
         )
 
         # Clean up ML simulation to free GPU memory
@@ -625,7 +688,12 @@ def sample_mmmd_metadynamics(
             )
             # Fall back to regular MD for this molecule
             simulation, integrator = _build_mm_simulation(
-                interchange, settings.temperature, settings.timestep, device
+                interchange,
+                settings.temperature,
+                settings.timestep,
+                device,
+                mol=mol_with_conformers,
+                corrections=_sampling_corrections(settings.mm_sampling_corrections),
             )
 
             pdb_path = None
@@ -654,7 +722,12 @@ def sample_mmmd_metadynamics(
                 bias_width=metad_settings.bias_width,
             )
 
-            system = interchange.to_openmm_system()
+            system = _build_mm_system(
+                interchange,
+                mol_with_conformers,
+                _sampling_corrections(settings.mm_sampling_corrections),
+                device,
+            )
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
@@ -785,20 +858,32 @@ def _find_available_force_group(simulation: Simulation) -> int:
     raise RuntimeError("All force groups (0-31) are in use")
 
 
-def _force_groups_excluding(force_group: int) -> int:
-    """Return a bitmask selecting every force group except ``force_group``.
+def _force_groups_excluding(*force_groups: int) -> int:
+    """Return a bitmask selecting every force group except ``force_groups``.
 
     Parameters
     ----------
-    force_group : int
-        The force group to exclude, e.g. the one holding torsion restraints.
+    *force_groups : int
+        The force groups to exclude, e.g. the one holding torsion restraints.
 
     Returns:
     -------
     int
-        A bitmask suitable for passing as ``groups`` to ``Context.getState``.
+        A bitmask suitable for passing as ``groups`` to ``Context.getState``, or -1
+        (all groups) if no groups are excluded.
     """
-    return sum(1 << group for group in range(32) if group != force_group)
+    if not force_groups:
+        return -1
+    return sum(1 << group for group in range(32) if group not in force_groups)
+
+
+def _recording_force_groups(system: openmm.System, *force_groups: int) -> int:
+    """Return a bitmask excluding ``force_groups`` and any correction force groups.
+
+    Recorded reference energies and forces always exclude corrections used during
+    sampling: corrections which enter the fit are evaluated separately.
+    """
+    return _force_groups_excluding(*force_groups, *correction_force_groups(system))
 
 
 def _add_torsion_restraint_forces(
@@ -994,8 +1079,8 @@ def _minimize_with_frozen_torsions(
     # Minimize
     simulation.minimizeEnergy(maxIterations=max_iterations)
 
-    # Get minimized state - exclude restraint force group from energy
-    groups_mask = _force_groups_excluding(restraint_force_group)
+    # Get minimized state - exclude restraint and correction force groups from energy
+    groups_mask = _recording_force_groups(simulation.system, restraint_force_group)
     state = simulation.context.getState(
         getEnergy=True, getPositions=True, getForces=True, groups=groups_mask
     )
@@ -1155,7 +1240,7 @@ def generate_torsion_minimised_dataset(
         mm_minimised_coords.append(mm_coords)
 
         # Step 3: Now recalculate ML energy/forces at MM-minimised coords
-        groups_mask = _force_groups_excluding(ml_restraint_group)
+        groups_mask = _recording_force_groups(ml_simulation.system, ml_restraint_group)
         ml_simulation.context.setPositions(Quantity(mm_coords, angstrom))
         state = ml_simulation.context.getState(
             getEnergy=True, getForces=True, groups=groups_mask
@@ -1199,17 +1284,26 @@ def generate_torsion_minimised_dataset(
     mm_min_dataset = create_dataset_with_uniform_weights(
         smiles=smiles,
         coords=torch.tensor(np.array(mm_minimised_coords)),
-        energy=torch.tensor(np.array(mm_mapped_energies) - np.min(mm_mapped_energies)),
+        energy=torch.tensor(
+            np.array(mm_mapped_energies) - np.nanmin(mm_mapped_energies)
+        ),
         forces=torch.tensor(np.array(mm_coords_ml_forces)),
         energy_weight=mm_min_energy_weight,
         forces_weight=mm_min_forces_weight,
+        # Record where the mapped energies were evaluated, so that reference
+        # corrections to the energies are evaluated at the same coordinates
+        reference_energy_coords=(
+            torch.tensor(np.array(ml_minimised_coords))
+            if map_ml_coords_energy_to_mm_coords_energy
+            else None
+        ),
     )
 
     ml_min_dataset = create_dataset_with_uniform_weights(
         smiles=smiles,
         coords=torch.tensor(np.array(ml_minimised_coords)),
         energy=torch.tensor(
-            np.array(ml_coords_ml_energies) - np.min(ml_coords_ml_energies)
+            np.array(ml_coords_ml_energies) - np.nanmin(ml_coords_ml_energies)
         ),
         forces=torch.tensor(np.array(ml_coords_ml_forces)),
         energy_weight=ml_min_energy_weight,
@@ -1331,7 +1425,12 @@ def _torsion_minimise_and_merge(
     # Create a fresh MM simulation for minimisation (without metadynamics biases
     # or sampling restraints)
     mm_min_simulation, mm_min_integrator = _build_mm_simulation(
-        interchange, settings.temperature, settings.timestep, device
+        interchange,
+        settings.temperature,
+        settings.timestep,
+        device,
+        mol=mol,
+        corrections=_sampling_corrections(settings.mm_sampling_corrections),
     )
 
     # Create a fresh ML simulation for minimisation
@@ -1342,6 +1441,7 @@ def _torsion_minimise_and_merge(
         settings.temperature,
         settings.timestep,
         device,
+        corrections=_sampling_corrections(settings.ml_sampling_corrections),
     )
 
     # Create molecule-specific PDB paths for minimised structures
@@ -1437,7 +1537,12 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             include_smarts=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
             exclude_smarts=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
-        system = interchange.to_openmm_system()
+        system = _build_mm_system(
+            interchange,
+            mol_with_conformers,
+            _sampling_corrections(settings.mm_sampling_corrections),
+            device,
+        )
 
         if metad_torsions:
             # Setup metadynamics
@@ -1587,7 +1692,12 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
         )
 
         simulation, integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            mol=mol_with_conformers,
+            corrections=_sampling_corrections(settings.mm_sampling_corrections),
         )
 
         pdb_path = None
@@ -1684,7 +1794,8 @@ def load_precomputed_dataset(
     off_ff : openff.toolkit.ForceField
         The force field (not used, kept for API consistency).
     device : torch.device
-        The device to set the dataset format to.
+        The device (not used, kept for API consistency). Datasets are returned on
+        the CPU.
     settings : PreComputedDatasetSettings
         Settings containing the path(s) to the pre-computed dataset(s).
     output_paths : dict[OutputType, pathlib.Path]
@@ -1726,7 +1837,9 @@ def load_precomputed_dataset(
             f"Loading pre-computed dataset for molecule {mol_idx} from {dataset_path}"
         )
         loaded_dataset = datasets.load_from_disk(str(dataset_path))
-        loaded_dataset.set_format("torch", device=device)
-        loaded_datasets.append(loaded_dataset)
+        loaded_dataset.set_format("torch")
+        # Rebuild in memory with every weight and correction column, so that the
+        # stored dataset is never modified
+        loaded_datasets.append(ensure_correction_columns(loaded_dataset))
 
     return loaded_datasets

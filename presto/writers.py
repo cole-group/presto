@@ -14,6 +14,7 @@ import smee
 import tensorboardX
 import torch
 
+from .data_utils import get_corrections_from_entry
 from .loss import LossRecord, compute_overall_loss_and_grad, predict_with_weights
 from .utils.typing import PathLike
 
@@ -35,7 +36,12 @@ def write_scatter(
     device: torch.device,
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
-    """Predict and save energies/forces to HDF5."""
+    """Predict and save energies/forces to HDF5.
+
+    The reference and predicted values include any corrections stored in the
+    dataset. The (unreferenced) energy corrections are also saved, as
+    ``energy_reference_correction`` and ``energy_mm_correction``.
+    """
     energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
         predict_with_weights(
             dataset,
@@ -59,6 +65,16 @@ def write_scatter(
             f.create_dataset("forces_reference", data=forces_ref_all.cpu().numpy())
             f.create_dataset("forces_predicted", data=forces_pred_all.cpu().numpy())
             f.create_dataset("forces_differences", data=force_diffs.cpu().numpy())
+
+            corrections = [get_corrections_from_entry(entry) for entry in dataset]
+            f.create_dataset(
+                "energy_reference_correction",
+                data=torch.cat([c[0] for c in corrections]).cpu().numpy(),
+            )
+            f.create_dataset(
+                "energy_mm_correction",
+                data=torch.cat([c[2] for c in corrections]).cpu().numpy(),
+            )
 
             f.attrs["n_conformers"] = len(energy_ref_all)
             f.attrs["n_atoms"] = forces_ref_all.shape[0] // len(energy_ref_all)

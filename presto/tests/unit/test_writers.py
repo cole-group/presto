@@ -57,6 +57,9 @@ def test_write_scatter(tmp_path):
             assert "energy_reference" in f
             assert "energy_predicted" in f
             assert "forces_reference" in f
+            # Entries without corrections have zero corrections
+            assert list(f["energy_reference_correction"][:]) == [0.0] * n_conf
+            assert list(f["energy_mm_correction"][:]) == [0.0] * n_conf
             assert f.attrs["n_conformers"] == n_conf
             # Implementation currently stores n_atoms * 3 in n_atoms attribute
             assert f.attrs["n_atoms"] == n_atoms * 3

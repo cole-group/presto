@@ -2362,6 +2362,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py312h5253ce2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/9e/50/cdc9a1fc9b03ff7881b821e20e50db40a85149beebde67754dd67d8a4d23/aimnet-0.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e1/bd/a0c5011a8eddce39a9b613b13a75057bf960ef2145ff4d1583ed81a2599b/boto3-1.42.90-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/1e/44afcdc3b526b6e1569dd142083c6ed1cb8b92b4141de1c78ded883b449a/botocore-1.42.90-py3-none-any.whl
       - pypi: git+https://github.com/fjclark/cached_path.git?rev=1cb8bdecd22e3af70182b8075bc86d7c18184c9e#1cb8bdecd22e3af70182b8075bc86d7c18184c9e
@@ -2897,6 +2898,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py313h54dd161_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/9e/50/cdc9a1fc9b03ff7881b821e20e50db40a85149beebde67754dd67d8a4d23/aimnet-0.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e1/bd/a0c5011a8eddce39a9b613b13a75057bf960ef2145ff4d1583ed81a2599b/boto3-1.42.90-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/1e/44afcdc3b526b6e1569dd142083c6ed1cb8b92b4141de1c78ded883b449a/botocore-1.42.90-py3-none-any.whl
       - pypi: git+https://github.com/fjclark/cached_path.git?rev=1cb8bdecd22e3af70182b8075bc86d7c18184c9e#1cb8bdecd22e3af70182b8075bc86d7c18184c9e
@@ -3465,6 +3467,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py312h5253ce2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/9e/50/cdc9a1fc9b03ff7881b821e20e50db40a85149beebde67754dd67d8a4d23/aimnet-0.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e1/bd/a0c5011a8eddce39a9b613b13a75057bf960ef2145ff4d1583ed81a2599b/boto3-1.42.90-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/1e/44afcdc3b526b6e1569dd142083c6ed1cb8b92b4141de1c78ded883b449a/botocore-1.42.90-py3-none-any.whl
       - pypi: git+https://github.com/fjclark/cached_path.git?rev=1cb8bdecd22e3af70182b8075bc86d7c18184c9e#1cb8bdecd22e3af70182b8075bc86d7c18184c9e
@@ -4034,6 +4037,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py312h5253ce2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/9e/50/cdc9a1fc9b03ff7881b821e20e50db40a85149beebde67754dd67d8a4d23/aimnet-0.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e1/bd/a0c5011a8eddce39a9b613b13a75057bf960ef2145ff4d1583ed81a2599b/boto3-1.42.90-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/1e/44afcdc3b526b6e1569dd142083c6ed1cb8b92b4141de1c78ded883b449a/botocore-1.42.90-py3-none-any.whl
       - pypi: git+https://github.com/fjclark/cached_path.git?rev=1cb8bdecd22e3af70182b8075bc86d7c18184c9e#1cb8bdecd22e3af70182b8075bc86d7c18184c9e
@@ -4601,6 +4605,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstandard-0.25.0-py313h54dd161_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
       - pypi: https://files.pythonhosted.org/packages/9e/50/cdc9a1fc9b03ff7881b821e20e50db40a85149beebde67754dd67d8a4d23/aimnet-0.1.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e1/bd/a0c5011a8eddce39a9b613b13a75057bf960ef2145ff4d1583ed81a2599b/boto3-1.42.90-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fc/1e/44afcdc3b526b6e1569dd142083c6ed1cb8b92b4141de1c78ded883b449a/botocore-1.42.90-py3-none-any.whl
       - pypi: git+https://github.com/fjclark/cached_path.git?rev=1cb8bdecd22e3af70182b8075bc86d7c18184c9e#1cb8bdecd22e3af70182b8075bc86d7c18184c9e
@@ -4976,6 +4981,18 @@ packages:
   - pkg:pypi/anyio?source=compressed-mapping
   size: 146764
   timestamp: 1774359453364
+- pypi: https://files.pythonhosted.org/packages/6c/76/d5290708cac139fb534320907f135919e5452f80367edbc6933c5545db18/anysolv-0.1.0-py3-none-any.whl
+  name: anysolv
+  version: 0.1.0
+  sha256: 2babc7499e2529ca57b9ce0d07ab8eba4dbb94cb64f969daad555868e88c25c1
+  requires_dist:
+  - numpy
+  - torch
+  - ase ; extra == 'samples'
+  - ase ; extra == 'ase'
+  - huggingface-hub ; extra == 'hub'
+  - triton>=3.4 ; extra == 'gpu'
+  requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/argon2-cffi-25.1.0-pyhd8ed1ab_0.conda
   sha256: bea62005badcb98b1ae1796ec5d70ea0fc9539e7d59708ac4e7d41e2f4bb0bad
   md5: 8ac12aff0860280ee0cff7fa2cf63f3b
@@ -12892,8 +12909,8 @@ packages:
   timestamp: 1776858157327
 - pypi: ./
   name: presto
-  version: 0.8.2.dev44+gfde20d2c3.d20260911
-  sha256: 6838089f6114df6605d62bb663158aaa9d70a77d8c8a60ea9dd0f2919462a738
+  version: 0.9.1.dev8+g1af95225d.d20261019
+  sha256: ed6bf5c7bb0b73d803ae9eda0536b8c891496673a9ac4dc5c952c8d6f42f4d17
   requires_python: '>=3.11,<3.15'
 - pypi: https://files.pythonhosted.org/packages/ee/8c/83087ebc47ab0396ce092363001fa37c17153119ee282700c0713a195853/prettytable-3.17.0-py3-none-any.whl
   name: prettytable

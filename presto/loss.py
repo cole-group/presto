@@ -12,7 +12,7 @@ import smee
 import smee.utils
 import torch
 
-from .data_utils import get_weights_from_entry
+from .data_utils import get_corrections_from_entry, get_weights_from_entry
 
 logger = loguru.logger
 _CPU_DEVICE = torch.device("cpu")
@@ -409,7 +409,9 @@ def predict_with_weights(
     """Predict the relative energies and forces with associated weights from the dataset.
 
     This function is similar to `predict` but also returns the energy and force weights
-    from the dataset entries.
+    from the dataset entries. Any reference corrections stored in the dataset are
+    added to the reference energies and forces, and any MM corrections are added to
+    the predicted energies and forces, before the energies are referenced.
 
     Args:
         dataset: The dataset to predict the energies and forces of.
@@ -431,8 +433,14 @@ def predict_with_weights(
     for entry in dataset:
         smiles = entry["smiles"]
 
-        energy_ref = entry["energy"].to(device)
-        forces_ref = entry["forces"].reshape(len(energy_ref), -1, 3).to(device)
+        # Add any corrections to the reference (e.g. a solvation correction to
+        # gas-phase MLP energies) to form the fitting target
+        ref_e_corr, ref_f_corr, mm_e_corr, mm_f_corr = get_corrections_from_entry(entry)
+        energy_ref = (entry["energy"] + ref_e_corr.to(entry["energy"])).to(device)
+        forces_ref = (
+            entry["forces"].reshape(len(energy_ref), -1, 3)
+            + ref_f_corr.to(entry["forces"])
+        ).to(device)
 
         # Get weights from entry
         energy_weights, forces_weights = get_weights_from_entry(entry)
@@ -459,6 +467,11 @@ def predict_with_weights(
             retain_graph=True,  # Need to retain connection to FF parameters
             allow_unused=True,
         )[0]
+
+        # Add any fixed MM corrections (e.g. implicit solvent), which do not depend
+        # on the trained parameters, after the forces have been differentiated
+        energy_pred = energy_pred + smee.utils.tensor_like(mm_e_corr, energy_pred)
+        forces_pred = forces_pred + smee.utils.tensor_like(mm_f_corr, forces_pred)
 
         if reference.lower() == "mean":
             energy_ref_0 = energy_ref.mean()

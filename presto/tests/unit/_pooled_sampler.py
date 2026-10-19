@@ -52,6 +52,9 @@ def sample_pooled_test(
                 "n_ff_parameters": [
                     len(off_ff.get_parameter_handler("Bonds").parameters)
                 ],
+                # The coordinator checks reference values are finite
+                "energy": [[0.0]],
+                "forces": [[0.0] * 3 * mol.n_atoms],
             }
         )
         for mol in mols

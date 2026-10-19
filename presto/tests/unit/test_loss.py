@@ -13,6 +13,8 @@ from openff.toolkit import ForceField, Molecule
 
 from presto.data_utils import (
     create_dataset_with_uniform_weights,
+    create_weighted_dataset,
+    drop_nonfinite_conformers,
     merge_weighted_datasets,
 )
 from presto.loss import (
@@ -272,6 +274,122 @@ class TestPredictWithWeights:
         )
 
 
+def _with_corrections(dataset, **columns):
+    """Return a copy of a one-entry dataset with the given correction columns."""
+    entry = dict(dataset[0])
+    entry.update(columns)
+    return create_weighted_dataset([entry])
+
+
+class TestPredictWithCorrections:
+    """Tests for applying stored corrections in predict_with_weights."""
+
+    def test_reference_corrections_are_added_to_the_target(
+        self, weighted_ethanol_dataset
+    ):
+        """Reference corrections shift the target, not the MM prediction."""
+        dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
+        n_confs, n_atoms = 3, tensor_top.n_atoms
+        ref_e = torch.tensor([1.0, -2.0, 4.0], dtype=torch.float64)
+        ref_f = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+        corrected = _with_corrections(
+            dataset,
+            reference_energy_correction=ref_e,
+            reference_forces_correction=ref_f,
+        )
+
+        base = predict_with_weights(dataset, tensor_ff, {smiles: tensor_top})
+        result = predict_with_weights(corrected, tensor_ff, {smiles: tensor_top})
+
+        scale_e = torch.sqrt(torch.tensor(float(n_confs), dtype=torch.float64))
+        scale_f = torch.sqrt(torch.tensor(n_confs * n_atoms * 3.0, dtype=torch.float64))
+        assert torch.allclose(
+            (result[0] - base[0]).double() * scale_e, ref_e - ref_e.mean(), atol=1e-4
+        )
+        assert torch.allclose(
+            (result[2] - base[2]).double() * scale_f, ref_f.reshape(-1, 3), atol=1e-4
+        )
+        assert torch.allclose(result[1], base[1])
+        assert torch.allclose(result[3], base[3])
+
+    def test_mm_corrections_are_added_to_the_prediction(self, ethanol_ff_and_topology):
+        """MM corrections shift the MM prediction, not the target."""
+        tensor_ff, tensor_top, mol = ethanol_ff_and_topology
+        smiles = mol.to_smiles(mapped=True)
+        n_atoms = tensor_top.n_atoms
+        # Realistic coordinates keep the MM energies small enough to compare
+        coords = torch.tensor(
+            [mol.conformers[0].m_as("angstrom")] * 3, dtype=torch.float64
+        ) + 0.01 * torch.arange(3, dtype=torch.float64).reshape(3, 1, 1)
+        n_confs = 3
+        dataset = create_dataset_with_uniform_weights(
+            smiles=smiles,
+            coords=coords,
+            energy=torch.zeros(n_confs, dtype=torch.float64),
+            forces=torch.zeros(n_confs, n_atoms, 3, dtype=torch.float64),
+        )
+        mm_e = torch.tensor([3.0, 0.0, -1.0], dtype=torch.float64)
+        mm_f = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
+        corrected = _with_corrections(
+            dataset, mm_energy_correction=mm_e, mm_forces_correction=mm_f
+        )
+
+        base = predict_with_weights(
+            dataset, tensor_ff, {smiles: tensor_top}, normalize=False
+        )
+        result = predict_with_weights(
+            corrected, tensor_ff, {smiles: tensor_top}, normalize=False
+        )
+
+        assert torch.allclose(
+            (result[1] - base[1]).double(), mm_e - mm_e.mean(), atol=1e-4
+        )
+        assert torch.allclose(
+            (result[3] - base[3]).double(), mm_f.reshape(-1, 3), atol=1e-4
+        )
+        assert torch.allclose(result[0], base[0])
+        assert torch.allclose(result[2], base[2])
+
+    def test_constant_energy_corrections_cancel(self, weighted_ethanol_dataset):
+        """Energies are relative, so constant energy corrections have no effect."""
+        dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
+        constant = torch.full((3,), 7.5, dtype=torch.float64)
+        corrected = _with_corrections(
+            dataset,
+            reference_energy_correction=constant,
+            mm_energy_correction=-constant,
+        )
+
+        base = predict_with_weights(dataset, tensor_ff, {smiles: tensor_top})
+        result = predict_with_weights(corrected, tensor_ff, {smiles: tensor_top})
+
+        for base_value, value in zip(base, result, strict=True):
+            assert torch.allclose(base_value, value, atol=1e-6)
+
+    def test_mm_corrections_do_not_depend_on_parameters(self, weighted_ethanol_dataset):
+        """Fixed MM corrections add nothing to the derivatives of the prediction."""
+        dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
+        corrected = _with_corrections(
+            dataset,
+            mm_energy_correction=torch.tensor([3.0, 0.0, -1.0], dtype=torch.float64),
+        )
+        bonds = tensor_ff.potentials_by_type["Bonds"]
+        bonds.parameters.requires_grad_(True)
+
+        # Each conformer's d(E_pred)/d(theta) must be unchanged, so any linear
+        # functional of the predictions has the same gradient
+        def _linear_gradient(ds):
+            _, energy_pred, _, _, _, _ = predict_with_weights(
+                ds, tensor_ff, {smiles: tensor_top}
+            )
+            weights = torch.tensor([1.0, 2.0, 3.0], dtype=energy_pred.dtype)
+            return torch.autograd.grad((energy_pred * weights).sum(), bonds.parameters)[
+                0
+            ]
+
+        assert torch.allclose(_linear_gradient(dataset), _linear_gradient(corrected))
+
+
 @pytest.fixture
 def ethanol_trainable_and_dataset():
     """Create ethanol trainable and weighted dataset for testing."""
@@ -439,7 +557,7 @@ class TestPredictionLossWithWeights:
         assert result.energy.item() == 0.0
 
     def test_prediction_loss_with_nan_forces(self):
-        """Test that NaN forces are handled correctly (zero weight)."""
+        """Test that NaN forces poison zero-weighted losses but not dropped ones."""
         mol = Molecule.from_smiles("CCO")
         mol.generate_conformers(n_conformers=2)
         ff = ForceField("openff_unconstrained-2.3.0.offxml")
@@ -460,38 +578,44 @@ class TestPredictionLossWithWeights:
         trainable = Trainable(tensor_ff, parameter_configs, {})
         trainable_params = trainable.to_values()
 
-        n_confs = 2
+        n_confs = 3
         n_atoms = mol.n_atoms
         coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
         forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-        # Set all forces to NaN
-        forces[:] = float("nan")
+        forces[1] = float("nan")
 
-        smiles = mol.to_smiles(mapped=True)
-
-        # NaN forces should get weight 0 automatically
         dataset = create_dataset_with_uniform_weights(
-            smiles=smiles,
+            smiles=mol.to_smiles(mapped=True),
             coords=coords,
             energy=torch.rand(n_confs, dtype=torch.float64),
             forces=forces,
             energy_weight=1.0,
-            forces_weight=1.0,  # Will be set to 0 for NaN forces
+            forces_weight=1.0,
         )
 
-        result, _ = compute_overall_loss_and_grad(
-            [dataset],
-            trainable,
-            trainable_params,
-            trainable_params.clone(),
-            [tensor_top],
-            "initial",
-            torch.device("cpu"),
-            compute_grad=False,
-        )
+        def _loss(ds):
+            result, _ = compute_overall_loss_and_grad(
+                [ds],
+                trainable,
+                trainable_params,
+                trainable_params.clone(),
+                [tensor_top],
+                "initial",
+                torch.device("cpu"),
+                compute_grad=False,
+            )
+            return result
 
-        # Force loss should be zero because all forces are NaN (weight 0)
-        assert result.forces.item() == 0.0
+        # A zero weight does not remove NaN from the loss (NaN * 0 = NaN) ...
+        entry = dict(dataset[0])
+        entry["forces_weights"] = torch.tensor([1.0, 0.0, 1.0], dtype=torch.float64)
+        zero_weighted = create_weighted_dataset([entry])
+        assert torch.isnan(_loss(zero_weighted).forces)
+
+        # ... so non-finite conformations are dropped instead
+        result = _loss(drop_nonfinite_conformers(dataset, min_conformations=2))
+        assert torch.isfinite(result.forces)
+        assert torch.isfinite(result.energy)
 
 
 @pytest.fixture

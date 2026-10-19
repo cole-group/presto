@@ -2,25 +2,44 @@
 
 import multiprocessing
 import os
+import sys
 import threading
 from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import datasets
+import numpy as np
 import pytest
 import torch
 from loguru import logger as loguru_logger
 from openff.toolkit import ForceField, Molecule
 
 from presto import sample, sampling_coordinator
+from presto._exceptions import MissingOptionalDependencyError
+from presto.data_utils import (
+    create_dataset_with_uniform_weights,
+    create_weighted_dataset,
+)
 from presto.sampling_coordinator import sample_ligands, sampling_devices
 from presto.settings import (
+    AnySolvSMDCorrectionSettings,
+    GBn2SASACorrectionSettings,
     MLPSettings,
     MMMDSamplingSettings,
     PreComputedDatasetSettings,
 )
 from presto.tests.unit._pooled_sampler import PooledSamplingSettings
+
+
+def _weighted_dataset(energy: float) -> datasets.Dataset:
+    """A one-conformer weighted dataset for methane."""
+    return create_dataset_with_uniform_weights(
+        smiles=Molecule.from_smiles("C").to_smiles(mapped=True),
+        coords=torch.zeros(1, 5, 3, dtype=torch.float64),
+        energy=torch.tensor([energy], dtype=torch.float64),
+        forces=torch.zeros(1, 5, 3, dtype=torch.float64),
+    )
 
 
 def _precomputed_settings(n_datasets: int) -> PreComputedDatasetSettings:
@@ -128,14 +147,8 @@ def test_sampling_devices_names_the_parents_gpus(monkeypatch):
 
 def test_processes_each_precomputed_dataset(monkeypatch):
     """Precomputed training data is passed through the processing callback."""
-    loaded = [
-        datasets.Dataset.from_dict({"value": [10]}),
-        datasets.Dataset.from_dict({"value": [20]}),
-    ]
-    processed = [
-        datasets.Dataset.from_dict({"value": [11]}),
-        datasets.Dataset.from_dict({"value": [21]}),
-    ]
+    loaded = [_weighted_dataset(10.0), _weighted_dataset(20.0)]
+    processed = [_weighted_dataset(11.0), _weighted_dataset(21.0)]
     monkeypatch.setitem(
         sampling_coordinator._SAMPLING_FNS_REGISTRY,
         PreComputedDatasetSettings,
@@ -145,7 +158,7 @@ def test_processes_each_precomputed_dataset(monkeypatch):
 
     with patch("presto.sampling_coordinator.ForceField"):
         result = sample_ligands(
-            mols=[MagicMock(), MagicMock()],
+            mols=[Molecule.from_smiles("C"), Molecule.from_smiles("C")],
             offxml_path=Path("force-field.offxml"),
             device_type="cpu",
             sampling_settings=_precomputed_settings(len(loaded)),
@@ -156,15 +169,15 @@ def test_processes_each_precomputed_dataset(monkeypatch):
         )
 
     assert result == processed
-    assert [call.args for call in process_dataset.call_args_list] == [
-        (0, loaded[0]),
-        (1, loaded[1]),
-    ]
+    assert [call.args[0] for call in process_dataset.call_args_list] == [0, 1]
+    assert [
+        call.args[1]["energy"][0].item() for call in process_dataset.call_args_list
+    ] == [10.0, 20.0]
 
 
 def test_returns_precomputed_datasets_without_callback(monkeypatch):
     """Precomputed test data remains unchanged when no callback is supplied."""
-    loaded = [datasets.Dataset.from_dict({"value": [10]})]
+    loaded = [_weighted_dataset(10.0)]
     monkeypatch.setitem(
         sampling_coordinator._SAMPLING_FNS_REGISTRY,
         PreComputedDatasetSettings,
@@ -173,7 +186,7 @@ def test_returns_precomputed_datasets_without_callback(monkeypatch):
 
     with patch("presto.sampling_coordinator.ForceField"):
         result = sample_ligands(
-            mols=[MagicMock()],
+            mols=[Molecule.from_smiles("C")],
             offxml_path=Path("force-field.offxml"),
             device_type="cpu",
             sampling_settings=_precomputed_settings(len(loaded)),
@@ -182,7 +195,9 @@ def test_returns_precomputed_datasets_without_callback(monkeypatch):
             n_processes=1,
         )
 
-    assert result == loaded
+    assert len(result) == 1
+    assert result[0]["energy"][0].item() == 10.0
+    assert result[0]["mm_energy_correction"][0].item() == 0.0
 
 
 @pytest.mark.parametrize("n_processes", [1, 2])
@@ -382,7 +397,7 @@ def test_worker_indexes_its_side_outputs_by_molecule(tmp_path, monkeypatch):
         seen["offset"] = sample._MOL_INDEX_OFFSET
         seen["device"] = kwargs["device"]
         seen["smiles"] = kwargs["mols"][0].to_smiles()
-        return [datasets.Dataset.from_dict({"value": [1]})]
+        return [_weighted_dataset(1.0)]
 
     _register_fake_sampler(monkeypatch, fake_sample_fn)
     monkeypatch.setattr(sample, "_MOL_INDEX_OFFSET", 0)
@@ -405,7 +420,7 @@ def test_worker_indexes_its_side_outputs_by_molecule(tmp_path, monkeypatch):
     # No device was passed, so the worker samples on the one it claimed at start-up.
     assert seen["device"] == torch.device("cpu")
     assert seen["smiles"] == Molecule.from_smiles("C").to_smiles()
-    assert dataset["value"] == [1]
+    assert dataset["energy"][0].item() == 1.0
     assert logs == []
     # The offset is process-wide, so it must not leak into the worker's next molecule.
     assert sample._MOL_INDEX_OFFSET == 0
@@ -559,3 +574,142 @@ def test_a_real_pool_samples_every_ligand_in_a_worker(tmp_path, monkeypatch):
     assert len(worker_pids) <= 2
     assert [dataset["device"][0] for dataset in result] == ["cpu"] * len(mols)
     assert all(path.exists() for path in dataset_output_paths)
+
+
+def _ethanol_dataset() -> tuple[Molecule, datasets.Dataset]:
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=1)
+    coords = torch.tensor(mol.conformers[0].m_as("angstrom")).reshape(1, -1, 3)
+    return mol, create_dataset_with_uniform_weights(
+        smiles=mol.to_smiles(mapped=True),
+        coords=coords,
+        energy=torch.zeros(1, dtype=torch.float64),
+        forces=torch.zeros_like(coords),
+    )
+
+
+class TestCorrections:
+    """Tests for applying fit and sampling corrections while sampling."""
+
+    def test_corrections_and_charges_reach_every_worker(self, tmp_path, monkeypatch):
+        """Workers get the fit corrections, charges and resolved sampling settings."""
+        inputs = _generated_inputs(tmp_path)
+        gb = GBn2SASACorrectionSettings()
+        charges = [np.full(5, 0.1), np.full(5, 0.2)]
+        worker = MagicMock(side_effect=_successful_worker)
+        monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
+
+        sample_ligands(**inputs, mm_corrections=[gb], mm_charges=charges)
+
+        for mol_idx, call in enumerate(worker.call_args_list):
+            settings = call.args[4]
+            assert settings.mm_sampling_corrections == [gb]
+            assert settings.ml_sampling_corrections == []
+            assert call.args[6] == ()
+            assert call.args[7] == (gb,)
+            assert np.array_equal(call.args[8], charges[mol_idx])
+        # The caller's settings are not modified
+        assert inputs["sampling_settings"].mm_sampling_corrections == "from_fit"
+
+    def test_mm_charges_must_match_the_molecules(self, tmp_path):
+        """One array of charges is needed per molecule."""
+        with pytest.raises(ValueError, match="one array of charges per molecule"):
+            sample_ligands(**_generated_inputs(tmp_path), mm_charges=[np.zeros(5)])
+
+    def test_unavailable_corrections_fail_before_sampling(self, tmp_path, monkeypatch):
+        """A missing optional dependency is reported before any ligand is sampled."""
+        monkeypatch.setitem(sys.modules, "anysolv", None)
+        worker = MagicMock(side_effect=_successful_worker)
+        monkeypatch.setattr(sampling_coordinator, "_sample_worker", worker)
+
+        with pytest.raises(MissingOptionalDependencyError):
+            sample_ligands(
+                **_generated_inputs(tmp_path),
+                reference_corrections=[
+                    AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+                ],
+            )
+        worker.assert_not_called()
+
+    def test_worker_applies_fit_corrections(self, tmp_path, monkeypatch):
+        """The worker stores the fit corrections for the sampled coordinates."""
+        mol, dataset = _ethanol_dataset()
+        _register_fake_sampler(monkeypatch, lambda **kwargs: [dataset])
+        charges = np.linspace(-0.4, 0.4, mol.n_atoms)
+
+        result, _ = sampling_coordinator._sample_worker(
+            mol.to_json(),
+            0,
+            str(tmp_path / "force-field.offxml"),
+            "cpu",
+            MMMDSamplingSettings(),
+            {},
+            (),
+            (GBn2SASACorrectionSettings(),),
+            charges,
+        )
+
+        assert result[0]["mm_energy_correction"][0].item() < 0.0
+        assert torch.all(result[0]["reference_energy_correction"] == 0.0)
+
+    def test_worker_drops_non_finite_conformations(self, tmp_path, monkeypatch):
+        """Non-finite conformations are removed, or fail the ligand if too many."""
+        mol, dataset = _ethanol_dataset()
+        entry = dict(dataset[0])
+        entry["energy"] = torch.tensor([float("nan")])
+        bad = create_weighted_dataset([entry])
+        _register_fake_sampler(monkeypatch, lambda **kwargs: [bad])
+
+        with pytest.raises(ValueError, match="non-finite"):
+            sampling_coordinator._sample_worker(
+                mol.to_json(),
+                0,
+                str(tmp_path / "force-field.offxml"),
+                "cpu",
+                MMMDSamplingSettings(),
+                {},
+            )
+
+    @pytest.mark.parametrize("mode", ["keep", "recompute", "zero"])
+    def test_precomputed_reference_modes(self, monkeypatch, fake_anysolv, mode):
+        """Stored reference corrections follow the mode; MM ones are always rewritten."""
+        mol, dataset = _ethanol_dataset()
+        entry = dict(dataset[0])
+        entry["reference_energy_correction"] = torch.tensor([123.0])
+        entry["mm_energy_correction"] = torch.tensor([456.0])
+        stored = create_weighted_dataset([entry])
+        monkeypatch.setitem(
+            sampling_coordinator._SAMPLING_FNS_REGISTRY,
+            PreComputedDatasetSettings,
+            MagicMock(return_value=[stored]),
+        )
+        settings = PreComputedDatasetSettings(
+            dataset_paths=[Path("dataset")], reference_corrections_mode=mode
+        )
+
+        with patch("presto.sampling_coordinator.ForceField"):
+            [result] = sample_ligands(
+                mols=[mol],
+                offxml_path=Path("force-field.offxml"),
+                device_type="cpu",
+                sampling_settings=settings,
+                output_paths={},
+                dataset_output_paths=[Path("unused")],
+                n_processes=1,
+                reference_corrections=[
+                    AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+                ],
+            )
+
+        reference = result[0]["reference_energy_correction"][0].item()
+        if mode == "keep":
+            assert reference == 123.0
+        elif mode == "zero":
+            assert reference == 0.0
+        else:
+            coords = entry["coords"].reshape(-1, 3).numpy()
+            assert reference == pytest.approx(
+                -0.1 * coords[:, 0].sum() * 23.060548, rel=1e-5
+            )
+        # No MM corrections are configured, so the stored ones are removed
+        assert result[0]["mm_energy_correction"][0].item() == 0.0

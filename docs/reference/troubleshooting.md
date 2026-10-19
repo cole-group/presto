@@ -54,15 +54,25 @@ settings = WorkflowSettings.from_yaml(
 )
 ```
 
-## Too few conformations after outlier filtering
+## Too few conformations after filtering
 
 **Symptom**:
 
 ```
-Filtering would remove too many conformations: ... below min_conformations=...
+Outlier filtering of ... would keep only .../... conformations, which is fewer than min_conformations=...
 ```
 
-**Cause**: The outlier filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
+or
+
+```
+Removing ... conformations with non-finite energies, forces or corrections from entry ... would keep only .../... conformations, which is fewer than min_conformations=...
+```
+
+**Cause**: Conformations are removed if they are outliers, or if their reference energies, forces or corrections are not finite. An error is raised if this leaves an entry with fewer than `min_conformations` (default 50) conformations.
+
+- For outliers, the filter rejected most conformations as having unreasonable MM-vs-MLP differences. See "Unstable Fit" above.
+- For non-finite values, the MLP or a reference correction (such as AnySolv) failed on many structures. Check that the molecule is supported by them.
+- If your dataset is deliberately small, for example a pre-computed dataset, lower `min_conformations` in the workflow settings.
 
 
 ## Parameterisation fails for some molecules

@@ -26,14 +26,17 @@ from presto.sample import (
     _add_torsion_restraint_forces,
     _build_ml_simulation,
     _build_mm_simulation,
+    _build_mm_system,
     _create_simulation,
     _find_available_force_group,
     _force_groups_excluding,
     _get_integrator,
     _get_molecule_from_dataset,
     _get_torsion_bias_forces,
+    _recording_force_groups,
     _remove_torsion_restraint_forces,
     _run_md,
+    _sampling_corrections,
     _update_torsion_restraints,
     generate_torsion_minimised_dataset,
     load_precomputed_dataset,
@@ -44,7 +47,10 @@ from presto.sample import (
     sample_mmmd_metadynamics_with_torsion_minimisation,
     sample_mmmd_torsion_restrained_with_torsion_minimisation,
 )
+from presto.corrections import CORRECTION_FORCE_NAME_PREFIX, correction_force_groups
 from presto.settings import (
+    AnySolvSMDCorrectionSettings,
+    GBn2SASACorrectionSettings,
     MetadynamicsSettings,
     MLMDSamplingSettings,
     MLPSettings,
@@ -516,8 +522,8 @@ def test_dataset_weights_integration():
     assert torch.all(entry["forces_weights"] == 0.1)
 
 
-def test_nan_forces_get_zero_weight():
-    """Test that NaN forces get zero weight."""
+def test_nan_forces_keep_uniform_weights():
+    """Test that NaN forces keep their weights, to be dropped by the coordinator."""
     n_confs = 3
     n_atoms = 5
 
@@ -537,11 +543,8 @@ def test_nan_forces_get_zero_weight():
     )
 
     entry = dataset[0]
-    # Energy weights should all be 1000.0
     assert torch.all(entry["energy_weights"] == 1000.0)
-    # Forces weights: conformation 1 should be 0, others 0.1
-    expected_forces_weights = torch.tensor([0.1, 0.0, 0.1])
-    assert torch.allclose(entry["forces_weights"], expected_forces_weights)
+    assert torch.all(entry["forces_weights"] == 0.1)
 
 
 class TestCopyMolAndAddConformers:
@@ -2172,3 +2175,227 @@ class TestRunMdExcludesRestraintsFromRecord:
         # Energies in the dataset are relative to the first snapshot
         clean_relative = np.array(clean_energies) - clean_energies[0]
         np.testing.assert_allclose(np.array(entry["energy"]), clean_relative, atol=0.05)
+
+
+class TestSamplingCorrections:
+    """Tests for corrections added to the systems used for sampling."""
+
+    def test_force_groups_excluding_nothing_selects_all(self):
+        """With nothing excluded, every force group is recorded."""
+        assert _force_groups_excluding() == -1
+
+    def test_recording_force_groups_exclude_corrections(self):
+        """Recorded values exclude correction and restraint force groups."""
+        system = openmm.System()
+        system.addParticle(1.0)
+        correction = openmm.CustomExternalForce("0")
+        correction.setName(f"{CORRECTION_FORCE_NAME_PREFIX}test")
+        correction.setForceGroup(2)
+        system.addForce(correction)
+
+        assert _recording_force_groups(system) == _force_groups_excluding(2)
+        assert _recording_force_groups(system, 5) == _force_groups_excluding(2, 5)
+
+    def test_from_fit_is_vacuum_without_a_workflow(self):
+        """Sampling functions called directly have no fit corrections to use."""
+        assert _sampling_corrections("from_fit") == []
+        gb = GBn2SASACorrectionSettings()
+        assert _sampling_corrections([gb]) == [gb]
+
+    def test_mm_system_gets_gb_with_its_own_charges(self):
+        """GBneck2 is added in its own group, using the system's charges."""
+        mol = Molecule.from_smiles("CCO")
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ForceField("openff_unconstrained-2.3.0.offxml"), mol.to_topology()
+        )
+
+        vacuum = _build_mm_system(interchange, mol, [], torch.device("cpu"))
+        solvated = _build_mm_system(
+            interchange, mol, [GBn2SASACorrectionSettings()], torch.device("cpu")
+        )
+
+        assert correction_force_groups(vacuum) == set()
+        groups = correction_force_groups(solvated)
+        assert len(groups) == 1
+        assert groups.isdisjoint(
+            {
+                force.getForceGroup()
+                for force in solvated.getForces()
+                if not force.getName().startswith(CORRECTION_FORCE_NAME_PREFIX)
+            }
+        )
+        nonbonded = next(
+            f for f in solvated.getForces() if isinstance(f, openmm.NonbondedForce)
+        )
+        gb = next(
+            f for f in solvated.getForces() if isinstance(f, openmm.CustomGBForce)
+        )
+        for i in range(mol.n_atoms):
+            assert gb.getParticleParameters(i)[0] == pytest.approx(
+                nonbonded.getParticleParameters(i)[0].value_in_unit(
+                    omm_unit.elementary_charge
+                )
+            )
+
+    def test_build_mm_simulation_requires_a_molecule_for_corrections(self):
+        """Corrections cannot be built without knowing the molecule."""
+        mol = Molecule.from_smiles("C")
+        interchange = openff.interchange.Interchange.from_smirnoff(
+            ForceField("openff_unconstrained-2.3.0.offxml"), mol.to_topology()
+        )
+        with pytest.raises(ValueError, match="molecule is required"):
+            _build_mm_simulation(
+                interchange,
+                300 * omm_unit.kelvin,
+                1 * omm_unit.femtoseconds,
+                torch.device("cpu"),
+                corrections=[GBn2SASACorrectionSettings()],
+            )
+
+    def test_metadynamics_system_has_gb_before_the_bias(self, tmp_path):
+        """Corrections are in the system before metadynamics adds its bias force."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        settings_obj = MMMDMetadynamicsSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.0 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.002 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+            metadynamics_settings=MetadynamicsSettings(
+                bias_frequency=0.001 * omm_unit.picoseconds,
+                bias_save_frequency=0.002 * omm_unit.picoseconds,
+            ),
+            mm_sampling_corrections=[GBn2SASACorrectionSettings()],
+        )
+        output_paths = {
+            OutputType.PDB_TRAJECTORY: tmp_path / "trajectory.pdb",
+            OutputType.METADYNAMICS_BIAS: tmp_path / "bias",
+        }
+
+        from presto.metadynamics import Metadynamics
+
+        seen = {}
+
+        def spy(*args, **kwargs):
+            seen["groups"] = correction_force_groups(kwargs["system"])
+            metad = Metadynamics(*args, **kwargs)
+            seen["bias_group"] = metad._force.getForceGroup()
+            return metad
+
+        with (
+            patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys,
+            patch("presto.sample.Metadynamics", side_effect=spy),
+        ):
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+            sample_mmmd_metadynamics(
+                [mol],
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                torch.device("cpu"),
+                settings_obj,
+                output_paths,
+            )
+
+        assert len(seen["groups"]) == 1
+        assert seen["bias_group"] not in seen["groups"]
+
+    def test_mlmd_records_the_uncorrected_reference(self, tmp_path, fake_anysolv):
+        """ML MD in implicit solvent records gas-phase MLP energies and forces."""
+        mol = Molecule.from_smiles("C")
+        mol.generate_conformers(n_conformers=1)
+        settings_obj = MLMDSamplingSettings(
+            timestep=1.0 * omm_unit.femtoseconds,
+            temperature=300.0 * omm_unit.kelvin,
+            n_conformers=1,
+            equilibration_sampling_time_per_conformer=0.0 * omm_unit.picoseconds,
+            production_sampling_time_per_conformer=0.002 * omm_unit.picoseconds,
+            snapshot_interval=0.001 * omm_unit.picoseconds,
+            ml_sampling_corrections=[
+                AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+            ],
+        )
+
+        k = 1000.0  # kJ/mol/nm^2
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            # A harmonic "MLP", whose forces are known exactly
+            mock_system = openmm.System()
+            harmonic = openmm.CustomExternalForce(f"{k}*(x^2+y^2+z^2)")
+            for i in range(mol.n_atoms):
+                mock_system.addParticle(12.0)
+                harmonic.addParticle(i, [])
+            mock_system.addForce(harmonic)
+            mock_ml_sys.return_value = mock_system
+
+            result = sample_mlmd(
+                [mol],
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                torch.device("cpu"),
+                settings_obj,
+                {OutputType.PDB_TRAJECTORY: tmp_path / "trajectory.pdb"},
+            )
+
+        # The correction was evaluated during dynamics ...
+        assert fake_anysolv
+        # ... but is not part of the recorded reference, which is purely harmonic
+        entry = result[0][0]
+        coords_nm = entry["coords"].double().reshape(-1, mol.n_atoms, 3) / 10.0
+        expected_forces = -2 * k * coords_nm / 4.184 / 10.0  # kcal/mol/Å
+        assert torch.allclose(
+            entry["forces"].double().reshape(expected_forces.shape),
+            expected_forces,
+            atol=1e-3,
+        )
+        assert torch.all(entry["reference_forces_correction"] == 0.0)
+
+    def test_mapped_energies_record_their_coordinates(self):
+        """Mapped torsion-minimised energies record where they were evaluated."""
+        mol = Molecule.from_smiles("CCCC")
+        mol.generate_conformers(n_conformers=1)
+        n_atoms = mol.n_atoms
+        dataset = create_dataset_with_uniform_weights(
+            smiles=mol.to_smiles(mapped=True),
+            coords=torch.rand(1, n_atoms, 3, dtype=torch.float64),
+            energy=torch.rand(1, dtype=torch.float64),
+            forces=torch.rand(1, n_atoms, 3, dtype=torch.float64),
+        )
+        ml_coords = np.full((n_atoms, 3), 1.0)
+        mm_coords = np.full((n_atoms, 3), 2.0)
+
+        def create_mock_sim():
+            sim = MagicMock()
+            sim.system = openmm.System()
+            for _ in range(n_atoms):
+                sim.system.addParticle(12.0)
+            state = MagicMock()
+            state.getPotentialEnergy.return_value = omm_unit.Quantity(
+                1.0, omm_unit.kilocalorie_per_mole
+            )
+            state.getForces.return_value = omm_unit.Quantity(
+                np.zeros((n_atoms, 3)),
+                omm_unit.kilocalorie_per_mole / omm_unit.angstrom,
+            )
+            sim.context.getState.return_value = state
+            return sim
+
+        results = {}
+        for mapped in (True, False):
+            with patch(
+                "presto.sample._minimize_with_frozen_torsions",
+                side_effect=[
+                    (ml_coords, 1.0, np.zeros((n_atoms, 3))),
+                    (mm_coords, 2.0, np.zeros((n_atoms, 3))),
+                ],
+            ):
+                results[mapped], _ = generate_torsion_minimised_dataset(
+                    mm_dataset=dataset,
+                    ml_simulation=create_mock_sim(),
+                    mm_simulation=create_mock_sim(),
+                    map_ml_coords_energy_to_mm_coords_energy=mapped,
+                )
+
+        assert torch.allclose(
+            results[True][0]["reference_energy_coords"].double(),
+            torch.tensor(ml_coords).flatten(),
+        )
+        assert results[False][0]["reference_energy_coords"] is None

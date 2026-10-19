@@ -23,6 +23,8 @@ from presto.find_torsions import (
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     _RUNTIME_OBJECT_PLACEHOLDER,
+    AnySolvSMDCorrectionSettings,
+    GBn2SASACorrectionSettings,
     MetadynamicsSettings,
     MLMDSamplingSettings,
     MLPSettings,
@@ -33,6 +35,7 @@ from presto.settings import (
     MSMSettings,
     OutlierFilterSettings,
     ParamSettings,
+    PreComputedDatasetSettings,
     TorsionMinimisationSettings,
     TorsionSelectionSettings,
     TrainingSettings,
@@ -629,18 +632,15 @@ class TestOutlierFilterSettings:
         settings = OutlierFilterSettings()
         assert settings.energy_outlier_threshold == 2.0
         assert settings.force_outlier_threshold == 500.0
-        assert settings.min_conformations == 1
 
     def test_custom_thresholds(self):
         """Test custom threshold values."""
         settings = OutlierFilterSettings(
             energy_outlier_threshold=5.0,
             force_outlier_threshold=25.0,
-            min_conformations=5,
         )
         assert settings.energy_outlier_threshold == 5.0
         assert settings.force_outlier_threshold == 25.0
-        assert settings.min_conformations == 5
 
     def test_disable_energy_filtering(self):
         """Test that energy filtering can be disabled."""
@@ -663,17 +663,11 @@ class TestOutlierFilterSettings:
         assert settings.energy_outlier_threshold is None
         assert settings.force_outlier_threshold is None
 
-    def test_min_conformations_must_be_at_least_one(self):
-        """Test that min_conformations cannot be less than 1."""
-        with pytest.raises(ValidationError, match="greater than or equal to 1"):
-            OutlierFilterSettings(min_conformations=0)
-
     def test_yaml_round_trip(self, tmp_path):
         """Test YAML serialization round-trip."""
         settings = OutlierFilterSettings(
             energy_outlier_threshold=7.5,
             force_outlier_threshold=40.0,
-            min_conformations=3,
         )
         yaml_path = tmp_path / "outlier_settings.yaml"
         settings.to_yaml(yaml_path)
@@ -681,7 +675,6 @@ class TestOutlierFilterSettings:
         loaded = OutlierFilterSettings.from_yaml(yaml_path)
         assert loaded.energy_outlier_threshold == 7.5
         assert loaded.force_outlier_threshold == 40.0
-        assert loaded.min_conformations == 3
 
 
 class TestTypeGenerationSettings:
@@ -1113,8 +1106,8 @@ class TestWorkflowSettings:
             outlier_filter_settings=OutlierFilterSettings(
                 energy_outlier_threshold=7.5,  # kcal/mol/atom
                 force_outlier_threshold=30.0,
-                min_conformations=2,
             ),
+            min_conformations=2,
         )
         yaml_path = tmp_path / "workflow_with_outlier.yaml"
         settings.to_yaml(yaml_path)
@@ -1123,7 +1116,7 @@ class TestWorkflowSettings:
         assert loaded.outlier_filter_settings is not None
         assert loaded.outlier_filter_settings.energy_outlier_threshold == 7.5
         assert loaded.outlier_filter_settings.force_outlier_threshold == 30.0
-        assert loaded.outlier_filter_settings.min_conformations == 2
+        assert loaded.min_conformations == 2
 
 
 def _write_single_conformer_sdf(smiles: str, path: Path) -> None:
@@ -1206,4 +1199,163 @@ class TestStartingConformersField:
                     msm_settings=MSMSettings(starting_conformers=sdf),
                 ),
                 device_type="cpu",
+            )
+
+
+def _workflow_with(**kwargs) -> WorkflowSettings:
+    return WorkflowSettings(
+        param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+        device_type="cpu",
+        **kwargs,
+    )
+
+
+def _capture_warnings() -> tuple[list[str], int]:
+    messages: list[str] = []
+    sink = loguru_logger.add(lambda message: messages.append(str(message)))
+    return messages, sink
+
+
+class TestCorrectionSettings:
+    """Tests for the energy and force correction settings."""
+
+    def test_defaults_are_gas_phase(self):
+        """By default nothing is corrected, so fits are unchanged."""
+        settings = _workflow_with()
+        assert settings.reference_corrections == []
+        assert settings.mm_corrections == []
+        assert settings.min_conformations == 50
+        assert settings.training_sampling_settings.mm_sampling_corrections == "from_fit"
+        assert settings.training_sampling_settings.ml_sampling_corrections == []
+
+    def test_min_conformations_must_be_at_least_one(self):
+        """Entries may never be emptied by removing conformations."""
+        with pytest.raises(ValidationError, match="greater than or equal to 1"):
+            _workflow_with(min_conformations=0)
+
+    def test_correction_defaults(self):
+        """The defaults follow the ff19SB-style GBneck2 + SASA and AnySolv setup."""
+        gb = GBn2SASACorrectionSettings()
+        assert gb.solvent_dielectric == 78.5
+        assert gb.solute_dielectric == 1.0
+        assert gb.sasa_model == "lcpo"
+        assert gb.surface_tension.value_in_unit(
+            omm_unit.kilocalorie_per_mole / omm_unit.angstrom**2
+        ) == pytest.approx(0.005)
+        anysolv = AnySolvSMDCorrectionSettings()
+        assert anysolv.checkpoint == "model_moe"
+        assert anysolv.solvent == "water"
+
+    def test_yaml_round_trip(self, tmp_path):
+        """Corrections survive a YAML round trip, including 'from_fit'."""
+        settings = _workflow_with(
+            reference_corrections=[
+                AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+            ],
+            mm_corrections=[GBn2SASACorrectionSettings(sasa_model="ace")],
+            training_sampling_settings=MMMDSamplingSettings(
+                ml_sampling_corrections="from_fit",
+                mm_sampling_corrections=[],
+            ),
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+
+        assert loaded.reference_corrections == settings.reference_corrections
+        assert loaded.mm_corrections == settings.mm_corrections
+        assert loaded.training_sampling_settings.ml_sampling_corrections == "from_fit"
+        assert loaded.training_sampling_settings.mm_sampling_corrections == []
+
+    def test_corrections_load_from_plain_yaml(self, tmp_path):
+        """Corrections can be written by hand, discriminated by correction_type."""
+        yaml_path = tmp_path / "settings.yaml"
+        yaml_path.write_text(
+            "param_settings:\n"
+            "  molecule_input_type: smiles\n"
+            "  molecules: CCO\n"
+            "device_type: cpu\n"
+            "reference_corrections:\n"
+            "  - correction_type: anysolv_smd\n"
+            "    checkpoint: model_compact\n"
+            "mm_corrections:\n"
+            "  - correction_type: gbn2_sasa\n"
+        )
+
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+
+        assert isinstance(loaded.reference_corrections[0], AnySolvSMDCorrectionSettings)
+        assert isinstance(loaded.mm_corrections[0], GBn2SASACorrectionSettings)
+
+    def test_wrong_side_is_rejected(self):
+        """An MM correction cannot be applied to the reference, or vice versa."""
+        with pytest.raises(ValidationError):
+            _workflow_with(reference_corrections=[GBn2SASACorrectionSettings()])
+        with pytest.raises(ValidationError):
+            MMMDSamplingSettings(
+                mm_sampling_corrections=[AnySolvSMDCorrectionSettings()]
+            )
+
+    def test_duplicate_corrections_are_rejected(self):
+        """The same correction cannot be applied twice."""
+        with pytest.raises(ValidationError, match="duplicate"):
+            _workflow_with(
+                mm_corrections=[
+                    GBn2SASACorrectionSettings(),
+                    GBn2SASACorrectionSettings(),
+                ]
+            )
+        with pytest.raises(ValidationError, match="duplicate"):
+            MMMDSamplingSettings(
+                mm_sampling_corrections=[
+                    GBn2SASACorrectionSettings(),
+                    GBn2SASACorrectionSettings(),
+                ]
+            )
+
+    def test_missing_checkpoint_path_is_rejected(self, tmp_path):
+        """A checkpoint given as a path must exist."""
+        with pytest.raises(ValidationError, match="does not exist"):
+            AnySolvSMDCorrectionSettings(checkpoint=str(tmp_path / "missing.pt"))
+        checkpoint = tmp_path / "weights.pt"
+        checkpoint.write_bytes(b"")
+        assert AnySolvSMDCorrectionSettings(checkpoint=str(checkpoint))
+
+    def test_one_sided_corrections_warn(self):
+        """Correcting only one side is allowed, but probably a mistake."""
+        messages, sink = _capture_warnings()
+        try:
+            _workflow_with(mm_corrections=[GBn2SASACorrectionSettings()])
+        finally:
+            loguru_logger.remove(sink)
+
+        assert any("only one of the reference and MM" in m for m in messages)
+
+    def test_zeroed_precomputed_test_data_warns(self, tmp_path):
+        """Test data must use the same reference as training data to be comparable."""
+        messages, sink = _capture_warnings()
+        try:
+            _workflow_with(
+                reference_corrections=[
+                    AnySolvSMDCorrectionSettings(checkpoint="model_compact")
+                ],
+                mm_corrections=[GBn2SASACorrectionSettings()],
+                testing_sampling_settings=PreComputedDatasetSettings(
+                    dataset_paths=[tmp_path],
+                    reference_corrections_mode="zero",
+                ),
+            )
+        finally:
+            loguru_logger.remove(sink)
+
+        assert any("test reference differs" in m for m in messages)
+
+    def test_precomputed_reference_corrections_mode(self, tmp_path):
+        """Stored reference corrections are kept by default."""
+        settings = PreComputedDatasetSettings(dataset_paths=[tmp_path])
+        assert settings.reference_corrections_mode == "keep"
+        with pytest.raises(ValidationError):
+            PreComputedDatasetSettings(
+                dataset_paths=[tmp_path], reference_corrections_mode="invalid"
             )

@@ -89,12 +89,12 @@ channels = ["https://prefix.dev/conda-forge"]
 [tool.pixi.environments]
 # Default is equivalent to gpu-py312-cuda129 (the py313 environment can be problematic as the Orb dep
 # dm-tree has to be built. Only CUDA 12.9 as that's what OpenMM 8.5 supports.
-default = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
-gpu-py313-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313", "cuda129"] }
-gpu-py312-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
+default = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "anysolv", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
+gpu-py313-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "anysolv", "py313", "cuda129"] }
+gpu-py312-cuda129 = { features = ["common", "gpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "anysolv", "py312", "cuda129"], solve-group = "gpu-py312-cuda129" }
 # CPU
-cpu-py312 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py312"] }
-cpu-py313 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "py313"] }
+cpu-py312 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "anysolv", "py312"] }
+cpu-py313 = { features = ["common", "cpu", "dev", "docs", "typing", "aceff", "aimnet", "ase", "mace", "orb", "anysolv", "py313"] }
 
 # Base (no MLPs). These mimic the conda-forge environments.
 base-py312-cuda129 = { features = ["common", "gpu", "dev", "typing", "py312", "cuda129"] }
@@ -203,6 +203,10 @@ mace-torch = "*"
 
 [tool.pixi.feature.ase.dependencies]
 ase = "*"
+
+# AnySolv SMD implicit-solvent corrections (PyPI only, so not in the conda-forge package)
+[tool.pixi.feature.anysolv.pypi-dependencies]
+anysolv = { version = "==0.1.0", extras = ["hub"] }
 
 [tool.pixi.feature.orb.pypi-dependencies]
 orb-models = ">=0.5.5"

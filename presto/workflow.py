@@ -20,6 +20,7 @@ from presto.convert import convert_to_smirnoff
 
 from .analyse import analyse_workflow
 from .convert import parameterise
+from .corrections import CorrectionSettings, get_smee_charges, prepare_corrections
 from .data_utils import filter_dataset_outliers
 from .outputs import OutputStage, OutputType, StageKind
 from .sampling_coordinator import sample_ligands
@@ -74,9 +75,20 @@ def get_bespoke_force_field(
         output_settings.output_dir = pathlib.Path(".")
         output_settings.to_yaml(settings_output_path)
 
+    # Fail fast if a correction cannot be evaluated (e.g. an optional dependency is
+    # missing), before the slow parameterisation and sampling stages
+    prepare_corrections(_all_corrections(settings))
+
     # Parameterise the base force field for all molecules
     off_mols, initial_off_ff, tensor_tops, tensor_ff = parameterise(
         settings.param_settings, device=settings.device_type
+    )
+
+    # MM corrections in the fit (e.g. GBneck2) use the same charges as the MM model
+    mm_charges = (
+        [get_smee_charges(tensor_top, tensor_ff) for tensor_top in tensor_tops]
+        if settings.mm_corrections
+        else None
     )
 
     pruned_parameter_configs = {
@@ -124,6 +136,10 @@ def get_bespoke_force_field(
             for i in range(len(off_mols))
         ],
         n_processes=settings.n_sampling_processes,
+        reference_corrections=settings.reference_corrections,
+        mm_corrections=settings.mm_corrections,
+        mm_charges=mm_charges,
+        min_conformations=settings.min_conformations,
     )
 
     # Write out statistics on the initial force field
@@ -178,6 +194,7 @@ def get_bespoke_force_field(
                 topology=tensor_tops[mol_idx],
                 settings=settings.outlier_filter_settings,
                 device=settings.device,
+                min_conformations=settings.min_conformations,
             )
         if settings.memory and previous_datasets is not None:
             dataset = datasets.combine.concatenate_datasets(
@@ -220,6 +237,10 @@ def get_bespoke_force_field(
                 ],
                 n_processes=settings.n_sampling_processes,
                 process_dataset=process_training_dataset,
+                reference_corrections=settings.reference_corrections,
+                mm_corrections=settings.mm_corrections,
+                mm_charges=mm_charges,
+                min_conformations=settings.min_conformations,
             )
 
             train_output_paths = {
@@ -277,3 +298,22 @@ def get_bespoke_force_field(
     analyse_workflow(settings)
 
     return off_ff
+
+
+def _all_corrections(settings: WorkflowSettings) -> list[CorrectionSettings]:
+    """Return every correction the workflow may evaluate, in fit or sampling."""
+    corrections: list[CorrectionSettings] = [
+        *settings.reference_corrections,
+        *settings.mm_corrections,
+    ]
+    for sampling_settings in (
+        settings.training_sampling_settings,
+        settings.testing_sampling_settings,
+    ):
+        for value in (
+            getattr(sampling_settings, "ml_sampling_corrections", []),
+            getattr(sampling_settings, "mm_sampling_corrections", []),
+        ):
+            if value != "from_fit":
+                corrections.extend(value)
+    return corrections

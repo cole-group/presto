@@ -148,3 +148,8 @@ The image ships no MLP weights except the bundled Egret-1 model (MIT) and AIMNet
 [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md) and **do not permit commercial
 use**. Selecting a MACE-OFF model downloads those weights at run time, under that licence. See
 [Choose an MLP](../how-to/choose-an-mlp.md).
+
+Nor does it ship the gated AnySolv `model_moe` weights used to
+[fit in implicit solvent](../how-to/fit-in-implicit-solvent.md). To use them, log in to Hugging Face inside the
+container (`hf auth login`) after accepting the FAIR Chemistry License; they are then downloaded to the
+`presto-cache` volume.

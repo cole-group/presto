@@ -32,6 +32,8 @@ pip install aimnet
 
 The `conda-forge` `presto-fit` package comes **without the MLP dependencies**, so you must install the ones you need separately. The `pip install aimnet` step above adds the default AIMNet2 MLP; install other MLPs as required (see [How-to → Choose an MLP](../how-to/choose-an-mlp.md)). Adjust the `cuda-version` virtual package pin as required for your driver.
 
+The AnySolv implicit-solvent corrections are also not on conda-forge. To [fit in implicit solvent](../how-to/fit-in-implicit-solvent.md), add them with `pip install "anysolv[hub]==0.1.0"`.
+
 ## Verify the install
 
 ```bash
@@ -66,6 +68,8 @@ The `pixi` `presto` install from GitHub brings in several reference MLPs by defa
 - **Egret-1** (MIT) — permits commercial use.
 - **AceFF-2.0** — permits commercial use, but [is currently broken upstream](https://github.com/openmm/openmm-ml/issues/136).
 - **MACE-OFF** — released under the [Academic Software License](https://github.com/gabor1/ASL/blob/main/ASL.md). **Not for commercial use.**
+
+The AnySolv implicit-solvent model, used only when [fitting in implicit solvent](../how-to/fit-in-implicit-solvent.md), is MIT licensed with the bundled `model_compact` weights. The default `model_moe` weights are under the FAIR Chemistry License, gated on Hugging Face, and downloaded on first use.
 
 For more, see **[Concepts → MLPs in presto](../concepts/mlps.md)** and **[How-to → Choose an MLP](../how-to/choose-an-mlp.md)**.
 

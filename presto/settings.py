@@ -1,7 +1,10 @@
 """Pydantic models which control/validate the settings."""
 
+import importlib.util
+import sys
 import warnings
 from abc import ABC
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, Self, TypeVar
 
@@ -196,6 +199,151 @@ def _validate_starting_conformers_path(value: Path | None) -> Path | None:
     return value
 
 
+def _is_importable(module: str) -> bool:
+    """Return whether a module can be imported, without importing it."""
+    if module in sys.modules:
+        return sys.modules[module] is not None
+    return importlib.util.find_spec(module) is not None
+
+
+class _EnergyCorrectionSettingsBase(_DefaultSettings, ABC):
+    """Settings for an additive energy and force correction term.
+
+    Correction terms are used in two independent places. Terms listed in
+    `WorkflowSettings.reference_corrections` or `WorkflowSettings.mm_corrections` are
+    included in the fit, while terms listed in a sampling stage's
+    `ml_sampling_corrections` or `mm_sampling_corrections` are added to the systems
+    used to propagate dynamics and run minimisations in that stage.
+    """
+
+    correction_type: str = Field(
+        ...,
+        description="Type of correction. Each correction settings subclass should set "
+        "this to a unique value. This is used as a discriminator when loading from YAML.",
+    )
+
+
+class AnySolvSMDCorrectionSettings(_EnergyCorrectionSettingsBase):
+    """SMD implicit-solvent energy and force corrections predicted by AnySolv.
+
+    This is a reference-side correction: it is added to the MLP (gas-phase) energies
+    and forces. See https://github.com/Ant-on-knee/anysolv. AnySolv is an optional
+    dependency which is not available from conda-forge; install it with
+    ``pip install "anysolv[hub]"``.
+    """
+
+    correction_type: Literal["anysolv_smd"] = Field(
+        "anysolv_smd", description="Type of correction."
+    )
+
+    checkpoint: str = Field(
+        "model_moe",
+        description="AnySolv checkpoint to use. 'model_moe' (the default and most "
+        "accurate model) is downloaded from the gated Hugging Face repository "
+        "antonknee/anysolv, which requires accepting the FAIR Chemistry License and "
+        "logging in with `hf auth login`. 'model_compact' is bundled with AnySolv. A "
+        "path to a converted .pt checkpoint may also be given.",
+    )
+
+    solvent: Literal["water"] = Field(
+        "water",
+        description="Implicit solvent. Only water is supported, for consistency with "
+        "the GBneck2 MM correction.",
+    )
+
+    dtype: Literal["float32", "float64"] = Field(
+        "float32", description="Floating point precision for AnySolv inference."
+    )
+
+    inference_settings: Literal["default", "fast", "fast_gpu"] = Field(
+        "default",
+        description="AnySolv inference preset. 'fast' is recommended for "
+        "'model_compact' and 'fast_gpu' (CUDA only) for 'model_moe'.",
+    )
+
+    @field_validator("checkpoint")
+    @classmethod
+    def validate_checkpoint(cls, value: str) -> str:
+        """Ensure that a checkpoint given as a path exists."""
+        if value.endswith(".pt") and not Path(value).is_file():
+            raise InvalidSettingsError(f"AnySolv checkpoint {value} does not exist.")
+        return value
+
+    @model_validator(mode="after")
+    def warn_if_anysolv_unavailable(self) -> Self:
+        """Warn, rather than fail, so that settings can be written anywhere."""
+        if not _is_importable("anysolv"):
+            logger.warning(
+                "AnySolv is not installed, so AnySolv SMD corrections cannot be "
+                'computed in this environment. Install it with `pip install "anysolv[hub]"` '
+                "(it is not available from conda-forge)."
+            )
+        return self
+
+
+class GBn2SASACorrectionSettings(_EnergyCorrectionSettingsBase):
+    """GBneck2 (Amber igb=8) implicit-solvent energy and forces plus a SASA term.
+
+    This is an MM-side correction: it is added to the MM energies and forces. It is
+    evaluated with OpenMM using the charges of the MM force field and mbondi3 radii,
+    and is treated as fixed (it is not differentiated with respect to the trained
+    parameters), which is valid because charges and radii are not trained.
+    """
+
+    correction_type: Literal["gbn2_sasa"] = Field(
+        "gbn2_sasa", description="Type of correction."
+    )
+
+    solvent_dielectric: float = Field(
+        78.5, gt=0, description="Dielectric constant of the solvent."
+    )
+
+    solute_dielectric: float = Field(
+        1.0, gt=0, description="Dielectric constant of the solute."
+    )
+
+    sasa_model: Literal["lcpo", "ace"] | None = Field(
+        "lcpo",
+        description="Surface area model for the non-polar term. 'lcpo' matches Amber's "
+        "gbsa=1, 'ace' is OpenMM's ACE approximation, and None disables the term.",
+    )
+
+    surface_tension: OpenMMQuantity[  # type: ignore[type-arg, valid-type]
+        unit.kilocalorie_per_mole / unit.angstrom**2
+    ] = Field(
+        0.005 * unit.kilocalorie_per_mole / unit.angstrom**2,
+        description="Surface tension for the LCPO surface area term. The default "
+        "matches Amber's surften. Only used when sasa_model is 'lcpo'; the ACE term "
+        "uses OpenMM's fixed value.",
+    )
+
+    probe_radius: OpenMMQuantity[unit.angstrom] = Field(  # type: ignore[type-arg]
+        1.4 * unit.angstrom,
+        description="Solvent probe radius for the LCPO surface area term. Only used "
+        "when sasa_model is 'lcpo'; the ACE term uses OpenMM's fixed 1.4 Å.",
+    )
+
+
+ReferenceCorrectionSettings = AnySolvSMDCorrectionSettings
+"""Corrections which can be added to the reference (MLP) energies and forces. Make
+this a union discriminated on `correction_type` when more corrections are added."""
+
+MMCorrectionSettings = GBn2SASACorrectionSettings
+"""Corrections which can be added to the MM energies and forces. Make this a union
+discriminated on `correction_type` when more corrections are added."""
+
+
+def _validate_unique_correction_types(
+    corrections: Sequence[_EnergyCorrectionSettingsBase], name: str
+) -> None:
+    types = [correction.correction_type for correction in corrections]
+    duplicates = sorted({t for t in types if types.count(t) > 1})
+    if duplicates:
+        raise InvalidSettingsError(
+            f"{name} contains duplicate corrections: {duplicates}"
+        )
+
+
 class _SamplingSettingsBase(_DefaultSettings, ABC):
     """Settings for sampling (usually molecular dynamics)."""
 
@@ -275,6 +423,37 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         description="Scaling factor for the force loss term (forces are in "
         "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
     )
+
+    ml_sampling_corrections: list[ReferenceCorrectionSettings] | Literal["from_fit"] = (
+        Field(
+            default_factory=list,
+            description="Corrections added to the ML potential systems used to run dynamics "
+            "and minimisations in this stage (e.g. AnySolv to sample with the MLP in implicit "
+            "solvent). 'from_fit' uses `WorkflowSettings.reference_corrections`. Recorded "
+            "energies and forces always exclude these terms; whether a correction enters the "
+            "fit is controlled only by `WorkflowSettings.reference_corrections`. Defaults to "
+            "no corrections, as evaluating AnySolv at every MD step is expensive.",
+        )
+    )
+
+    mm_sampling_corrections: list[MMCorrectionSettings] | Literal["from_fit"] = Field(
+        "from_fit",
+        description="Corrections added to the MM systems used to run dynamics and "
+        "minimisations in this stage (e.g. GBneck2 to sample in implicit solvent). "
+        "'from_fit' (the default) uses `WorkflowSettings.mm_corrections`, and an empty "
+        "list samples in vacuum. Whether a correction enters the fit is controlled only "
+        "by `WorkflowSettings.mm_corrections`.",
+    )
+
+    @field_validator("ml_sampling_corrections", "mm_sampling_corrections")
+    @classmethod
+    def validate_unique_sampling_corrections(
+        cls, value: list[_EnergyCorrectionSettingsBase] | Literal["from_fit"]
+    ) -> list[_EnergyCorrectionSettingsBase] | Literal["from_fit"]:
+        """Ensure that no correction is applied twice."""
+        if value != "from_fit":
+            _validate_unique_correction_types(value, "Sampling corrections")
+        return value
 
     @property
     def equilibration_n_steps_per_conformer(self) -> int:
@@ -666,6 +845,16 @@ class PreComputedDatasetSettings(_DefaultSettings):
         "For multi-molecule fits, provide a list of Paths (one per molecule in order).",
     )
 
+    reference_corrections_mode: Literal["keep", "recompute", "zero"] = Field(
+        "keep",
+        description="How to treat the reference-side correction columns of the loaded "
+        "datasets. 'keep' uses the stored corrections (zero if absent), 'recompute' "
+        "evaluates `WorkflowSettings.reference_corrections` on the stored coordinates, "
+        "and 'zero' fits to the uncorrected reference. MM-side corrections are always "
+        "recomputed from `WorkflowSettings.mm_corrections`, as they belong to the MM "
+        "model rather than the data.",
+    )
+
     @field_validator("dataset_paths", mode="before")
     @classmethod
     def normalize_dataset_paths(cls, value: Path | list[Path]) -> list[Path]:
@@ -818,13 +1007,6 @@ class OutlierFilterSettings(_DefaultSettings):
         description="Absolute threshold in kcal/mol/Å for force outlier detection. "
         "Conformations where max |force_mm - force_ref| exceeds this threshold "
         "will be removed. Set to None to disable force-based filtering.",
-    )
-
-    min_conformations: int = Field(
-        1,
-        ge=1,
-        description="Minimum number of conformations to keep per molecule. "
-        "If filtering would remove too many conformations, an error is raised.",
     )
 
 
@@ -1102,6 +1284,32 @@ class WorkflowSettings(_DefaultSettings):
         "Set to None to disable outlier filtering.",
     )
 
+    reference_corrections: list[ReferenceCorrectionSettings] = Field(
+        default_factory=list,
+        description="Corrections added to the reference (MLP) energies and forces in "
+        "the fit, for both training and testing data, e.g. AnySolv SMD solvation "
+        "corrections. Defaults to none (gas-phase reference).",
+    )
+
+    mm_corrections: list[MMCorrectionSettings] = Field(
+        default_factory=list,
+        description="Fixed corrections added to the MM energies and forces in the fit, "
+        "e.g. GBneck2 + SASA implicit solvent. These also define the MM sampling "
+        "corrections of any sampling stage with `mm_sampling_corrections: from_fit`. "
+        "Defaults to none (gas-phase MM).",
+    )
+
+    min_conformations: int = Field(
+        50,
+        ge=1,
+        description="Minimum number of conformations to keep per dataset entry when "
+        "conformations are removed from the training or testing data, either because "
+        "their reference energies, forces or corrections are non-finite or by outlier "
+        "filtering. An error is raised if removing conformations would leave fewer "
+        "than this. Entries which were sampled with fewer conformations are only "
+        "checked if any are removed.",
+    )
+
     # Raise an error if the major and minor versions do not match
     # (don't care about patch version)
     @field_validator("version")
@@ -1157,6 +1365,35 @@ class WorkflowSettings(_DefaultSettings):
             raise InvalidSettingsError(
                 f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_corrections(self) -> Self:
+        """Check the fit corrections for duplicates and likely mistakes."""
+        _validate_unique_correction_types(
+            self.reference_corrections, "reference_corrections"
+        )
+        _validate_unique_correction_types(self.mm_corrections, "mm_corrections")
+
+        if bool(self.reference_corrections) != bool(self.mm_corrections):
+            logger.warning(
+                "Corrections are applied to only one of the reference and MM energies "
+                "and forces in the fit, so the trained valence parameters will absorb the "
+                "difference (e.g. a solvation correction on one side only)."
+            )
+
+        testing = self.testing_sampling_settings
+        if (
+            isinstance(testing, PreComputedDatasetSettings)
+            and testing.reference_corrections_mode == "zero"
+            and self.reference_corrections
+        ):
+            logger.warning(
+                "reference_corrections are applied to the training data, but the "
+                "pre-computed testing data uses reference_corrections_mode='zero', so "
+                "the test reference differs from the training reference."
             )
 
         return self
