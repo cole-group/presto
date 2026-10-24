@@ -160,17 +160,22 @@ def _compute_molecule_total_loss_and_grad(
     return energy_loss_detached, force_loss_detached, gradient
 
 
-def compute_overall_loss_and_grad(
+class DatasetLoss(typing.NamedTuple):
+    """Energy and force loss for one dataset, averaged over molecules."""
+
+    energy: torch.Tensor
+    forces: torch.Tensor
+
+
+def compute_dataset_loss_and_grad(
     datasets_list: list[datasets.Dataset],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
-    initial_parameters: torch.Tensor,
     topologies: list[smee.TensorTopology],
-    regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
     compute_grad: bool = True,
-) -> tuple[LossRecord, torch.Tensor | None]:
-    """Compute loss and optionally gradients for memory efficiency.
+) -> tuple[DatasetLoss, torch.Tensor | None]:
+    """Compute the loss of one dataset and optionally its gradient, without regularisation.
 
     This function computes gradients for each molecule separately using
     torch.autograd.grad, then accumulates them. This is more memory-efficient
@@ -178,18 +183,15 @@ def compute_overall_loss_and_grad(
     training with multiple molecules.
 
     Args:
-        datasets_list: List of datasets to predict the energies and forces of.
+        datasets_list: The dataset for each molecule, in the order of ``topologies``.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
-        initial_parameters: The initial parameters before training.
         topologies: List of topologies of the molecules in the datasets.
-        regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
-
         compute_grad: Whether to compute gradients (default: True).
 
     Returns:
-        Tuple of (LossRecord, accumulated_gradient or None)
+        Tuple of (DatasetLoss averaged over molecules, averaged gradient or None)
     """
     # Create force field once and reuse for all molecules
     force_field = trainable.to_force_field(trainable_parameters)
@@ -231,6 +233,87 @@ def compute_overall_loss_and_grad(
     if compute_grad and accumulated_gradient is not None:
         accumulated_gradient /= len(datasets_list)
 
+    return DatasetLoss(energy=avg_energy_loss, forces=avg_force_loss), (
+        accumulated_gradient
+    )
+
+
+def compute_overall_loss_and_grad(
+    datasets_by_dataset: list[list[datasets.Dataset]],
+    dataset_weights: list[float],
+    trainable: descent.train.Trainable,
+    trainable_parameters: torch.Tensor,
+    initial_parameters: torch.Tensor,
+    topologies: list[smee.TensorTopology],
+    regularisation_target: typing.Literal["initial", "zero"],
+    device: torch.device,
+    compute_grad: bool = True,
+) -> tuple[LossRecord, list[DatasetLoss], torch.Tensor | None]:
+    """Compute the weighted loss over several datasets, plus regularisation.
+
+    Each dataset's loss is computed separately with `compute_dataset_loss_and_grad`
+    and combined as ``sum_k w_k * L_k`` with ``w_k = weight_k / sum(weights)``, so a
+    dataset's influence does not depend on its number of conformers. The
+    regularisation loss is added once.
+
+    Args:
+        datasets_by_dataset: For each dataset, the dataset for each molecule.
+        dataset_weights: The weight of each dataset.
+        trainable: The trainable object containing the force field.
+        trainable_parameters: The parameters to be optimized.
+        initial_parameters: The initial parameters before training.
+        topologies: List of topologies of the molecules in the datasets.
+        regularisation_target: The type of regularisation to apply ('initial' or 'zero').
+        device: Device for computations.
+        compute_grad: Whether to compute gradients (default: True).
+
+    Returns:
+        Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
+    """
+    if not datasets_by_dataset:
+        raise ValueError("At least one dataset is required to compute the loss")
+    if len(dataset_weights) != len(datasets_by_dataset):
+        raise ValueError(
+            f"Got {len(dataset_weights)} dataset weights for "
+            f"{len(datasets_by_dataset)} datasets"
+        )
+
+    # Normalise first so a single dataset has a weight of exactly 1.0
+    total_weight = sum(dataset_weights)
+    normalised_weights = [weight / total_weight for weight in dataset_weights]
+
+    dataset_losses = []
+    accumulated_gradient = (
+        torch.zeros_like(trainable_parameters) if compute_grad else None
+    )
+    for datasets_list, weight in zip(
+        datasets_by_dataset, normalised_weights, strict=True
+    ):
+        dataset_loss, gradient = compute_dataset_loss_and_grad(
+            datasets_list,
+            trainable,
+            trainable_parameters,
+            topologies,
+            device,
+            compute_grad=compute_grad,
+        )
+        dataset_losses.append(dataset_loss)
+        if gradient is not None and accumulated_gradient is not None:
+            accumulated_gradient += weight * gradient
+
+    energy_loss = torch.stack(
+        [
+            w * loss.energy
+            for w, loss in zip(normalised_weights, dataset_losses, strict=True)
+        ]
+    ).sum()
+    force_loss = torch.stack(
+        [
+            w * loss.forces
+            for w, loss in zip(normalised_weights, dataset_losses, strict=True)
+        ]
+    ).sum()
+
     # Compute regularization and its gradient
     regularisation_loss = compute_regularisation_loss(
         trainable,
@@ -255,17 +338,18 @@ def compute_overall_loss_and_grad(
     regularisation_loss = regularisation_loss.detach()
 
     logger.debug(
-        f"Loss: Energy={avg_energy_loss.item():.4f} "
-        f"Forces={avg_force_loss.item():.4f} "
+        f"Loss: Energy={energy_loss.item():.4f} "
+        f"Forces={force_loss.item():.4f} "
         f"Reg={regularisation_loss.item():.4f}"
     )
 
     return (
         LossRecord(
-            energy=avg_energy_loss,
-            forces=avg_force_loss,
+            energy=energy_loss,
+            forces=force_loss,
             regularisation=regularisation_loss,
         ),
+        dataset_losses,
         accumulated_gradient,
     )
 
@@ -311,7 +395,8 @@ def compute_regularisation_loss(
 
 
 def get_loss_closure_fn(
-    datasets_list: list[datasets.Dataset],
+    datasets_by_dataset: list[list[datasets.Dataset]],
+    dataset_weights: list[float],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
@@ -325,7 +410,8 @@ def get_loss_closure_fn(
     the Adam optimizer implementation.
 
     Args:
-        datasets_list: List of datasets to predict energies and forces of.
+        datasets_by_dataset: For each dataset, the dataset for each molecule.
+        dataset_weights: The weight of each dataset.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
         initial_parameters: The initial parameters before training.
@@ -344,8 +430,9 @@ def get_loss_closure_fn(
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         def loss_fn(_x: torch.Tensor) -> torch.Tensor:
             """Compute total weighted loss."""
-            _loss_record, _ = compute_overall_loss_and_grad(
-                datasets_list,
+            _loss_record, _, _ = compute_overall_loss_and_grad(
+                datasets_by_dataset,
+                dataset_weights,
                 trainable,
                 _x,
                 initial_parameters,
@@ -370,8 +457,9 @@ def get_loss_closure_fn(
             )  # Clone to allow in-place modifications by the optimizer
 
         # Compute loss and gradient
-        loss_record, gradient = compute_overall_loss_and_grad(
-            datasets_list,
+        loss_record, _, gradient = compute_overall_loss_and_grad(
+            datasets_by_dataset,
+            dataset_weights,
             trainable,
             x,
             initial_parameters,
