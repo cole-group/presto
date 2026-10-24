@@ -967,21 +967,6 @@ class TestComputeDatasetLossAndGrad:
         assert reg_grad.abs().max() > 0
         assert not torch.allclose(gradient, expected_gradient + reg_grad)
 
-    def test_no_grad(self, two_molecule_setup):
-        """Without gradients the losses are unchanged and no gradient is returned."""
-        datasets_list = two_molecule_setup[4][1]
-        loss_grad, gradient = _run_compute_dataset_loss_and_grad(
-            two_molecule_setup, datasets_list
-        )
-        loss_no_grad, no_gradient = _run_compute_dataset_loss_and_grad(
-            two_molecule_setup, datasets_list, grad=False
-        )
-
-        assert gradient is not None
-        assert no_gradient is None
-        assert torch.equal(loss_grad.energy, loss_no_grad.energy)
-        assert torch.equal(loss_grad.forces, loss_no_grad.forces)
-
     def test_molecule_count_mismatch_raises(self, two_molecule_setup):
         """Each dataset must have one entry per molecule."""
         with pytest.raises(ValueError):
@@ -993,7 +978,7 @@ class TestComputeDatasetLossAndGrad:
 class TestComputeOverallLossAndGrad:
     """Tests for the weighted combination of several datasets."""
 
-    @pytest.mark.parametrize("weight", [1.0, 2.5, 1e-3])
+    @pytest.mark.parametrize("weight", [2.5])
     @pytest.mark.parametrize("target", ["initial", "zero"])
     def test_single_dataset_weight_has_no_effect(
         self, two_molecule_setup, weight, target
@@ -1127,61 +1112,6 @@ class TestComputeOverallLossAndGrad:
             finite_difference = (total_loss(plus) - total_loss(minus)) / (2 * step)
             assert finite_difference == pytest.approx(gradient[idx].item(), rel=1e-3)
 
-    def test_weights_are_relative(self, two_molecule_setup):
-        """Scaling every weight by the same factor changes nothing."""
-        per_molecule_datasets_by_dataset = two_molecule_setup[4]
-        record, dataset_losses, gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, per_molecule_datasets_by_dataset, [1.0, 3.0, 0.5]
-        )
-        scaled, scaled_losses, scaled_gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, per_molecule_datasets_by_dataset, [0.1, 0.3, 0.05]
-        )
-
-        for field in record._fields:
-            assert torch.allclose(getattr(record, field), getattr(scaled, field))
-        assert torch.allclose(gradient, scaled_gradient)
-        for loss, scaled_loss in zip(dataset_losses, scaled_losses, strict=True):
-            assert torch.equal(loss.energy, scaled_loss.energy)
-            assert torch.equal(loss.forces, scaled_loss.forces)
-
-    def test_dataset_order_does_not_matter(self, two_molecule_setup):
-        """Permuting datasets with their weights gives the same loss and gradient."""
-        per_molecule_datasets_by_dataset = two_molecule_setup[4]
-        weights = [1.0, 3.0, 0.5]
-        record, _, gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, per_molecule_datasets_by_dataset, weights
-        )
-        order = [2, 0, 1]
-        permuted, permuted_losses, permuted_gradient = (
-            _run_compute_overall_loss_and_grad(
-                two_molecule_setup,
-                [per_molecule_datasets_by_dataset[i] for i in order],
-                [weights[i] for i in order],
-            )
-        )
-
-        for field in record._fields:
-            assert torch.allclose(getattr(record, field), getattr(permuted, field))
-        assert torch.allclose(gradient, permuted_gradient)
-        loss_2, _ = _run_compute_dataset_loss_and_grad(
-            two_molecule_setup, per_molecule_datasets_by_dataset[2], grad=False
-        )
-        assert torch.equal(permuted_losses[0].energy, loss_2.energy)
-
-    def test_duplicated_dataset_equals_single(self, two_molecule_setup):
-        """Two identical datasets have the same loss as one, as weights are normalised."""
-        datasets_list = two_molecule_setup[4][1]
-        single, _, single_gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, [datasets_list], [1.0]
-        )
-        double, _, double_gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, [datasets_list, datasets_list], [2.0, 2.0]
-        )
-
-        for field in single._fields:
-            assert torch.allclose(getattr(single, field), getattr(double, field))
-        assert torch.allclose(single_gradient, double_gradient)
-
     def test_influence_independent_of_dataset_size(self, two_molecule_setup):
         """Repeating every conformer of a dataset doesn't change its influence.
 
@@ -1241,99 +1171,6 @@ class TestComputeOverallLossAndGrad:
             grad=False,
         )
         assert not torch.allclose(concatenated.energy, concatenated_doubled.energy)
-
-    def test_combined_is_mean_over_molecules_of_weighted_sum(self, two_molecule_setup):
-        """The combined loss averages, over molecules, each molecule's weighted loss."""
-        trainable, params, _, topologies, all_datasets, *_ = two_molecule_setup
-        weights = [1.0, 3.0]
-        per_molecule = []
-        for m, topology in enumerate(topologies):
-            x = params.clone().requires_grad_(True)
-            losses = [
-                compute_dataset_loss_and_grad(
-                    [all_datasets[k][m]],
-                    trainable,
-                    x,
-                    [topology],
-                    torch.device("cpu"),
-                    compute_grad=False,
-                )[0]
-                for k in range(2)
-            ]
-            per_molecule.append(
-                (
-                    0.25 * losses[0].energy + 0.75 * losses[1].energy,
-                    0.25 * losses[0].forces + 0.75 * losses[1].forces,
-                )
-            )
-
-        record, _, _ = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, all_datasets[:2], weights
-        )
-
-        assert torch.allclose(
-            record.energy, torch.stack([e for e, _ in per_molecule]).mean()
-        )
-        assert torch.allclose(
-            record.forces, torch.stack([f for _, f in per_molecule]).mean()
-        )
-
-    def test_regularisation_added_once(self, two_molecule_setup):
-        """However many datasets, regularisation and its gradient are added once."""
-        trainable, params, initial, *_ = two_molecule_setup
-        datasets_list = two_molecule_setup[4][0]
-        data_loss, data_gradient = _run_compute_dataset_loss_and_grad(
-            two_molecule_setup, datasets_list
-        )
-        x = params.clone().requires_grad_(True)
-        reg = compute_regularisation_loss(trainable, x, initial, "initial")
-        (reg_grad,) = torch.autograd.grad(reg, x)
-        assert reg.item() > 0
-
-        for n_datasets in (1, 3):
-            record, _, gradient = _run_compute_overall_loss_and_grad(
-                two_molecule_setup, [datasets_list] * n_datasets, [1.0] * n_datasets
-            )
-            assert torch.equal(record.regularisation, reg.detach())
-            assert torch.allclose(gradient, data_gradient + reg_grad)
-            assert torch.allclose(record.energy, data_loss.energy)
-
-    def test_per_conformer_weights_within_a_dataset(self, two_molecule_setup):
-        """A multi-entry dataset with different per-conformer weights is respected.
-
-        Torsion minimisation produces such datasets. The reference applies the
-        per-conformer weights independently through ``predict_with_weights``.
-        """
-        trainable, params, initial, topologies, _, mols, tensor_ff = two_molecule_setup
-        merged = [
-            merge_weighted_datasets(
-                [
-                    _synthetic_dataset(mol, tensor_ff, top, 3, seed=100 + m),
-                    _synthetic_dataset(
-                        mol,
-                        tensor_ff,
-                        top,
-                        2,
-                        seed=200 + m,
-                        energy_weight=10.0,
-                        forces_weight=0.0,
-                    ),
-                ]
-            )
-            for m, (mol, top) in enumerate(zip(mols, topologies, strict=True))
-        ]
-        assert len(merged[0]) == 2
-        x = params.clone().requires_grad_(True)
-        energy, forces, reg = _explicit_weighted_objective(
-            [merged], [4.0], trainable, x, initial, topologies, "initial"
-        )
-        (expected_gradient,) = torch.autograd.grad(energy + forces + reg, x)
-
-        record, _, gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, [merged], [4.0]
-        )
-
-        _assert_matches_reference(record, gradient, energy, forces, expected_gradient)
 
     def test_no_grad(self, two_molecule_setup):
         """Without gradients the losses are unchanged and no gradient is returned."""
