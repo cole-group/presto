@@ -67,8 +67,7 @@ temperature."""
 
 _GB_SOLUTE_DIELECTRIC = 1.0
 """Solute dielectric constant for implicit solvent sampling. This is the default in both
-OpenMM's GB forces and Amber (``intdiel``), and is the value with which the OBC2 and
-GBneck2 parameters were fitted."""
+OpenMM's GB forces and Amber (``intdiel``)."""
 
 
 class SampleFnArgs(TypedDict):
