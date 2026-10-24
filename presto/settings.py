@@ -3,7 +3,7 @@
 import warnings
 from abc import ABC
 from pathlib import Path
-from typing import Any, Literal, Self, TypeVar
+from typing import Annotated, Any, Literal, Self, TypeVar
 
 import numpy as np
 import torch
@@ -196,6 +196,14 @@ def _validate_starting_conformers_path(value: Path | None) -> Path | None:
     return value
 
 
+_DATASET_WEIGHT_DESCRIPTION = (
+    "Relative weight of this dataset in the loss when several training or testing "
+    "datasets are given. Each dataset's loss is computed separately, so its influence "
+    "does not depend on how many conformers it contains, and the weights are "
+    "normalised by their sum. Has no effect when only one dataset is given."
+)
+
+
 class _SamplingSettingsBase(_DefaultSettings, ABC):
     """Settings for sampling (usually molecular dynamics)."""
 
@@ -274,6 +282,12 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         0.1,
         description="Scaling factor for the force loss term (forces are in "
         "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
+    )
+
+    dataset_weight: float = Field(
+        1.0,
+        gt=0,
+        description=_DATASET_WEIGHT_DESCRIPTION,
     )
 
     @property
@@ -666,6 +680,12 @@ class PreComputedDatasetSettings(_DefaultSettings):
         "For multi-molecule fits, provide a list of Paths (one per molecule in order).",
     )
 
+    dataset_weight: float = Field(
+        1.0,
+        gt=0,
+        description=_DATASET_WEIGHT_DESCRIPTION,
+    )
+
     @field_validator("dataset_paths", mode="before")
     @classmethod
     def normalize_dataset_paths(cls, value: Path | list[Path]) -> list[Path]:
@@ -689,9 +709,29 @@ SamplingSettings = (
     | PreComputedDatasetSettings
 )
 """Union type for all sampling settings. See the associated `sampling_protocol` field
-in each class for the string identifier which should be supplied to
-`training_sampling_settings` and `testing_sampling_settings` fields in
+in each class for the string identifier which should be supplied for each item of
+the `training_sampling_settings` and `testing_sampling_settings` lists in
 `WorkflowSettings`."""
+
+
+def default_training_sampling_settings() -> SamplingSettings:
+    """Return the default sampling protocol for a training dataset."""
+    return MMMDMetadynamicsTorsionMinimisationSamplingSettings()
+
+
+def default_testing_sampling_settings() -> SamplingSettings:
+    """Return the default sampling protocol for a testing dataset."""
+    return MLMDSamplingSettings(
+        temperature=298 * unit.kelvin,
+        snapshot_interval=20 * unit.femtoseconds,
+        production_sampling_time_per_conformer=2 * unit.picoseconds,
+    )
+
+
+SamplingSettingsList = list[
+    Annotated[SamplingSettings, Field(discriminator="sampling_protocol")]
+]
+"""A non-empty list of sampling settings, one per dataset."""
 
 
 def _get_default_regularised_parameters() -> dict[ValenceType, list[str]]:
@@ -1075,20 +1115,22 @@ class WorkflowSettings(_DefaultSettings):
         description="Settings controlling the initial parameterisation",
     )
 
-    training_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
-        description="Settings for sampling for generating the training data (usually molecular dynamics)",
-        discriminator="sampling_protocol",
+    training_sampling_settings: SamplingSettingsList = Field(
+        default_factory=lambda: [default_training_sampling_settings()],
+        min_length=1,
+        description="Sampling protocols for generating the training data (usually "
+        "molecular dynamics), one per training dataset. Datasets are generated one "
+        "after another and fitted together, each weighted by its `dataset_weight`. "
+        "A single protocol (not in a list) is also accepted.",
     )
 
-    testing_sampling_settings: SamplingSettings = Field(
-        default_factory=lambda: MLMDSamplingSettings(
-            temperature=298 * unit.kelvin,
-            snapshot_interval=20 * unit.femtoseconds,
-            production_sampling_time_per_conformer=2 * unit.picoseconds,
-        ),
-        description="Settings for sampling for generating the testing data (usually molecular dynamics)",
-        discriminator="sampling_protocol",
+    testing_sampling_settings: SamplingSettingsList = Field(
+        default_factory=lambda: [default_testing_sampling_settings()],
+        min_length=1,
+        description="Sampling protocols for generating the testing data (usually "
+        "molecular dynamics), one per testing dataset. The test loss combines them "
+        "using their `dataset_weight`. A single protocol (not in a list) is also "
+        "accepted.",
     )
 
     training_settings: TrainingSettings = Field(
@@ -1101,6 +1143,14 @@ class WorkflowSettings(_DefaultSettings):
         description="Settings for filtering outliers from training data. "
         "Set to None to disable outlier filtering.",
     )
+
+    @field_validator(
+        "training_sampling_settings", "testing_sampling_settings", mode="before"
+    )
+    @classmethod
+    def wrap_single_sampling_settings(cls, value: Any) -> Any:
+        """Accept a single sampling protocol as a one-element list."""
+        return value if isinstance(value, list) else [value]
 
     # Raise an error if the major and minor versions do not match
     # (don't care about patch version)
@@ -1171,13 +1221,13 @@ class WorkflowSettings(_DefaultSettings):
         """
         msm_settings = self.param_settings.msm_settings
         stages: list[tuple[str, Path | None]] = [
-            (
-                "training_sampling_settings",
-                getattr(self.training_sampling_settings, "starting_conformers", None),
-            ),
-            (
-                "testing_sampling_settings",
-                getattr(self.testing_sampling_settings, "starting_conformers", None),
+            *(
+                (f"{name}[{k}]", getattr(protocol, "starting_conformers", None))
+                for name, protocols in (
+                    ("training_sampling_settings", self.training_sampling_settings),
+                    ("testing_sampling_settings", self.testing_sampling_settings),
+                )
+                for k, protocol in enumerate(protocols)
             ),
             (
                 "param_settings.msm_settings",
@@ -1199,6 +1249,39 @@ class WorkflowSettings(_DefaultSettings):
                         f"{name}.starting_conformers ({path}) is invalid: {exc}"
                     ) from exc
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_pre_computed_dataset_counts(self) -> Self:
+        """Fail before any sampling if a pre-computed protocol has the wrong number of datasets."""
+        n_mols = len(self.param_settings.openff_molecules)
+        for name, protocols in (
+            ("training_sampling_settings", self.training_sampling_settings),
+            ("testing_sampling_settings", self.testing_sampling_settings),
+        ):
+            for k, protocol in enumerate(protocols):
+                if (
+                    isinstance(protocol, PreComputedDatasetSettings)
+                    and len(protocol.dataset_paths) != n_mols
+                ):
+                    raise InvalidSettingsError(
+                        f"{name}[{k}] has {len(protocol.dataset_paths)} dataset paths, "
+                        f"but there are {n_mols} molecules. Provide one dataset path "
+                        "per molecule."
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def validate_memory_without_pre_computed(self) -> Self:
+        """Reject memory with pre-computed training data, which would be duplicated every iteration."""
+        if self.memory and any(
+            isinstance(protocol, PreComputedDatasetSettings)
+            for protocol in self.training_sampling_settings
+        ):
+            raise InvalidSettingsError(
+                "memory cannot be used with a pre_computed training protocol, as the "
+                "same pre-computed data would be appended again every iteration."
+            )
         return self
 
     @property

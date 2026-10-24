@@ -18,7 +18,8 @@ PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS: dict[str, str] = {
     "[#15]": (
         "Phosphorus-containing molecules may undergo connectivity changes or proton "
         "hopping during MLP minimisations. Set "
-        "`training_sampling_settings.sampling_protocol` to `mm_md_metadynamics` to "
+        "the `sampling_protocol` of each `training_sampling_settings` item to "
+        "`mm_md_metadynamics` to "
         "avoid minimisation-enabled training sampling, and disable MSM by setting "
         "`param_settings.msm_settings` to `null` (YAML) or `None` (Python), because "
         "MSM also performs MLP minimisation."

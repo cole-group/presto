@@ -33,6 +33,7 @@ from presto.settings import (
     MSMSettings,
     OutlierFilterSettings,
     ParamSettings,
+    PreComputedDatasetSettings,
     TorsionMinimisationSettings,
     TorsionSelectionSettings,
     TrainingSettings,
@@ -1002,11 +1003,11 @@ class TestWorkflowSettings:
             yaml_path,
             overwrite={
                 "training_sampling_settings": {
-                    "mlp_settings": {"ml_system_kwargs": {"calculator": object()}}
+                    0: {"mlp_settings": {"ml_system_kwargs": {"calculator": object()}}}
                 }
             },
         )
-        assert loaded.training_sampling_settings.mlp_settings.ml_potential == "ase"
+        assert loaded.training_sampling_settings[0].mlp_settings.ml_potential == "ase"
 
     def test_discriminated_union_for_sampling_settings(self):
         """Test that discriminated union works for sampling settings."""
@@ -1015,14 +1016,14 @@ class TestWorkflowSettings:
             param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MMMDSamplingSettings(),
         )
-        assert settings_mm.training_sampling_settings.sampling_protocol == "mm_md"
+        assert settings_mm.training_sampling_settings[0].sampling_protocol == "mm_md"
 
         # ML MD
         settings_ml = WorkflowSettings(
             param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
             training_sampling_settings=MLMDSamplingSettings(),
         )
-        assert settings_ml.training_sampling_settings.sampling_protocol == "ml_md"
+        assert settings_ml.training_sampling_settings[0].sampling_protocol == "ml_md"
 
         # Metadynamics
         settings_metad = WorkflowSettings(
@@ -1030,7 +1031,7 @@ class TestWorkflowSettings:
             training_sampling_settings=MMMDMetadynamicsSamplingSettings(),
         )
         assert (
-            settings_metad.training_sampling_settings.sampling_protocol
+            settings_metad.training_sampling_settings[0].sampling_protocol
             == "mm_md_metadynamics"
         )
 
@@ -1040,7 +1041,7 @@ class TestWorkflowSettings:
             training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(),
         )
         assert (
-            settings_metad_torsion.training_sampling_settings.sampling_protocol
+            settings_metad_torsion.training_sampling_settings[0].sampling_protocol
             == "mm_md_metadynamics_torsion_minimisation"
         )
 
@@ -1126,6 +1127,248 @@ class TestWorkflowSettings:
         assert loaded.outlier_filter_settings.min_conformations == 2
 
 
+class TestMultipleDatasets:
+    """Tests for lists of training and testing sampling protocols."""
+
+    @staticmethod
+    def _settings(**kwargs):
+        return WorkflowSettings(
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+            device_type="cpu",
+            **kwargs,
+        )
+
+    def test_defaults_are_single_item_lists(self):
+        """The defaults are one training and one testing protocol."""
+        settings = self._settings()
+        assert len(settings.training_sampling_settings) == 1
+        assert len(settings.testing_sampling_settings) == 1
+        assert isinstance(
+            settings.training_sampling_settings[0],
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+        )
+        assert isinstance(settings.testing_sampling_settings[0], MLMDSamplingSettings)
+        assert (
+            settings.testing_sampling_settings[0].temperature == 298 * omm_unit.kelvin
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        [MMMDSamplingSettings(), {"sampling_protocol": "mm_md"}],
+        ids=["model", "dict"],
+    )
+    def test_single_protocol_is_wrapped(self, value):
+        """A single protocol, as a model or dict, becomes a one-item list."""
+        settings = self._settings(
+            training_sampling_settings=value, testing_sampling_settings=value
+        )
+        for protocols in (
+            settings.training_sampling_settings,
+            settings.testing_sampling_settings,
+        ):
+            assert len(protocols) == 1
+            assert isinstance(protocols[0], MMMDSamplingSettings)
+
+    def test_single_protocol_assignment_is_wrapped(self):
+        """Assigning a single protocol also gives a one-item list."""
+        settings = self._settings()
+        settings.training_sampling_settings = MLMDSamplingSettings()
+        assert isinstance(settings.training_sampling_settings, list)
+        assert isinstance(settings.training_sampling_settings[0], MLMDSamplingSettings)
+
+    def test_old_single_protocol_yaml_loads(self, tmp_path):
+        """A YAML file written before lists were supported still loads."""
+        yaml_path = tmp_path / "settings.yaml"
+        yaml_path.write_text(
+            "param_settings:\n"
+            "    molecules: CCO\n"
+            "device_type: cpu\n"
+            "training_sampling_settings:\n"
+            "    sampling_protocol: mm_md\n"
+            "    n_conformers: 3\n"
+            "testing_sampling_settings:\n"
+            "    sampling_protocol: ml_md\n"
+        )
+        settings = WorkflowSettings.from_yaml(yaml_path)
+        assert [p.sampling_protocol for p in settings.training_sampling_settings] == [
+            "mm_md"
+        ]
+        assert settings.training_sampling_settings[0].n_conformers == 3
+        assert settings.testing_sampling_settings[0].sampling_protocol == "ml_md"
+
+    def test_multiple_protocols_yaml_round_trip(self, tmp_path):
+        """Several protocols with their weights survive writing and reading YAML."""
+        settings = self._settings(
+            training_sampling_settings=[
+                MMMDSamplingSettings(dataset_weight=0.5),
+                MMMDMetadynamicsSamplingSettings(
+                    dataset_weight=2.0,
+                    metadynamics_settings=MetadynamicsSettings(bias_factor=7.0),
+                ),
+                MMMDSamplingSettings(temperature=300 * omm_unit.kelvin),
+            ],
+            testing_sampling_settings=[
+                MLMDSamplingSettings(),
+                MMMDSamplingSettings(dataset_weight=3.0),
+            ],
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+        loaded = WorkflowSettings.from_yaml(yaml_path)
+
+        assert loaded.training_sampling_settings == settings.training_sampling_settings
+        assert loaded.testing_sampling_settings == settings.testing_sampling_settings
+        assert [p.dataset_weight for p in loaded.training_sampling_settings] == [
+            0.5,
+            2.0,
+            1.0,
+        ]
+        assert (
+            loaded.training_sampling_settings[1].metadynamics_settings.bias_factor
+            == 7.0
+        )
+
+    @pytest.mark.parametrize("field", ["training", "testing"])
+    def test_empty_list_rejected(self, field):
+        """At least one protocol is required."""
+        with pytest.raises(ValidationError, match="at least 1 item"):
+            self._settings(**{f"{field}_sampling_settings": []})
+
+    def test_unknown_protocol_in_list_rejected(self):
+        """Each item is validated against the discriminated union."""
+        with pytest.raises(ValidationError):
+            self._settings(
+                training_sampling_settings=[
+                    {"sampling_protocol": "mm_md"},
+                    {"sampling_protocol": "not_a_protocol"},
+                ]
+            )
+
+    @pytest.mark.parametrize(
+        "settings_cls", [MMMDSamplingSettings, MLMDSamplingSettings]
+    )
+    @pytest.mark.parametrize("weight", [0.0, -1.0])
+    def test_dataset_weight_must_be_positive(self, settings_cls, weight):
+        """A dataset weight must be greater than zero."""
+        with pytest.raises(ValidationError, match="greater than 0"):
+            settings_cls(dataset_weight=weight)
+
+    def test_pre_computed_dataset_weight(self, tmp_path):
+        """Pre-computed datasets have a weight too."""
+        assert PreComputedDatasetSettings(dataset_paths=tmp_path).dataset_weight == 1.0
+        with pytest.raises(ValidationError, match="greater than 0"):
+            PreComputedDatasetSettings(dataset_paths=tmp_path, dataset_weight=0.0)
+
+    def test_pre_computed_dataset_count_checked_per_protocol(self, tmp_path):
+        """A pre-computed protocol must have one dataset path per molecule."""
+        with pytest.raises(ValidationError, match=r"testing_sampling_settings\[1\]"):
+            self._settings(
+                testing_sampling_settings=[
+                    PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"]),
+                    PreComputedDatasetSettings(
+                        dataset_paths=[tmp_path / "a", tmp_path / "b"]
+                    ),
+                ]
+            )
+        settings = self._settings(
+            training_sampling_settings=[
+                MMMDSamplingSettings(),
+                PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"]),
+            ]
+        )
+        assert len(settings.training_sampling_settings) == 2
+
+    def test_memory_with_pre_computed_training_rejected(self, tmp_path):
+        """Memory would append the same pre-computed data every iteration."""
+        pre_computed = PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"])
+        with pytest.raises(ValidationError, match="memory cannot be used"):
+            self._settings(
+                memory=True,
+                training_sampling_settings=[MMMDSamplingSettings(), pre_computed],
+            )
+
+    def test_memory_allowed_without_pre_computed_training(self, tmp_path):
+        """Memory is fine with generated training data, and pre-computed test data."""
+        pre_computed = PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"])
+        assert self._settings(
+            memory=True,
+            training_sampling_settings=[MMMDSamplingSettings(), MLMDSamplingSettings()],
+            testing_sampling_settings=pre_computed,
+        ).memory
+        assert not self._settings(
+            memory=False, training_sampling_settings=pre_computed
+        ).memory
+
+    def test_starting_conformers_checked_for_every_protocol(self, tmp_path):
+        """A mismatched SDF on any protocol is reported with its index."""
+        good = tmp_path / "good.sdf"
+        bad = tmp_path / "bad.sdf"
+        _write_single_conformer_sdf("CCO", good)
+        _write_single_conformer_sdf("c1ccccc1", bad)
+
+        with pytest.raises(
+            ValidationError,
+            match=r"training_sampling_settings\[1\]\.starting_conformers",
+        ):
+            self._settings(
+                training_sampling_settings=[
+                    MMMDSamplingSettings(starting_conformers=good),
+                    MMMDSamplingSettings(starting_conformers=bad),
+                ]
+            )
+
+    def test_runtime_object_overwrite_by_index(self, tmp_path):
+        """Runtime objects are supplied per protocol, by list index."""
+        ase_mlp = MLPSettings(
+            ml_potential="ase", ml_system_kwargs={"calculator": object()}
+        )
+        settings = self._settings(
+            training_sampling_settings=[
+                MMMDSamplingSettings(),
+                MLMDSamplingSettings(mlp_settings=ase_mlp),
+            ],
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        with pytest.raises(ValidationError, match="runtime-only placeholder values"):
+            WorkflowSettings.from_yaml(yaml_path)
+        with pytest.raises(ValueError, match="keyed by list index"):
+            WorkflowSettings.from_yaml(
+                yaml_path,
+                overwrite={"training_sampling_settings": {"mlp_settings": {}}},
+            )
+
+        calculator = object()
+        loaded = WorkflowSettings.from_yaml(
+            yaml_path,
+            overwrite={
+                "training_sampling_settings": {
+                    1: {
+                        "mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}
+                    }
+                }
+            },
+        )
+        assert (
+            loaded.training_sampling_settings[1].mlp_settings.ml_system_kwargs[
+                "calculator"
+            ]
+            is calculator
+        )
+        assert isinstance(loaded.training_sampling_settings[0], MMMDSamplingSettings)
+
+    def test_path_manager_gets_every_protocol(self):
+        """The path manager predicts a subdirectory per dataset."""
+        settings = self._settings(
+            training_sampling_settings=[MMMDSamplingSettings()] * 2,
+            testing_sampling_settings=[MMMDSamplingSettings()] * 3,
+        )
+        path_manager = settings.get_path_manager()
+        assert len(path_manager.training_sampling_settings) == 2
+        assert len(path_manager.testing_sampling_settings) == 3
+
+
 def _write_single_conformer_sdf(smiles: str, path: Path) -> None:
     """Write a molecule with one conformer to an SDF file."""
     molecule = Molecule.from_smiles(smiles)
@@ -1175,7 +1418,7 @@ class TestStartingConformersField:
             device_type="cpu",
             training_sampling_settings=MMMDSamplingSettings(starting_conformers=sdf),
         )
-        assert settings.training_sampling_settings.starting_conformers == sdf
+        assert settings.training_sampling_settings[0].starting_conformers == sdf
 
     def test_workflow_rejects_missing_molecule(self, tmp_path):
         """WorkflowSettings fails fast when a fitted molecule is absent from the SDF."""
