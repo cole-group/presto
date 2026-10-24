@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Add an `implicit_solvent` option (`obc2` or `gbn2`, default `null` for vacuum) to the MM sampling protocols to sample with the MM force field in generalised Born implicit solvent. This only affects which structures are sampled: the fitted energies and forces are still from the gas-phase MLP. See [Sampling protocols](concepts/sampling-protocols.md#implicit-solvent-sampling).
+
 ## 0.9.0
 
 ### Breaking changes

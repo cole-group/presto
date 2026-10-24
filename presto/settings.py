@@ -321,7 +321,24 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         return self
 
 
-class MMMDSamplingSettings(_SamplingSettingsBase):
+class _MMSamplingSettingsBase(_SamplingSettingsBase, ABC):
+    """Settings for sampling protocols which run dynamics with the MM force field."""
+
+    implicit_solvent: Literal["obc2", "gbn2"] | None = Field(
+        None,
+        description="Implicit solvent model added to the MM systems used for sampling "
+        "(MD, metadynamics, torsion-restrained MD and the MM torsion-restrained "
+        "minimisation). 'obc2' is OBC2 (Amber igb=5) and 'gbn2' is GBneck2 (Amber "
+        "igb=8), both with the ACE surface area term, a solvent dielectric of 78.5 and a "
+        "solute dielectric of 1. This only changes which structures are sampled: the "
+        "recorded energies and forces are always recalculated with the gas-phase MLP, "
+        "and the fit is unaffected. OBC2 is recommended, as GBneck2 has fitted parameters "
+        "only for H, C, N, O and S. Roughly doubles the cost of MM MD. If None "
+        "(default), sampling is in vacuum.",
+    )
+
+
+class MMMDSamplingSettings(_MMSamplingSettingsBase):
     """Settings for molecular dynamics sampling using a molecular mechanics force field.
 
     The force field is initially taken from the parameterisation settings, but is
@@ -519,7 +536,7 @@ class MetadynamicsSettings(_DefaultSettings):
         return int(self.bias_save_frequency / timestep)
 
 
-class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
+class MMMDMetadynamicsSamplingSettings(_MMSamplingSettingsBase):
     """Settings for molecular dynamics sampling using a molecular mechanics force field with metadynamics.
 
     The force field is initially taken from the parameterisation settings, but is
@@ -549,7 +566,7 @@ class MMMDMetadynamicsSamplingSettings(_SamplingSettingsBase):
         return {OutputType.METADYNAMICS_BIAS, OutputType.PDB_TRAJECTORY}
 
 
-class MMMDMetadynamicsTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
+class MMMDMetadynamicsTorsionMinimisationSamplingSettings(_MMSamplingSettingsBase):
     """Settings for MM MD metadynamics sampling with additional torsion-restrained minimisation structures.
 
     The same MD as `mm_md_metadynamics`, followed by torsion-restrained minimisations
@@ -590,7 +607,7 @@ class MMMDMetadynamicsTorsionMinimisationSamplingSettings(_SamplingSettingsBase)
         }
 
 
-class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(_SamplingSettingsBase):
+class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(_MMSamplingSettingsBase):
     """Settings for torsion-restrained MM MD sampling with torsion-restrained minimisations.
 
     The same protocol as `mm_md_metadynamics_torsion_minimisation`, but with no

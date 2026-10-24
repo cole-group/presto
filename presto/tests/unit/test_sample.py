@@ -26,6 +26,7 @@ from presto.sample import (
     _add_torsion_restraint_forces,
     _build_ml_simulation,
     _build_mm_simulation,
+    _build_mm_system,
     _create_simulation,
     _find_available_force_group,
     _force_groups_excluding,
@@ -2172,3 +2173,141 @@ class TestRunMdExcludesRestraintsFromRecord:
         # Energies in the dataset are relative to the first snapshot
         clean_relative = np.array(clean_energies) - clean_energies[0]
         np.testing.assert_allclose(np.array(entry["energy"]), clean_relative, atol=0.05)
+
+
+def _ethylene_glycol_interchange():
+    """Return a polar molecule with a rotatable torsion and its Interchange."""
+    mol = Molecule.from_smiles("OCCO")
+    mol.generate_conformers(n_conformers=1)
+    interchange = openff.interchange.Interchange.from_smirnoff(
+        ForceField("openff_unconstrained-2.3.0.offxml"), Topology.from_molecules(mol)
+    )
+    return mol, interchange
+
+
+def _energy_and_forces(system, coords):
+    """Return the energy (kcal/mol) and forces (kcal/mol/Å) of a system at coords (Å)."""
+    context = openmm.Context(
+        system,
+        openmm.VerletIntegrator(1.0 * omm_unit.femtoseconds),
+        openmm.Platform.getPlatformByName("CPU"),
+    )
+    context.setPositions(omm_unit.Quantity(np.asarray(coords), omm_unit.angstrom))
+    state = context.getState(getEnergy=True, getForces=True)
+    return (
+        state.getPotentialEnergy().value_in_unit(omm_unit.kilocalorie_per_mole),
+        state.getForces(asNumpy=True).value_in_unit(
+            omm_unit.kilocalorie_per_mole / omm_unit.angstrom
+        ),
+    )
+
+
+class TestImplicitSolvent:
+    """Tests for sampling with an implicit solvent MM system."""
+
+    @pytest.mark.parametrize("model", ["obc2", "gbn2"])
+    def test_adds_gb_force_with_system_charges(self, model):
+        """A single GB force is added with one particle per atom and the MM charges."""
+        mol, interchange = _ethylene_glycol_interchange()
+
+        system = _build_mm_system(interchange, model)
+
+        gb_forces = [
+            f for f in system.getForces() if isinstance(f, openmm.CustomGBForce)
+        ]
+        assert len(gb_forces) == 1
+        assert gb_forces[0].getNumParticles() == mol.n_atoms
+
+        (nonbonded,) = [
+            f for f in system.getForces() if isinstance(f, openmm.NonbondedForce)
+        ]
+        for i in range(mol.n_atoms):
+            charge = nonbonded.getParticleParameters(i)[0]
+            assert gb_forces[0].getParticleParameters(i)[0] == pytest.approx(
+                charge.value_in_unit(omm_unit.elementary_charge)
+            )
+
+        # Solvating a polar molecule lowers its energy
+        coords = mol.conformers[0].m_as(off_unit.angstrom)
+        vacuum_energy, _ = _energy_and_forces(interchange.to_openmm_system(), coords)
+        solvated_energy, _ = _energy_and_forces(system, coords)
+        assert solvated_energy < vacuum_energy - 1.0
+
+    def test_none_gives_vacuum_system(self):
+        """No implicit solvent gives the same forces as the Interchange system."""
+        _, interchange = _ethylene_glycol_interchange()
+
+        def force_types(system):
+            return sorted(type(f).__name__ for f in system.getForces())
+
+        assert force_types(_build_mm_system(interchange)) == force_types(
+            interchange.to_openmm_system()
+        )
+
+    @pytest.mark.parametrize("implicit_solvent", [None, "obc2"])
+    @pytest.mark.parametrize(
+        "protocol",
+        ["mm_md", "torsion_restrained"],
+    )
+    def test_stored_energies_exclude_implicit_solvent(
+        self, tmp_path, implicit_solvent, protocol
+    ):
+        """The stored energies and forces are the reference (vacuum) values.
+
+        The MLP is replaced by the vacuum MM system, so every stored energy and force
+        should match that system at the stored coordinates, and never include the
+        implicit solvent used for sampling.
+        """
+        mol, interchange = _ethylene_glycol_interchange()
+
+        if protocol == "mm_md":
+            sample_fn = sample_mmmd
+            settings_obj = MMMDSamplingSettings(
+                timestep=1.0 * omm_unit.femtoseconds,
+                temperature=300.0 * omm_unit.kelvin,
+                n_conformers=1,
+                production_sampling_time_per_conformer=0.003 * omm_unit.picoseconds,
+                snapshot_interval=0.001 * omm_unit.picoseconds,
+                implicit_solvent=implicit_solvent,
+            )
+            output_paths = {OutputType.PDB_TRAJECTORY: tmp_path}
+        else:
+            sample_fn = sample_mmmd_torsion_restrained_with_torsion_minimisation
+            settings_obj = _torsion_restrained_settings(
+                production_sampling_time_per_conformer=0.003 * omm_unit.picoseconds,
+                implicit_solvent=implicit_solvent,
+            )
+            output_paths = _torsion_restrained_output_paths(tmp_path)
+
+        with patch("presto.sample.mlp.get_ml_omm_system") as mock_ml_sys:
+            mock_ml_sys.side_effect = _mock_ml_system_factory(mol)
+            [dataset] = sample_fn(
+                [mol],
+                ForceField("openff_unconstrained-2.3.0.offxml"),
+                torch.device("cpu"),
+                settings_obj,
+                output_paths,
+            )
+
+        vacuum_system = interchange.to_openmm_system()
+        solvated_system = _build_mm_system(interchange, "obc2")
+
+        for entry in dataset:
+            n_confs = len(entry["energy"])
+            coords = np.asarray(entry["coords"]).reshape(n_confs, -1, 3)
+            energies = np.asarray(entry["energy"])
+            forces = np.asarray(entry["forces"]).reshape(n_confs, -1, 3)
+
+            vacuum = [_energy_and_forces(vacuum_system, c) for c in coords]
+            solvated = [_energy_and_forces(solvated_system, c) for c in coords]
+
+            np.testing.assert_allclose(
+                forces, np.array([f for _, f in vacuum]), atol=0.05
+            )
+            assert not np.allclose(
+                forces, np.array([f for _, f in solvated]), atol=0.05
+            )
+
+            # Stored energies are shifted by a constant within each entry
+            offset = energies - np.array([e for e, _ in vacuum])
+            np.testing.assert_allclose(offset, offset[0], atol=0.05)
