@@ -95,9 +95,12 @@ This only changes which structures are sampled. The energies and forces that are
 The options are:
 
 - `obc2` (recommended): OBC2 (Amber `igb=5`) with mbondi2 radii.
-- `gbn2`: GBneck2 (Amber `igb=8`) with mbondi3 radii. Its element-specific parameters are fitted only for H, C, N, O and S, and other elements fall back to default values. This can give unreasonable solvation energies: for trimethyl phosphate, GBneck2 gives about -70 kcal/mol, compared with about -15 kcal/mol for OBC2 and about -9 kcal/mol from experiment.
+- `gbn2`: GBneck2 (Amber `igb=8`) with mbondi3 radii. Its element-specific parameters are fitted only for H, C, N, O and S, and other elements fall back to default values.
 
-Both use the ACE surface area term, a solvent dielectric of 78.5 and a solute dielectric of 1. Both sets of radii were optimised for Amber charges rather than the OpenFF charges used by `presto`. Implicit solvent roughly doubles the cost of MM MD, but this is usually small compared with the cost of evaluating the MLP. The default (`null`) samples in vacuum.
+Both use the ACE surface area term, a solvent dielectric of 78.5 and a solute dielectric of 1.
+
+!!! warning "Parameterised for biomolecules with Amber charges"
+    Both sets of radii were optimised for biomolecules with Amber charges rather than the charges used by `presto` (by default Ash-GC, which was trained to reproduce AM1-BCC).
 
 ## Choosing a protocol
 
@@ -105,7 +108,7 @@ Both use the ACE surface area term, a solvent dielectric of 78.5 and a solute di
 |---|---|
 | Defaults for a small/medium molecule | `mm_md_metadynamics_torsion_minimisation` (the default) |
 | Fastest possible iteration | `mm_md` |
-| Most physically realistic sampling (but does not penalise spurious MM minima) | `ml_md` |
+| Most physically realistic (gas phase) sampling (but does not penalise spurious MM minima) | `ml_md` |
 | Reproducibility / external dataset | `pre_computed` |
 | Sampling to stay near conformers you supply | `mm_md_torsion_restrained_torsion_minimisation` |
 
