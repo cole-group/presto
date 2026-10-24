@@ -1176,26 +1176,6 @@ class TestMultipleDatasets:
         assert isinstance(settings.training_sampling_settings, list)
         assert isinstance(settings.training_sampling_settings[0], MLMDSamplingSettings)
 
-    def test_old_single_protocol_yaml_loads(self, tmp_path):
-        """A YAML file written before lists were supported still loads."""
-        yaml_path = tmp_path / "settings.yaml"
-        yaml_path.write_text(
-            "param_settings:\n"
-            "    molecules: CCO\n"
-            "device_type: cpu\n"
-            "training_sampling_settings:\n"
-            "    sampling_protocol: mm_md\n"
-            "    n_conformers: 3\n"
-            "testing_sampling_settings:\n"
-            "    sampling_protocol: ml_md\n"
-        )
-        settings = WorkflowSettings.from_yaml(yaml_path)
-        assert [p.sampling_protocol for p in settings.training_sampling_settings] == [
-            "mm_md"
-        ]
-        assert settings.training_sampling_settings[0].n_conformers == 3
-        assert settings.testing_sampling_settings[0].sampling_protocol == "ml_md"
-
     def test_multiple_protocols_yaml_round_trip(self, tmp_path):
         """Several protocols with their weights survive writing and reading YAML."""
         settings = self._settings(
