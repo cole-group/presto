@@ -713,12 +713,12 @@ the `training_sampling_settings` and `testing_sampling_settings` lists in
 `WorkflowSettings`."""
 
 
-def default_training_sampling_settings() -> SamplingSettings:
+def get_default_training_sampling_settings() -> SamplingSettings:
     """Return the default sampling protocol for a training dataset."""
     return MMMDMetadynamicsTorsionMinimisationSamplingSettings()
 
 
-def default_testing_sampling_settings() -> SamplingSettings:
+def get_default_testing_sampling_settings() -> SamplingSettings:
     """Return the default sampling protocol for a testing dataset."""
     return MLMDSamplingSettings(
         temperature=298 * unit.kelvin,
@@ -1115,7 +1115,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     training_sampling_settings: SamplingSettingsList = Field(
-        default_factory=lambda: [default_training_sampling_settings()],
+        default_factory=lambda: [get_default_training_sampling_settings()],
         min_length=1,
         description="Sampling protocols for generating the training data (usually "
         "molecular dynamics), one per training dataset. Datasets are generated one "
@@ -1124,7 +1124,7 @@ class WorkflowSettings(_DefaultSettings):
     )
 
     testing_sampling_settings: SamplingSettingsList = Field(
-        default_factory=lambda: [default_testing_sampling_settings()],
+        default_factory=lambda: [get_default_testing_sampling_settings()],
         min_length=1,
         description="Sampling protocols for generating the testing data (usually "
         "molecular dynamics), one per testing dataset. The test loss combines them "
