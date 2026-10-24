@@ -778,38 +778,6 @@ class TestGetLossClosure:
         assert len(res) == 6
 
 
-def _legacy_overall_loss_and_grad(
-    datasets_list, trainable, x, initial, topologies, regularisation_target
-):
-    """The single-dataset loss as computed before multiple datasets were supported.
-
-    Average the per-molecule losses and gradients, then add regularisation.
-    """
-    from presto.loss import _compute_molecule_total_loss_and_grad
-
-    force_field = trainable.to_force_field(x)
-    energies, forces = [], []
-    gradient = torch.zeros_like(x)
-    for dataset, topology in zip(datasets_list, topologies, strict=True):
-        energy, force, grad = _compute_molecule_total_loss_and_grad(
-            force_field, dataset, topology, x, torch.device("cpu")
-        )
-        gradient += grad
-        energies.append(energy)
-        forces.append(force)
-    gradient /= len(datasets_list)
-    reg = compute_regularisation_loss(trainable, x, initial, regularisation_target)
-    if reg.requires_grad:
-        (reg_grad,) = torch.autograd.grad(reg, x)
-        gradient += reg_grad
-    return (
-        torch.stack(energies).mean(),
-        torch.stack(forces).mean(),
-        reg.detach(),
-        gradient,
-    )
-
-
 def _explicit_weighted_objective(
     per_molecule_datasets_by_dataset, weights, trainable, x, initial, topologies, target
 ):
@@ -844,6 +812,22 @@ def _explicit_weighted_objective(
         forces = forces + weight / total_weight * torch.stack(mol_forces).mean()
     reg = compute_regularisation_loss(trainable, x, initial, target)
     return energy, forces, reg
+
+
+def _assert_matches_reference(loss, gradient, energy, forces, expected_gradient):
+    """Check losses and a gradient against the explicit autograd reference.
+
+    Predicted energies are single precision (the datasets are read as float32), so a
+    different order of operations agrees only to about 1e-7.
+    """
+    assert torch.allclose(loss.energy, energy.detach(), rtol=1e-6, atol=0)
+    assert torch.allclose(loss.forces, forces.detach(), rtol=1e-6, atol=0)
+    torch.testing.assert_close(
+        gradient,
+        expected_gradient,
+        rtol=1e-6,
+        atol=1e-7 * expected_gradient.abs().max().item(),
+    )
 
 
 def _synthetic_dataset(
@@ -956,27 +940,28 @@ def _dataset(setup, datasets_list, grad=True):
 class TestComputeDatasetLossAndGrad:
     """Tests for the loss of a single dataset across molecules."""
 
-    def test_matches_legacy_without_regularisation(self, two_molecule_setup):
-        """The energy, forces and data gradient are exactly the previous ones."""
+    def test_matches_autograd_without_regularisation(self, two_molecule_setup):
+        """The losses and gradient match autograd of the data loss alone."""
         trainable, params, initial, topologies, per_molecule_datasets_by_dataset, *_ = (
             two_molecule_setup
         )
         datasets_list = per_molecule_datasets_by_dataset[0]
         x = params.clone().requires_grad_(True)
-        energy, forces, _, legacy_gradient = _legacy_overall_loss_and_grad(
-            datasets_list, trainable, x, initial, topologies, "initial"
+        energy, forces, reg = _explicit_weighted_objective(
+            [datasets_list], [1.0], trainable, x, initial, topologies, "initial"
         )
-        reg = compute_regularisation_loss(trainable, x, initial, "initial")
+        (expected_gradient,) = torch.autograd.grad(
+            energy + forces, x, retain_graph=True
+        )
         (reg_grad,) = torch.autograd.grad(reg, x)
 
         loss, gradient = _dataset(two_molecule_setup, datasets_list)
 
         assert isinstance(loss, DatasetLoss)
-        assert torch.equal(loss.energy, energy)
-        assert torch.equal(loss.forces, forces)
+        _assert_matches_reference(loss, gradient, energy, forces, expected_gradient)
         # Regularisation is not included
-        assert torch.allclose(gradient, legacy_gradient - reg_grad, rtol=1e-12)
-        assert not torch.allclose(gradient, legacy_gradient)
+        assert reg_grad.abs().max() > 0
+        assert not torch.allclose(gradient, expected_gradient + reg_grad)
 
     def test_no_grad(self, two_molecule_setup):
         """Without gradients the losses are unchanged and no gradient is returned."""
@@ -1002,32 +987,41 @@ class TestComputeOverallLossAndGrad:
 
     @pytest.mark.parametrize("weight", [1.0, 2.5, 1e-3])
     @pytest.mark.parametrize("target", ["initial", "zero"])
-    def test_single_dataset_is_bitwise_legacy(self, two_molecule_setup, weight, target):
-        """One dataset reproduces the previous loss exactly, whatever its weight."""
-        trainable, params, initial, topologies, per_molecule_datasets_by_dataset, *_ = (
+    def test_single_dataset_weight_has_no_effect(
+        self, two_molecule_setup, weight, target
+    ):
+        """One dataset gives exactly its own loss plus regularisation, whatever its weight.
+
+        A lone weight normalises to exactly 1.0, so the results are bitwise equal.
+        """
+        trainable, params, initial, _, per_molecule_datasets_by_dataset, *_ = (
             two_molecule_setup
         )
+        datasets_list = per_molecule_datasets_by_dataset[0]
+        data_loss, data_gradient = _dataset(two_molecule_setup, datasets_list)
         x = params.clone().requires_grad_(True)
-        energy, forces, reg, gradient = _legacy_overall_loss_and_grad(
-            per_molecule_datasets_by_dataset[0],
-            trainable,
-            x,
-            initial,
-            topologies,
-            target,
+        reg = compute_regularisation_loss(trainable, x, initial, target)
+        reg_gradient = (
+            torch.autograd.grad(reg, x)[0] if reg.requires_grad else torch.zeros_like(x)
         )
 
-        record, dataset_losses, new_gradient = _overall(
-            two_molecule_setup, per_molecule_datasets_by_dataset[:1], [weight], target
+        unit, _, unit_gradient = _overall(
+            two_molecule_setup, [datasets_list], [1.0], target
+        )
+        record, dataset_losses, gradient = _overall(
+            two_molecule_setup, [datasets_list], [weight], target
         )
 
-        assert torch.equal(record.energy, energy)
-        assert torch.equal(record.forces, forces)
-        assert torch.equal(record.regularisation, reg)
-        assert torch.equal(new_gradient, gradient)
+        for field in record._fields:
+            assert torch.equal(getattr(record, field), getattr(unit, field))
+        assert torch.equal(gradient, unit_gradient)
+        assert torch.equal(record.energy, data_loss.energy)
+        assert torch.equal(record.forces, data_loss.forces)
+        assert torch.equal(record.regularisation, reg.detach())
+        assert torch.equal(gradient, data_gradient + reg_gradient)
         assert len(dataset_losses) == 1
-        assert torch.equal(dataset_losses[0].energy, energy)
-        assert torch.equal(dataset_losses[0].forces, forces)
+        assert torch.equal(dataset_losses[0].energy, data_loss.energy)
+        assert torch.equal(dataset_losses[0].forces, data_loss.forces)
 
     def test_weighted_combination_of_dataset_losses(self, two_molecule_setup):
         """The combined loss is the normalised weighted sum of each dataset's loss."""
@@ -1088,17 +1082,8 @@ class TestComputeOverallLossAndGrad:
             two_molecule_setup, per_molecule_datasets_by_dataset, weights, target
         )
 
-        # Predicted energies are single precision (the datasets are read as float32),
-        # so a different order of operations agrees only to about 1e-7
-        assert torch.allclose(record.energy, energy.detach(), rtol=1e-6, atol=0)
-        assert torch.allclose(record.forces, forces.detach(), rtol=1e-6, atol=0)
+        _assert_matches_reference(record, gradient, energy, forces, expected_gradient)
         assert torch.allclose(record.regularisation, reg.detach(), rtol=1e-6, atol=0)
-        torch.testing.assert_close(
-            gradient,
-            expected_gradient,
-            rtol=1e-6,
-            atol=1e-7 * expected_gradient.abs().max().item(),
-        )
 
     def test_gradient_matches_finite_differences(self, two_molecule_setup):
         """Central differences of the combined loss agree with the gradient."""
@@ -1292,10 +1277,10 @@ class TestComputeOverallLossAndGrad:
             assert torch.allclose(record.energy, data_loss.energy)
 
     def test_per_conformer_weights_within_a_dataset(self, two_molecule_setup):
-        """A multi-entry dataset with different per-conformer weights is unchanged.
+        """A multi-entry dataset with different per-conformer weights is respected.
 
-        Torsion minimisation produces such datasets, and their loss must be exactly
-        the previous single-dataset loss.
+        Torsion minimisation produces such datasets. The reference applies the
+        per-conformer weights independently through ``predict_with_weights``.
         """
         trainable, params, initial, topologies, _, mols, tensor_ff = two_molecule_setup
         merged = [
@@ -1317,15 +1302,14 @@ class TestComputeOverallLossAndGrad:
         ]
         assert len(merged[0]) == 2
         x = params.clone().requires_grad_(True)
-        energy, forces, _, gradient = _legacy_overall_loss_and_grad(
-            merged, trainable, x, initial, topologies, "initial"
+        energy, forces, reg = _explicit_weighted_objective(
+            [merged], [4.0], trainable, x, initial, topologies, "initial"
         )
+        (expected_gradient,) = torch.autograd.grad(energy + forces + reg, x)
 
-        record, _, new_gradient = _overall(two_molecule_setup, [merged], [4.0])
+        record, _, gradient = _overall(two_molecule_setup, [merged], [4.0])
 
-        assert torch.equal(record.energy, energy)
-        assert torch.equal(record.forces, forces)
-        assert torch.equal(new_gradient, gradient)
+        _assert_matches_reference(record, gradient, energy, forces, expected_gradient)
 
     def test_no_grad(self, two_molecule_setup):
         """Without gradients the losses are unchanged and no gradient is returned."""
