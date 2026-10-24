@@ -239,7 +239,7 @@ def compute_dataset_loss_and_grad(
 
 
 def compute_overall_loss_and_grad(
-    datasets_by_dataset: list[list[datasets.Dataset]],
+    per_molecule_datasets_by_dataset: list[list[datasets.Dataset]],
     dataset_weights: list[float],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
@@ -257,7 +257,8 @@ def compute_overall_loss_and_grad(
     regularisation loss is added once.
 
     Args:
-        datasets_by_dataset: For each dataset, the dataset for each molecule.
+        per_molecule_datasets_by_dataset: One list per dataset, holding
+            that dataset's data for each molecule in order.
         dataset_weights: The weight of each dataset.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
@@ -270,12 +271,12 @@ def compute_overall_loss_and_grad(
     Returns:
         Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
     """
-    if not datasets_by_dataset:
+    if not per_molecule_datasets_by_dataset:
         raise ValueError("At least one dataset is required to compute the loss")
-    if len(dataset_weights) != len(datasets_by_dataset):
+    if len(dataset_weights) != len(per_molecule_datasets_by_dataset):
         raise ValueError(
             f"Got {len(dataset_weights)} dataset weights for "
-            f"{len(datasets_by_dataset)} datasets"
+            f"{len(per_molecule_datasets_by_dataset)} datasets"
         )
 
     # Normalise first so a single dataset has a weight of exactly 1.0
@@ -287,7 +288,7 @@ def compute_overall_loss_and_grad(
         torch.zeros_like(trainable_parameters) if compute_grad else None
     )
     for datasets_list, weight in zip(
-        datasets_by_dataset, normalised_weights, strict=True
+        per_molecule_datasets_by_dataset, normalised_weights, strict=True
     ):
         dataset_loss, gradient = compute_dataset_loss_and_grad(
             datasets_list,
@@ -395,7 +396,7 @@ def compute_regularisation_loss(
 
 
 def get_loss_closure_fn(
-    datasets_by_dataset: list[list[datasets.Dataset]],
+    per_molecule_datasets_by_dataset: list[list[datasets.Dataset]],
     dataset_weights: list[float],
     trainable: descent.train.Trainable,
     trainable_parameters: torch.Tensor,
@@ -410,7 +411,8 @@ def get_loss_closure_fn(
     the Adam optimizer implementation.
 
     Args:
-        datasets_by_dataset: For each dataset, the dataset for each molecule.
+        per_molecule_datasets_by_dataset: One list per dataset, holding
+            that dataset's data for each molecule in order.
         dataset_weights: The weight of each dataset.
         trainable: The trainable object containing the force field.
         trainable_parameters: The parameters to be optimized.
@@ -431,7 +433,7 @@ def get_loss_closure_fn(
         def loss_fn(_x: torch.Tensor) -> torch.Tensor:
             """Compute total weighted loss."""
             _loss_record, _, _ = compute_overall_loss_and_grad(
-                datasets_by_dataset,
+                per_molecule_datasets_by_dataset,
                 dataset_weights,
                 trainable,
                 _x,
@@ -458,7 +460,7 @@ def get_loss_closure_fn(
 
         # Compute loss and gradient
         loss_record, _, gradient = compute_overall_loss_and_grad(
-            datasets_by_dataset,
+            per_molecule_datasets_by_dataset,
             dataset_weights,
             trainable,
             x,

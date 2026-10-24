@@ -704,7 +704,7 @@ class TestGetLossClosure:
         )
 
         closure = get_loss_closure_fn(
-            datasets_by_dataset=[[dataset]],
+            per_molecule_datasets_by_dataset=[[dataset]],
             dataset_weights=[1.0],
             trainable=trainable,
             trainable_parameters=params,
@@ -741,7 +741,7 @@ class TestGetLossClosure:
         )
 
         closure = get_loss_closure_fn(
-            datasets_by_dataset=[[dataset]],
+            per_molecule_datasets_by_dataset=[[dataset]],
             dataset_weights=[1.0],
             trainable=trainable,
             trainable_parameters=params,
@@ -811,7 +811,7 @@ def _legacy_overall_loss_and_grad(
 
 
 def _explicit_weighted_objective(
-    datasets_by_dataset, weights, trainable, x, initial, topologies, target
+    per_molecule_datasets_by_dataset, weights, trainable, x, initial, topologies, target
 ):
     """Build the weighted loss from live tensors, so autograd gives a reference gradient.
 
@@ -823,7 +823,9 @@ def _explicit_weighted_objective(
     force_field = trainable.to_force_field(x)
     total_weight = sum(weights)
     energy, forces = 0.0, 0.0
-    for datasets_list, weight in zip(datasets_by_dataset, weights, strict=True):
+    for datasets_list, weight in zip(
+        per_molecule_datasets_by_dataset, weights, strict=True
+    ):
         mol_energies, mol_forces = [], []
         for dataset, topology in zip(datasets_list, topologies, strict=True):
             e_ref, e_pred, f_ref, f_pred, e_w, f_w = predict_with_weights(
@@ -902,21 +904,31 @@ def two_molecule_setup():
     initial = trainable.to_values().detach().clone()
     params = initial * 1.02  # Non-zero regularisation and its gradient
 
-    datasets_by_dataset = [
+    per_molecule_datasets_by_dataset = [
         [
             _synthetic_dataset(mol, tensor_ff, top, n_confs, seed=10 * k + m)
             for m, (mol, top) in enumerate(zip(mols, topologies, strict=True))
         ]
         for k, n_confs in enumerate((3, 5, 4))
     ]
-    return trainable, params, initial, topologies, datasets_by_dataset, mols, tensor_ff
+    return (
+        trainable,
+        params,
+        initial,
+        topologies,
+        per_molecule_datasets_by_dataset,
+        mols,
+        tensor_ff,
+    )
 
 
-def _overall(setup, datasets_by_dataset, weights, target="initial", grad=True):
+def _overall(
+    setup, per_molecule_datasets_by_dataset, weights, target="initial", grad=True
+):
     trainable, params, initial, topologies, *_ = setup
     x = params.clone().requires_grad_(True)
     return compute_overall_loss_and_grad(
-        datasets_by_dataset,
+        per_molecule_datasets_by_dataset,
         weights,
         trainable,
         x,
@@ -946,10 +958,10 @@ class TestComputeDatasetLossAndGrad:
 
     def test_matches_legacy_without_regularisation(self, two_molecule_setup):
         """The energy, forces and data gradient are exactly the previous ones."""
-        trainable, params, initial, topologies, datasets_by_dataset, *_ = (
+        trainable, params, initial, topologies, per_molecule_datasets_by_dataset, *_ = (
             two_molecule_setup
         )
-        datasets_list = datasets_by_dataset[0]
+        datasets_list = per_molecule_datasets_by_dataset[0]
         x = params.clone().requires_grad_(True)
         energy, forces, _, legacy_gradient = _legacy_overall_loss_and_grad(
             datasets_list, trainable, x, initial, topologies, "initial"
@@ -992,16 +1004,21 @@ class TestComputeOverallLossAndGrad:
     @pytest.mark.parametrize("target", ["initial", "zero"])
     def test_single_dataset_is_bitwise_legacy(self, two_molecule_setup, weight, target):
         """One dataset reproduces the previous loss exactly, whatever its weight."""
-        trainable, params, initial, topologies, datasets_by_dataset, *_ = (
+        trainable, params, initial, topologies, per_molecule_datasets_by_dataset, *_ = (
             two_molecule_setup
         )
         x = params.clone().requires_grad_(True)
         energy, forces, reg, gradient = _legacy_overall_loss_and_grad(
-            datasets_by_dataset[0], trainable, x, initial, topologies, target
+            per_molecule_datasets_by_dataset[0],
+            trainable,
+            x,
+            initial,
+            topologies,
+            target,
         )
 
         record, dataset_losses, new_gradient = _overall(
-            two_molecule_setup, datasets_by_dataset[:1], [weight], target
+            two_molecule_setup, per_molecule_datasets_by_dataset[:1], [weight], target
         )
 
         assert torch.equal(record.energy, energy)
@@ -1014,15 +1031,19 @@ class TestComputeOverallLossAndGrad:
 
     def test_weighted_combination_of_dataset_losses(self, two_molecule_setup):
         """The combined loss is the normalised weighted sum of each dataset's loss."""
-        datasets_by_dataset = two_molecule_setup[4][:2]
-        loss_0, grad_0 = _dataset(two_molecule_setup, datasets_by_dataset[0])
-        loss_1, grad_1 = _dataset(two_molecule_setup, datasets_by_dataset[1])
+        per_molecule_datasets_by_dataset = two_molecule_setup[4][:2]
+        loss_0, grad_0 = _dataset(
+            two_molecule_setup, per_molecule_datasets_by_dataset[0]
+        )
+        loss_1, grad_1 = _dataset(
+            two_molecule_setup, per_molecule_datasets_by_dataset[1]
+        )
         # The datasets are distinct, so the weighting is visible
         assert not torch.isclose(loss_0.energy, loss_1.energy)
         assert not torch.isclose(loss_0.forces, loss_1.forces)
 
         record, dataset_losses, gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, [1.0, 3.0]
+            two_molecule_setup, per_molecule_datasets_by_dataset, [1.0, 3.0]
         )
 
         assert torch.allclose(
@@ -1050,15 +1071,21 @@ class TestComputeOverallLossAndGrad:
     ):
         """Losses and the accumulated gradient match autograd of the explicit sum."""
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
-        datasets_by_dataset = all_datasets[: len(weights)]
+        per_molecule_datasets_by_dataset = all_datasets[: len(weights)]
         x = params.clone().requires_grad_(True)
         energy, forces, reg = _explicit_weighted_objective(
-            datasets_by_dataset, weights, trainable, x, initial, topologies, target
+            per_molecule_datasets_by_dataset,
+            weights,
+            trainable,
+            x,
+            initial,
+            topologies,
+            target,
         )
         (expected_gradient,) = torch.autograd.grad(energy + forces + reg, x)
 
         record, _, gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, weights, target
+            two_molecule_setup, per_molecule_datasets_by_dataset, weights, target
         )
 
         # Predicted energies are single precision (the datasets are read as float32),
@@ -1105,12 +1132,12 @@ class TestComputeOverallLossAndGrad:
 
     def test_weights_are_relative(self, two_molecule_setup):
         """Scaling every weight by the same factor changes nothing."""
-        datasets_by_dataset = two_molecule_setup[4]
+        per_molecule_datasets_by_dataset = two_molecule_setup[4]
         record, dataset_losses, gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, [1.0, 3.0, 0.5]
+            two_molecule_setup, per_molecule_datasets_by_dataset, [1.0, 3.0, 0.5]
         )
         scaled, scaled_losses, scaled_gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, [0.1, 0.3, 0.05]
+            two_molecule_setup, per_molecule_datasets_by_dataset, [0.1, 0.3, 0.05]
         )
 
         for field in record._fields:
@@ -1122,20 +1149,24 @@ class TestComputeOverallLossAndGrad:
 
     def test_dataset_order_does_not_matter(self, two_molecule_setup):
         """Permuting datasets with their weights gives the same loss and gradient."""
-        datasets_by_dataset = two_molecule_setup[4]
+        per_molecule_datasets_by_dataset = two_molecule_setup[4]
         weights = [1.0, 3.0, 0.5]
-        record, _, gradient = _overall(two_molecule_setup, datasets_by_dataset, weights)
+        record, _, gradient = _overall(
+            two_molecule_setup, per_molecule_datasets_by_dataset, weights
+        )
         order = [2, 0, 1]
         permuted, permuted_losses, permuted_gradient = _overall(
             two_molecule_setup,
-            [datasets_by_dataset[i] for i in order],
+            [per_molecule_datasets_by_dataset[i] for i in order],
             [weights[i] for i in order],
         )
 
         for field in record._fields:
             assert torch.allclose(getattr(record, field), getattr(permuted, field))
         assert torch.allclose(gradient, permuted_gradient)
-        loss_2, _ = _dataset(two_molecule_setup, datasets_by_dataset[2], grad=False)
+        loss_2, _ = _dataset(
+            two_molecule_setup, per_molecule_datasets_by_dataset[2], grad=False
+        )
         assert torch.equal(permuted_losses[0].energy, loss_2.energy)
 
     def test_duplicated_dataset_equals_single(self, two_molecule_setup):
@@ -1298,13 +1329,13 @@ class TestComputeOverallLossAndGrad:
 
     def test_no_grad(self, two_molecule_setup):
         """Without gradients the losses are unchanged and no gradient is returned."""
-        datasets_by_dataset = two_molecule_setup[4]
+        per_molecule_datasets_by_dataset = two_molecule_setup[4]
         weights = [1.0, 3.0, 0.5]
         record, losses, gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, weights
+            two_molecule_setup, per_molecule_datasets_by_dataset, weights
         )
         record_no_grad, losses_no_grad, no_gradient = _overall(
-            two_molecule_setup, datasets_by_dataset, weights, grad=False
+            two_molecule_setup, per_molecule_datasets_by_dataset, weights, grad=False
         )
 
         assert gradient is not None
@@ -1351,7 +1382,7 @@ class TestWeightedLossClosure:
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
         weights = [1.0, 3.0]
         closure = get_loss_closure_fn(
-            datasets_by_dataset=all_datasets[:2],
+            per_molecule_datasets_by_dataset=all_datasets[:2],
             dataset_weights=weights,
             trainable=trainable,
             trainable_parameters=params,
@@ -1382,7 +1413,7 @@ class TestWeightedLossClosure:
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
         closure = get_loss_closure_fn(
-            datasets_by_dataset=all_datasets[:2],
+            per_molecule_datasets_by_dataset=all_datasets[:2],
             dataset_weights=[1.0, 3.0],
             trainable=trainable,
             trainable_parameters=params,
