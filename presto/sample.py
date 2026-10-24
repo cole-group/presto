@@ -55,6 +55,17 @@ _OMM_RADIAN = openmm.unit.radian
 _GB_FORCES = {"obc2": GBSAOBC2Force, "gbn2": GBSAGBn2Force}
 """Implicit solvent models available for MM sampling."""
 
+_GB_SOLVENT_DIELECTRIC = 78.5
+"""Solvent dielectric constant for implicit solvent sampling. This is approximately the
+static dielectric constant of water at 25 C (about 78.4), and is the default in both
+OpenMM's GB forces and Amber (``extdiel``). It is not adjusted for the sampling
+temperature."""
+
+_GB_SOLUTE_DIELECTRIC = 1.0
+"""Solute dielectric constant for implicit solvent sampling. This is the default in both
+OpenMM's GB forces and Amber (``intdiel``), and is the value with which the OBC2 and
+GBneck2 parameters were fitted."""
+
 
 class SampleFnArgs(TypedDict):
     """Arguments for sampling functions."""
@@ -199,7 +210,11 @@ def _add_implicit_solvent(
     ]
     gb_force_cls = _GB_FORCES[model]
     gb_force = gb_force_cls(
-        solventDielectric=78.5, soluteDielectric=1.0, SA="ACE", cutoff=None, kappa=0.0
+        solventDielectric=_GB_SOLVENT_DIELECTRIC,
+        soluteDielectric=_GB_SOLUTE_DIELECTRIC,
+        SA="ACE",
+        cutoff=None,
+        kappa=0.0,
     )
     gb_force.addParticles(
         np.column_stack([charges, gb_force_cls.getStandardParameters(topology)])
