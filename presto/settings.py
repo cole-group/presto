@@ -40,6 +40,7 @@ from .outputs import OutputType, WorkflowPathManager
 from .utils.dicts import deep_update
 from .utils.typing import (
     AllowedAttributeType,
+    ImplicitSolventModel,
     NonLinearValenceType,
     OptimiserName,
     PathLike,
@@ -324,7 +325,7 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
 class _MMSamplingSettingsBase(_SamplingSettingsBase, ABC):
     """Settings for sampling protocols which run dynamics with the MM force field."""
 
-    implicit_solvent: Literal["obc2", "gbn2"] | None = Field(
+    implicit_solvent: ImplicitSolventModel | None = Field(
         None,
         description="Implicit solvent model added to the MM systems used for sampling "
         "(MD, metadynamics, torsion-restrained MD and the MM torsion-restrained "

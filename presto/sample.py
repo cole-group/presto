@@ -39,6 +39,7 @@ from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
 from .utils.gpu import cleanup_simulation
 from .utils.register import get_registry_decorator
+from .utils.typing import ImplicitSolventModel
 
 logger = loguru.logger
 
@@ -52,7 +53,10 @@ _OMM_KCAL_PER_MOL_ANGS = openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom
 _OMM_KJ_PER_MOL = openmm.unit.kilojoules_per_mole
 _OMM_RADIAN = openmm.unit.radian
 
-_GB_FORCES = {"obc2": GBSAOBC2Force, "gbn2": GBSAGBn2Force}
+_GB_FORCES: dict[ImplicitSolventModel, type[openmm.CustomGBForce]] = {
+    "obc2": GBSAOBC2Force,
+    "gbn2": GBSAGBn2Force,
+}
 """Implicit solvent models available for MM sampling."""
 
 _GB_SOLVENT_DIELECTRIC = 78.5
@@ -189,7 +193,9 @@ def _build_ml_simulation(
 
 
 def _add_implicit_solvent(
-    system: openmm.System, topology: openmm.app.Topology, model: str
+    system: openmm.System,
+    topology: openmm.app.Topology,
+    model: ImplicitSolventModel,
 ) -> None:
     """Add a generalised Born implicit solvent force to an MM system.
 
@@ -225,7 +231,7 @@ def _add_implicit_solvent(
 
 def _build_mm_system(
     interchange: openff.interchange.Interchange,
-    implicit_solvent: str | None = None,
+    implicit_solvent: ImplicitSolventModel | None = None,
 ) -> openmm.System:
     """Create an MM system from an Interchange object, optionally in implicit solvent."""
     mm_system = interchange.to_openmm_system()
@@ -241,7 +247,7 @@ def _build_mm_simulation(
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
-    implicit_solvent: str | None = None,
+    implicit_solvent: ImplicitSolventModel | None = None,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an MM system from an Interchange object."""
     mm_system = _build_mm_system(interchange, implicit_solvent)

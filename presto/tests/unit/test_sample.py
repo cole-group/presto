@@ -1,5 +1,6 @@
 """Unit tests for sample module."""
 
+from typing import get_args
 from unittest.mock import MagicMock, patch
 
 import datasets
@@ -22,6 +23,7 @@ from presto.find_torsions import (
 )
 from presto.outputs import OutputType
 from presto.sample import (
+    _GB_FORCES,
     _SAMPLING_FNS_REGISTRY,
     _add_implicit_solvent,
     _add_torsion_restraint_forces,
@@ -58,6 +60,7 @@ from presto.settings import (
     TorsionMinimisationSettings,
     TorsionSelectionSettings,
 )
+from presto.utils.typing import ImplicitSolventModel
 
 
 class TestLoadPrecomputedDataset:
@@ -2233,6 +2236,10 @@ class TestImplicitSolvent:
         vacuum_energy, _ = _energy_and_forces(interchange.to_openmm_system(), coords)
         solvated_energy, _ = _energy_and_forces(system, coords)
         assert solvated_energy < vacuum_energy - 1.0
+
+    def test_every_model_has_a_gb_force(self):
+        """Every model allowed by the settings maps to a GB force."""
+        assert set(_GB_FORCES) == set(get_args(ImplicitSolventModel))
 
     def test_rejects_virtual_sites(self):
         """Virtual sites have no GB radii, so they are rejected."""
