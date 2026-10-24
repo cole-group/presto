@@ -17,9 +17,8 @@ MoleculeLoader = Callable[[str], list[Molecule]]
 PROBLEMATIC_FUNCTIONAL_GROUP_WARNINGS: dict[str, str] = {
     "[#15]": (
         "Phosphorus-containing molecules may undergo connectivity changes or proton "
-        "hopping during MLP minimisations. Set "
-        "the `sampling_protocol` of each `training_sampling_settings` item to "
-        "`mm_md_metadynamics` to "
+        "hopping during MLP minimisations. Avoid using the `mm_md_metadynamics_torsion`"
+        "sampling protocol for these molecules (instead use e.g. `mm_md_metadynamics`), to "
         "avoid minimisation-enabled training sampling, and disable MSM by setting "
         "`param_settings.msm_settings` to `null` (YAML) or `None` (Python), because "
         "MSM also performs MLP minimisation."
