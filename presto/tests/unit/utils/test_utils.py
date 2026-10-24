@@ -131,12 +131,12 @@ class TestDeepUpdate:
         assert deep_update(data, {"a": {"b": 10}}) == {"a": {"b": 10, "c": 2}, "d": 3}
 
     def test_list_items_updated_by_index(self):
-        """A dict keyed by index updates those list items, including negative ones."""
+        """A dict keyed by index updates those list items."""
         from presto.utils.dicts import deep_update
 
         data = {"protocols": [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5}]}
         updated = deep_update(
-            data, {"protocols": {0: {"x": 10}, -1: {"z": {"nested": True}}}}
+            data, {"protocols": {0: {"x": 10}, 2: {"z": {"nested": True}}}}
         )
         assert updated == {
             "protocols": [
@@ -173,3 +173,11 @@ class TestDeepUpdate:
 
         with pytest.raises(IndexError, match="out of range"):
             deep_update({"p": [{"x": 1}]}, {"p": {1: {"x": 2}}})
+
+    @pytest.mark.parametrize("index", [-1, -2])
+    def test_negative_index_raises(self, index):
+        """Negative indices raise, so two keys cannot address the same item."""
+        from presto.utils.dicts import deep_update
+
+        with pytest.raises(IndexError, match="non-negative"):
+            deep_update({"p": [{"x": 1}]}, {"p": {0: {"x": 2}, index: {"x": 3}}})

@@ -24,7 +24,11 @@ def deep_update(data: dict[str, Any], overwrite: dict[str, Any]) -> dict[str, An
 def _deep_update_list(
     key: str, data: list[Any], overwrite: dict[Any, Any]
 ) -> list[Any]:
-    """Update the items of a list from a dict keyed by list index."""
+    """Update the items of a list from a dict keyed by list index.
+
+    Negative indices are rejected so that each item has exactly one key, e.g. ``0``
+    and ``-1`` cannot both address a one-item list with conflicting updates.
+    """
     if not all(isinstance(index, int) for index in overwrite):
         raise ValueError(
             f"`{key}` is a list, so its overwrite must be keyed by list index, e.g. "
@@ -32,10 +36,10 @@ def _deep_update_list(
         )
     updated = list(data)
     for index, value in overwrite.items():
-        if not -len(updated) <= index < len(updated):
+        if not 0 <= index < len(updated):
             raise IndexError(
                 f"Overwrite index {index} is out of range for `{key}` with "
-                f"{len(updated)} items."
+                f"{len(updated)} items. Indices must be non-negative."
             )
         if isinstance(updated[index], dict) and isinstance(value, dict):
             updated[index] = deep_update(updated[index], value)
