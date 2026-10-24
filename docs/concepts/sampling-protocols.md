@@ -80,13 +80,35 @@ The dataset must be in `descent.train`-compatible format (HuggingFace `datasets.
 
 See **[How-to → Use a pre-computed dataset](../how-to/use-precomputed-dataset.md)** for the recipe.
 
+## Implicit solvent sampling
+
+Each MM protocol (`mm_md`, `mm_md_metadynamics`, `mm_md_metadynamics_torsion_minimisation` and `mm_md_torsion_restrained_torsion_minimisation`) has an `implicit_solvent` field. This adds a generalised Born implicit solvent model to the MM systems used for sampling, including the MM torsion-restrained minimisations:
+
+```yaml
+training_sampling_settings:
+  sampling_protocol: mm_md_metadynamics_torsion_minimisation
+  implicit_solvent: obc2
+```
+
+This only changes which structures are sampled. The energies and forces that are fitted to are always recalculated with the (gas-phase) MLP, and the MM model in the fit stays gas-phase. To fit in implicit solvent as well, the reference and MM energies would both need solvation terms, which `presto` does not currently add. Setting `implicit_solvent` on `testing_sampling_settings` changes the test-set structures in the same way.
+
+The options are:
+
+- `obc2` (recommended): OBC2 (Amber `igb=5`) with mbondi2 radii.
+- `gbn2`: GBneck2 (Amber `igb=8`) with mbondi3 radii. Its element-specific parameters are fitted only for H, C, N, O and S, and other elements fall back to default values.
+
+Both use the ACE surface area term, a solvent dielectric of 78.5 and a solute dielectric of 1.
+
+!!! warning "Parameterised for biomolecules with Amber charges"
+    Both sets of radii were optimised for biomolecules with Amber charges rather than the charges used by `presto` (by default Ash-GC, which was trained to reproduce AM1-BCC).
+
 ## Choosing a protocol
 
 | You want… | Use |
 |---|---|
 | Defaults for a small/medium molecule | `mm_md_metadynamics_torsion_minimisation` (the default) |
 | Fastest possible iteration | `mm_md` |
-| Most physically realistic sampling (but does not penalise spurious MM minima) | `ml_md` |
+| Most physically realistic (gas phase) sampling (but does not penalise spurious MM minima) | `ml_md` |
 | Reproducibility / external dataset | `pre_computed` |
 | Sampling to stay near conformers you supply | `mm_md_torsion_restrained_torsion_minimisation` |
 
