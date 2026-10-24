@@ -188,7 +188,7 @@ def _add_implicit_solvent(
     (nonbonded_force,) = [
         f for f in system.getForces() if isinstance(f, openmm.NonbondedForce)
     ]
-    if system.getNumParticles() != topology.getNumAtoms():
+    if any(system.isVirtualSite(i) for i in range(system.getNumParticles())):
         raise ValueError("Implicit solvent sampling does not support virtual sites.")
 
     charges = [

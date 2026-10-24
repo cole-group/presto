@@ -23,6 +23,7 @@ from presto.find_torsions import (
 from presto.outputs import OutputType
 from presto.sample import (
     _SAMPLING_FNS_REGISTRY,
+    _add_implicit_solvent,
     _add_torsion_restraint_forces,
     _build_ml_simulation,
     _build_mm_simulation,
@@ -2232,6 +2233,18 @@ class TestImplicitSolvent:
         vacuum_energy, _ = _energy_and_forces(interchange.to_openmm_system(), coords)
         solvated_energy, _ = _energy_and_forces(system, coords)
         assert solvated_energy < vacuum_energy - 1.0
+
+    def test_rejects_virtual_sites(self):
+        """Virtual sites have no GB radii, so they are rejected."""
+        _, interchange = _ethylene_glycol_interchange()
+        system = interchange.to_openmm_system()
+        vsite_index = system.addParticle(0.0)
+        system.setVirtualSite(
+            vsite_index, openmm.TwoParticleAverageSite(0, 1, 0.5, 0.5)
+        )
+
+        with pytest.raises(ValueError, match="virtual sites"):
+            _add_implicit_solvent(system, interchange.topology.to_openmm(), "obc2")
 
     def test_none_gives_vacuum_system(self):
         """No implicit solvent gives the same forces as the Interchange system."""
