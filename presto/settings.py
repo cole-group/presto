@@ -1,7 +1,7 @@
 """Pydantic models which control/validate the settings."""
 
 import warnings
-from abc import ABC
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self, TypeVar
 
@@ -196,16 +196,8 @@ def _validate_starting_conformers_path(value: Path | None) -> Path | None:
     return value
 
 
-_DATASET_WEIGHT_DESCRIPTION = (
-    "Relative weight of this dataset in the loss when several training or testing "
-    "datasets are given. Each dataset's loss is computed separately, so its influence "
-    "does not depend on how many conformers it contains, and the weights are "
-    "normalised by their sum. Has no effect when only one dataset is given."
-)
-
-
-class _SamplingSettingsBase(_DefaultSettings, ABC):
-    """Settings for sampling (usually molecular dynamics)."""
+class _DatasetSettingsBase(_DefaultSettings, ABC):
+    """Settings shared by every protocol that produces a training or testing dataset."""
 
     sampling_protocol: str = Field(
         ...,
@@ -213,6 +205,25 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         "should set this to a unique value. This is used as a discriminator when "
         "loading from YAML.",
     )
+
+    dataset_weight: float = Field(
+        1.0,
+        gt=0,
+        description="Relative weight of this dataset in the loss when several "
+        "training or testing datasets are given. Each dataset's loss is computed "
+        "separately, so its influence does not depend on how many conformers it "
+        "contains, and the weights are normalised by their sum. Has no effect when "
+        "only one dataset is given.",
+    )
+
+    @property
+    @abstractmethod
+    def output_types(self) -> set[OutputType]:
+        """The output files this protocol writes for each molecule."""
+
+
+class _SamplingSettingsBase(_DatasetSettingsBase, ABC):
+    """Settings for sampling (usually molecular dynamics)."""
 
     mlp_settings: MLPSettings = Field(
         default_factory=MLPSettings,
@@ -282,12 +293,6 @@ class _SamplingSettingsBase(_DefaultSettings, ABC):
         0.1,
         description="Scaling factor for the force loss term (forces are in "
         "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
-    )
-
-    dataset_weight: float = Field(
-        1.0,
-        gt=0,
-        description=_DATASET_WEIGHT_DESCRIPTION,
     )
 
     @property
@@ -662,7 +667,7 @@ class MMMDTorsionRestrainedTorsionMinimisationSamplingSettings(_SamplingSettings
         }
 
 
-class PreComputedDatasetSettings(_DefaultSettings):
+class PreComputedDatasetSettings(_DatasetSettingsBase):
     """Settings for loading pre-computed datasets from disk.
 
     For single-molecule fits, provide a single Path.
@@ -678,12 +683,6 @@ class PreComputedDatasetSettings(_DefaultSettings):
         description="Path(s) to pre-computed dataset(s) saved with dataset.save_to_disk(). "
         "For single-molecule fits, provide a single Path. "
         "For multi-molecule fits, provide a list of Paths (one per molecule in order).",
-    )
-
-    dataset_weight: float = Field(
-        1.0,
-        gt=0,
-        description=_DATASET_WEIGHT_DESCRIPTION,
     )
 
     @field_validator("dataset_paths", mode="before")
