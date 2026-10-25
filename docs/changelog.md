@@ -12,6 +12,7 @@
 
 ### Features
 
+- Add the `mm_md_torsion_restrained_torsion_minimisation` sampling protocol. It runs the same pipeline as `mm_md_metadynamics_torsion_minimisation`, but restrains each rotatable torsion to its value in the starting conformer instead of applying a metadynamics bias, so sampling stays near the conformers you supply with `starting_conformers`. The restraint strength is set by `md_torsion_restraint_force_constant`, and the protocol warns when used without `starting_conformers`. See [the protocol's documentation](concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation).
 - Allow lists of training and testing sampling protocols. Datasets are generated one protocol after another and fitted jointly, with each dataset's loss weighted by the new `dataset_weight` setting (normalised over all datasets). Combined and per-dataset losses are written to `metrics.txt` and TensorBoard, and `presto analyse` writes combined plots plus per-dataset plots under `plots/train_dataset_<k>/` and `plots/test_dataset_<k>/`. See [Multiple datasets](concepts/sampling-protocols.md#multiple-datasets). The `presto train` CLI still takes one training and one testing protocol; use `presto train-from-yaml` or the Python API for more.
 - Check that each `pre_computed` protocol supplies one dataset path per molecule when the settings are validated, rather than during sampling.
 
