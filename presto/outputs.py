@@ -1,7 +1,6 @@
 """Functionality for handling the outputs of a workflow."""
 
-from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,11 +15,14 @@ class OutputType(Enum):
     Every run lays out files in the following stages under ``output_dir``:
 
     - ``workflow_settings.yaml`` at the top, recording the inputs.
-    - ``test_data/`` containing the validation dataset.
+    - ``test_data/`` containing the validation datasets.
     - ``initial_statistics/`` with the offxml and scatter data for the starting force field.
     - ``training_iteration_<n>/`` for each iteration, containing the bespoke offxml,
       sampled trajectories, energies/forces, and TensorBoard metrics.
     - ``plots/`` aggregating loss and parameter diagnostic plots across iterations.
+
+    Outputs belonging to one training or testing dataset sit in a
+    ``train_dataset_<k>/`` or ``test_dataset_<k>/`` subdirectory of their stage.
 
     The string value of each member is the filename or directory name on disk.
     """
@@ -113,6 +115,13 @@ class StageKind(StrEnum):
     PLOTS = "plots"
 
 
+class DatasetSplit(StrEnum):
+    """Names of the per-dataset subdirectories inside a stage directory."""
+
+    TRAIN = "train_dataset"
+    TEST = "test_dataset"
+
+
 class WorkflowStatus(StrEnum):
     """The state of generated output for a workflow fit."""
 
@@ -123,18 +132,47 @@ class WorkflowStatus(StrEnum):
 
 @dataclass(frozen=True)
 class OutputStage:
-    """A specific stage in the workflow output directory structure."""
+    """A specific stage in the workflow output directory structure.
+
+    A stage with a ``split`` and ``dataset`` is the subdirectory of its parent stage
+    holding the outputs for one training or testing dataset, e.g.
+    ``training_iteration_1/train_dataset_0``.
+    """
 
     kind: StageKind
     index: int | None = None
+    split: DatasetSplit | None = None
+    dataset: int | None = None
+
+    def __post_init__(self) -> None:
+        """Check that the dataset fields are either both set or both unset."""
+        if (self.split is None) != (self.dataset is None):
+            raise ValueError("split and dataset must be set together")
+        if self.dataset is not None and self.dataset < 0:
+            raise ValueError(f"dataset must be non-negative, got {self.dataset}")
+
+    @property
+    def parent(self) -> "OutputStage":
+        """The stage without its dataset subdirectory."""
+        return OutputStage(self.kind, self.index)
 
     def __str__(self) -> str:
         """String representation."""
-        return (
+        stage = (
             f"{self.kind.value}_{self.index}"
             if self.index is not None
             else self.kind.value
         )
+        if self.split is None:
+            return stage
+        return f"{stage}/{self.split.value}_{self.dataset}"
+
+
+def _torsion_plot_if_trajectory(protocol: "SamplingSettings") -> set[OutputType]:
+    """Predict a torsion sampling plot only for protocols which write trajectories."""
+    if OutputType.PDB_TRAJECTORY in protocol.output_types:
+        return {OutputType.TORSION_SAMPLING_PLOT}
+    return set()
 
 
 @dataclass
@@ -145,8 +183,8 @@ class WorkflowPathManager:
     n_iterations: int = 1
     n_mols: int = 1
     training_settings: "TrainingSettings | None" = None
-    training_sampling_settings: "SamplingSettings | None" = None
-    testing_sampling_settings: "SamplingSettings | None" = None
+    training_sampling_settings: "list[SamplingSettings]" = field(default_factory=list)
+    testing_sampling_settings: "list[SamplingSettings]" = field(default_factory=list)
 
     def _generated_stages(self) -> list[OutputStage]:
         """Return every stage these settings predict whose directory exists."""
@@ -161,7 +199,11 @@ class WorkflowPathManager:
         ]
 
     def _foreign_children(self, stage: OutputStage) -> list[Path]:
-        """Return entries in a stage directory which these settings do not predict."""
+        """Return entries in a stage directory which these settings do not predict.
+
+        Dataset subdirectories are searched too, unless they are symlinks, which are
+        unlinked without touching their targets.
+        """
         predicted = {
             path
             for paths in self.get_all_output_paths(only_if_exists=False)
@@ -169,11 +211,20 @@ class WorkflowPathManager:
             .values()
             for path in (paths if isinstance(paths, list) else [paths])
         }
-        return [
-            child
-            for child in self.get_stage_path(stage).iterdir()
-            if child not in predicted
-        ]
+        sub_stages = {
+            self.get_stage_path(sub_stage): sub_stage
+            for sub_stage in self.outputs_by_stage
+            if sub_stage.split is not None and sub_stage.parent == stage
+        }
+        foreign = []
+        for child in self.get_stage_path(stage).iterdir():
+            if child in sub_stages and child.is_symlink():
+                continue
+            if child in sub_stages and child.is_dir():
+                foreign.extend(self._foreign_children(sub_stages[child]))
+            elif child not in predicted:
+                foreign.append(child)
+        return foreign
 
     @property
     def final_force_field(self) -> Path:
@@ -203,47 +254,71 @@ class WorkflowPathManager:
 
     @property
     def outputs_by_stage(self) -> dict[OutputStage, set[OutputType]]:
-        """Return a dictionary mapping each stage to expected output types."""
+        """Return a dictionary mapping each stage to expected output types.
+
+        Outputs which belong to one training or testing dataset are placed in that
+        dataset's subdirectory stage, e.g. ``test_data/test_dataset_0``.
+        """
+        training_types = (
+            self.training_settings.output_types if self.training_settings else set()
+        )
+        n_test = len(self.testing_sampling_settings)
+
+        def test_scatter_stages(
+            kind: StageKind, index: int | None = None
+        ) -> dict[OutputStage, set[OutputType]]:
+            return {
+                OutputStage(kind, index, DatasetSplit.TEST, k): {OutputType.SCATTER}
+                for k in range(n_test)
+            }
+
         outputs_by_stage: dict[OutputStage, set[OutputType]] = {
             OutputStage(StageKind.BASE): {OutputType.WORKFLOW_SETTINGS},
-            OutputStage(StageKind.TESTING): (
-                self.testing_sampling_settings.output_types
-                if self.testing_sampling_settings
-                else set()
-            )
-            | {OutputType.ENERGIES_AND_FORCES},
-            OutputStage(StageKind.INITIAL_STATISTICS): {
-                OutputType.OFFXML,
-                OutputType.SCATTER,
-            },
+            OutputStage(StageKind.TESTING): set(),
             **{
-                OutputStage(StageKind.TRAINING, i): (
-                    self.training_settings.output_types
-                    if self.training_settings
-                    else set()
+                OutputStage(StageKind.TESTING, None, DatasetSplit.TEST, k): (
+                    protocol.output_types | {OutputType.ENERGIES_AND_FORCES}
                 )
-                | (
-                    self.training_sampling_settings.output_types
-                    if self.training_sampling_settings
-                    else set()
-                )
-                | {
-                    OutputType.ENERGIES_AND_FORCES,
-                    OutputType.OFFXML,
-                    OutputType.SCATTER,
-                }
-                for i in range(1, self.n_iterations + 1)
+                for k, protocol in enumerate(self.testing_sampling_settings)
             },
-            OutputStage(StageKind.PLOTS): {
+            OutputStage(StageKind.INITIAL_STATISTICS): {OutputType.OFFXML},
+            **test_scatter_stages(StageKind.INITIAL_STATISTICS),
+        }
+        for i in range(1, self.n_iterations + 1):
+            outputs_by_stage[OutputStage(StageKind.TRAINING, i)] = training_types | {
+                OutputType.OFFXML
+            }
+            for k, protocol in enumerate(self.training_sampling_settings):
+                outputs_by_stage[
+                    OutputStage(StageKind.TRAINING, i, DatasetSplit.TRAIN, k)
+                ] = protocol.output_types | {OutputType.ENERGIES_AND_FORCES}
+            outputs_by_stage.update(test_scatter_stages(StageKind.TRAINING, i))
+
+        all_protocols = [
+            *self.training_sampling_settings,
+            *self.testing_sampling_settings,
+        ]
+        outputs_by_stage[OutputStage(StageKind.PLOTS)] = {
+            OutputType.LOSS_PLOT,
+            OutputType.ERROR_PLOT,
+            OutputType.CORRELATION_PLOT,
+            OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
+            OutputType.PARAMETER_VALUES_PLOT,
+            OutputType.PARAMETER_DIFFERENCES_PLOT,
+        }.union(*(_torsion_plot_if_trajectory(p) for p in all_protocols))
+        for k, protocol in enumerate(self.testing_sampling_settings):
+            outputs_by_stage[
+                OutputStage(StageKind.PLOTS, None, DatasetSplit.TEST, k)
+            ] = {
                 OutputType.LOSS_PLOT,
                 OutputType.ERROR_PLOT,
                 OutputType.CORRELATION_PLOT,
                 OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT,
-                OutputType.PARAMETER_VALUES_PLOT,
-                OutputType.PARAMETER_DIFFERENCES_PLOT,
-                OutputType.TORSION_SAMPLING_PLOT,
-            },
-        }
+            } | _torsion_plot_if_trajectory(protocol)
+        for k, protocol in enumerate(self.training_sampling_settings):
+            outputs_by_stage[
+                OutputStage(StageKind.PLOTS, None, DatasetSplit.TRAIN, k)
+            ] = {OutputType.LOSS_PLOT} | _torsion_plot_if_trajectory(protocol)
         return outputs_by_stage
 
     def get_stage_path(self, stage: OutputStage) -> Path:
@@ -342,99 +417,6 @@ class WorkflowPathManager:
 
         return all_paths
 
-    def get_all_output_paths_by_output_type(
-        self, only_if_exists: bool = True
-    ) -> dict[OutputType, list[Path]]:
-        """Get all expected output paths organized by output type.
-
-        Note: For per-molecule output types, paths from all molecules are flattened
-        into a single list. Use get_all_output_paths_by_output_type_by_molecule
-        for per-molecule organization.
-        """
-        all_paths = self.get_all_output_paths(only_if_exists=only_if_exists)
-        paths_by_output_type: dict[OutputType, list[Path]] = defaultdict(list)
-
-        for _, paths in all_paths.items():
-            for output_type, path_or_paths in paths.items():
-                if isinstance(path_or_paths, list):
-                    paths_by_output_type[output_type].extend(path_or_paths)
-                else:
-                    paths_by_output_type[output_type].append(path_or_paths)
-
-        return paths_by_output_type
-
-    def get_all_output_paths_by_output_type_by_molecule(
-        self, only_if_exists: bool = True
-    ) -> dict[OutputType, dict[int, list[Path]] | list[Path]]:
-        """Get all expected output paths organized by output type and molecule.
-
-        For per-molecule output types, returns a dict mapping mol_idx to list of paths.
-        For non-per-molecule output types, returns a flat list of paths.
-
-        Parameters
-        ----------
-        only_if_exists : bool, optional
-            If True, only return paths that exist on disk, by default True.
-
-        Returns:
-        -------
-        dict[OutputType, dict[int, list[Path]] | list[Path]]
-            A dictionary mapping output types to either:
-            - For per-molecule types: dict mapping mol_idx -> list of paths (one per stage)
-            - For other types: list of paths (one per stage)
-        """
-        all_paths = self.get_all_output_paths(only_if_exists=only_if_exists)
-        result: dict[OutputType, dict[int, list[Path]] | list[Path]] = {}
-
-        for _stage, paths in all_paths.items():
-            for output_type, path_or_paths in paths.items():
-                if output_type in PER_MOLECULE_OUTPUT_TYPES:
-                    # Per-molecule type: organize by molecule index
-                    if output_type not in result:
-                        result[output_type] = {}
-                    mol_dict = result[output_type]
-                    assert isinstance(mol_dict, dict)
-
-                    # path_or_paths is a list of paths for each molecule
-                    if isinstance(path_or_paths, list):
-                        for path in path_or_paths:
-                            # Extract mol_idx from path
-                            mol_idx = self._extract_mol_idx_from_path(path)
-                            if mol_idx not in mol_dict:
-                                mol_dict[mol_idx] = []
-                            mol_dict[mol_idx].append(path)
-                else:
-                    # Non-per-molecule type: flat list
-                    if output_type not in result:
-                        result[output_type] = []
-                    path_list = result[output_type]
-                    assert isinstance(path_list, list)
-                    if isinstance(path_or_paths, list):
-                        path_list.extend(path_or_paths)
-                    else:
-                        path_list.append(path_or_paths)
-
-        return result
-
-    def _extract_mol_idx_from_path(self, path: Path) -> int:
-        """Extract molecule index from a per-molecule path.
-
-        Parameters
-        ----------
-        path : Path
-            A path with the _mol{idx} naming convention.
-
-        Returns:
-        -------
-        int
-            The molecule index.
-        """
-        stem = path.stem if path.suffix else path.name
-        if "_mol" in stem:
-            mol_idx_str = stem.split("_mol")[-1]
-            return int(mol_idx_str)
-        return 0  # Default for backward compatibility
-
     def clean(self) -> None:
         """Remove every stage directory these settings predict.
 
@@ -447,7 +429,8 @@ class WorkflowPathManager:
             If a predicted stage directory holds a path these settings do not
             predict. Nothing is deleted in that case.
         """
-        stages = self._generated_stages()
+        # Deleting a stage removes its dataset subdirectories with it.
+        stages = [stage for stage in self._generated_stages() if stage.split is None]
         for stage in stages:
             stage_path = self.get_stage_path(stage)
             if stage_path.is_symlink() or not (
