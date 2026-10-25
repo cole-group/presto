@@ -113,7 +113,39 @@ def get_bespoke_force_field(
         process_dataset: Callable[[int, int, datasets.Dataset], datasets.Dataset]
         | None = None,
     ) -> list[list[datasets.Dataset]]:
-        """Sample each dataset in turn, returning the dataset for each molecule."""
+        """Sample each dataset in turn, for every molecule.
+
+        Protocols are sampled one after another, each into its own
+        ``<stage>/<split>_<k>`` subdirectory, while the molecules for each protocol
+        are sampled in parallel across ``settings.n_sampling_processes`` workers.
+
+        Parameters
+        ----------
+        stage : OutputStage
+            The top-level stage to sample into, e.g. ``training_iteration_1``.
+
+        split : DatasetSplit
+            Whether these are training or testing datasets, which names their
+            subdirectories within ``stage``.
+
+        protocols : list[SamplingSettings]
+            The sampling protocol for each dataset, in order. Dataset ``k`` is
+            sampled with ``protocols[k]``.
+
+        offxml_path : pathlib.Path
+            The force field the sampling workers load.
+
+        process_dataset : Callable[[int, int, datasets.Dataset], datasets.Dataset] | None, optional
+            Applied to each sampled dataset with the dataset index, molecule index
+            and dataset, e.g. to filter outliers or add data from the previous
+            iteration. By default None, which leaves the datasets unchanged.
+
+        Returns:
+        -------
+        list[list[datasets.Dataset]]
+            One list per dataset, holding that dataset's data for each molecule in
+            order.
+        """
         sampled = []
         for k, protocol in enumerate(protocols):
             logger.info(f"Generating {split.value}_{k} ({protocol.sampling_protocol})")
