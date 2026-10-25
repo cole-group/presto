@@ -24,9 +24,15 @@ from .find_torsions import (
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
     get_rot_torsions_by_rot_bond,
 )
-from .loss import LossRecord
-from .outputs import OutputStage, OutputType, StageKind, get_mol_path
-from .settings import WorkflowSettings
+from .outputs import (
+    DatasetSplit,
+    OutputStage,
+    OutputType,
+    StageKind,
+    WorkflowPathManager,
+)
+from .settings import SamplingSettings, WorkflowSettings
+from .writers import metrics_columns
 
 logger = loguru.logger
 
@@ -79,22 +85,11 @@ def read_errors(
 
 
 def read_losses(paths_by_iter: dict[int, Path]) -> pd.DataFrame:
-    """Read training and test losses from CSV metric files and return them as a DataFrame."""
-    df_rows = []
-    names = []
-    for loss_type in ["train", "test"]:
-        for field in LossRecord._fields:
-            names.append(f"loss_{loss_type}_{field}")
-
-    for i, loss_datafile in paths_by_iter.items():
-        df = pd.read_csv(
-            loss_datafile,
-            sep=r"\s+",
-            header=None,
-            names=names,
-        )
-        df_rows.append(df.assign(iteration=i))
-
+    """Read training and test losses from metric files (with a header row) into a DataFrame."""
+    df_rows = [
+        pd.read_csv(loss_datafile, sep=r"\s+", header=0).assign(iteration=i)
+        for i, loss_datafile in paths_by_iter.items()
+    ]
     return pd.concat(df_rows, ignore_index=True)
 
 
@@ -103,13 +98,14 @@ def load_force_fields(paths_by_iter: dict[int, Path]) -> dict[int, str]:
     return {i: ForceField(p, load_plugins=True) for i, p in paths_by_iter.items()}
 
 
-def plot_loss(fig: Figure, ax: Axes, losses: pd.DataFrame) -> None:
-    """Plot training and test losses across epochs, with vertical lines separating iterations."""
+def plot_loss(
+    fig: Figure, ax: Axes, losses: pd.DataFrame, loss_names: list[str]
+) -> None:
+    """Plot the named training and test losses across epochs, with vertical lines separating iterations."""
     # Colour by iteration - full line for train, dotted for test
     iterations = losses["iteration"].unique()
     first_iteration = iterations[0]
     for i in iterations:
-        loss_names = [name for name in losses.columns if name.startswith("loss_")]
         for loss_name in loss_names:
             if loss_name == "loss_test_regularisation":
                 continue  # Skip regularisation loss as not meaningful
@@ -725,156 +721,349 @@ def plot_torsion_sampling(
         axs.flat[idx].axis("off")
 
 
+_ERROR_KEYS = (
+    "energy_reference",
+    "energy_predicted",
+    "energy_differences",
+    "forces_reference",
+    "forces_predicted",
+    "forces_differences",
+)
+
+
+def _pool_errors(
+    errors_by_dataset: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Concatenate the errors of several datasets for each iteration."""
+    pooled: dict[str, Any] = {}
+    for key in _ERROR_KEYS:
+        by_iteration: dict[int, list[npt.NDArray[np.float64]]] = {}
+        for errors in errors_by_dataset:
+            for iteration, values in errors[key].items():
+                by_iteration.setdefault(iteration, []).append(values)
+        pooled[key] = {
+            iteration: np.concatenate(values)
+            for iteration, values in sorted(by_iteration.items())
+        }
+    return pooled
+
+
+def _pool_dihedrals(
+    dihedrals_list: list[dict[tuple[int, int, int, int], npt.NDArray[np.float64]]],
+) -> dict[tuple[int, int, int, int], npt.NDArray[np.float64]]:
+    """Concatenate the dihedrals of several trajectories for each torsion."""
+    return {
+        torsion: np.concatenate([d[torsion] for d in dihedrals_list])
+        for torsion in dihedrals_list[0]
+    }
+
+
+def _has_trajectory(protocol: SamplingSettings) -> bool:
+    return OutputType.PDB_TRAJECTORY in protocol.output_types
+
+
+def _iteration_stages(path_manager: WorkflowPathManager) -> dict[int, OutputStage]:
+    """Return the stage holding test-set scatter data for each iteration (0 is initial)."""
+    return {
+        0: OutputStage(StageKind.INITIAL_STATISTICS),
+        **{
+            i: OutputStage(StageKind.TRAINING, i)
+            for i in range(1, path_manager.n_iterations + 1)
+        },
+    }
+
+
+def _existing_paths_for_mol(
+    path_manager: WorkflowPathManager,
+    stages_by_iteration: dict[int, OutputStage],
+    output_type: OutputType,
+    mol_idx: int,
+) -> dict[int, Path]:
+    """Return the existing per-molecule paths for each iteration's stage."""
+    paths = {
+        iteration: path_manager.get_output_path_for_mol(stage, output_type, mol_idx)
+        for iteration, stage in stages_by_iteration.items()
+    }
+    return {iteration: path for iteration, path in paths.items() if path.exists()}
+
+
+def _dataset_stage(stage: OutputStage, split: DatasetSplit, k: int) -> OutputStage:
+    return OutputStage(stage.kind, stage.index, split, k)
+
+
+def _save(fig: Figure, path: Path) -> None:
+    fig.savefig(str(path), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_losses(
+    losses: pd.DataFrame,
+    loss_names: list[str],
+    path_manager: WorkflowPathManager,
+    stage: OutputStage,
+) -> None:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    plot_loss(fig, ax, losses, loss_names)
+    _save(fig, path_manager.get_output_path(stage, OutputType.LOSS_PLOT))
+
+
+def _plot_errors(
+    errors: dict[str, Any],
+    mol: Molecule,
+    mol_idx: int,
+    path_manager: WorkflowPathManager,
+    stage: OutputStage,
+) -> None:
+    """Plot the error statistics, correlation, and force error by atom for one molecule."""
+    fig, axs = plt.subplots(2, 2, figsize=(13, 12))
+    plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
+    _save(
+        fig, path_manager.get_output_path_for_mol(stage, OutputType.ERROR_PLOT, mol_idx)
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
+    plot_energy_correlation(
+        fig, ax, errors["energy_reference"], errors["energy_predicted"]
+    )
+    _save(
+        fig,
+        path_manager.get_output_path_for_mol(
+            stage, OutputType.CORRELATION_PLOT, mol_idx
+        ),
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
+    plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
+    _save(
+        fig,
+        path_manager.get_output_path_for_mol(
+            stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT, mol_idx
+        ),
+    )
+
+
+def _plot_torsions(
+    dihedrals_by_iteration: dict[
+        int, dict[tuple[int, int, int, int], npt.NDArray[np.float64]]
+    ],
+    n_torsions: int,
+    mol: Molecule,
+    mol_idx: int,
+    path_manager: WorkflowPathManager,
+    stage: OutputStage,
+) -> None:
+    # Create a grid layout - 2 columns for better layout
+    ncols = min(2, n_torsions)
+    nrows = (n_torsions + ncols - 1) // ncols
+    fig, axs = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5 * nrows), squeeze=False)
+    plot_torsion_sampling(fig, axs, dihedrals_by_iteration, mol)
+    fig.tight_layout()
+    _save(
+        fig,
+        path_manager.get_output_path_for_mol(
+            stage, OutputType.TORSION_SAMPLING_PLOT, mol_idx
+        ),
+    )
+
+
+def _read_dihedrals(
+    trajectory_paths: dict[int, Path],
+    torsions: dict[tuple[int, int], tuple[int, int, int, int]],
+) -> dict[int, dict[tuple[int, int, int, int], npt.NDArray[np.float64]]]:
+    """Read the dihedrals of each iteration's trajectory, skipping unreadable files."""
+    dihedrals_by_iteration = {}
+    for iteration, pdb_path in trajectory_paths.items():
+        try:
+            dihedrals_by_iteration[iteration] = calculate_dihedrals_for_trajectory(
+                pdb_path, torsions
+            )
+        except Exception as e:
+            logger.warning(f"Failed to read trajectory at {pdb_path}: {e}")
+    return dihedrals_by_iteration
+
+
 def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
-    """Analyse the results of a presto workflow."""
+    """Analyse the results of a presto workflow.
+
+    Plots combining all datasets are written to ``plots/``, and plots for each
+    training or testing dataset to ``plots/train_dataset_<k>/`` or
+    ``plots/test_dataset_<k>/``.
+    """
     mols = workflow_settings.param_settings.openff_molecules
+    train_protocols = workflow_settings.training_sampling_settings
+    test_protocols = workflow_settings.testing_sampling_settings
 
     # Suppress matplotlib categorical units warning by setting logger level
     import logging
 
     logging.getLogger("matplotlib.category").setLevel(logging.ERROR)
 
+    path_manager = workflow_settings.get_path_manager()
+    plots_stage = OutputStage(StageKind.PLOTS)
+    path_manager.mk_stage_dir(plots_stage)
+    for split, protocols in (
+        (DatasetSplit.TRAIN, train_protocols),
+        (DatasetSplit.TEST, test_protocols),
+    ):
+        for k in range(len(protocols)):
+            path_manager.mk_stage_dir(_dataset_stage(plots_stage, split, k))
+
     with plt.style.context(PLT_STYLE):
         # Plot the losses
-        path_manager = workflow_settings.get_path_manager()
-        stage = OutputStage(StageKind.PLOTS)
-        path_manager.mk_stage_dir(stage)
-
-        output_paths_by_type = path_manager.get_all_output_paths_by_output_type()
-        output_paths_by_type_by_mol = (
-            path_manager.get_all_output_paths_by_output_type_by_molecule()
+        metrics_paths = {
+            i: path_manager.get_output_path(
+                OutputStage(StageKind.TRAINING, i), OutputType.TRAINING_METRICS
+            )
+            for i in range(1, path_manager.n_iterations + 1)
+        }
+        losses = read_losses(
+            {i: path for i, path in metrics_paths.items() if path.exists()}
         )
-
-        training_metric_paths = dict(
-            enumerate(output_paths_by_type[OutputType.TRAINING_METRICS])
-        )
-        losses = read_losses(training_metric_paths)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        plot_loss(fig, ax, losses)
-        fig.savefig(
-            str(path_manager.get_output_path(stage, OutputType.LOSS_PLOT)),
-            dpi=300,
-            bbox_inches="tight",
-        )
-        plt.close(fig)
-
-        # Get scatter paths organized by molecule
-        scatter_paths_by_mol = output_paths_by_type_by_mol.get(OutputType.SCATTER, {})
-        assert isinstance(scatter_paths_by_mol, dict)
-
-        # Plot for each molecule
-        for mol_idx, mol in enumerate(mols):
-            if mol_idx not in scatter_paths_by_mol:
-                logger.warning(f"No scatter paths found for molecule {mol_idx}")
-                continue
-
-            # Convert list of paths to dict indexed by iteration
-            scatter_paths_for_mol = dict(enumerate(scatter_paths_by_mol[mol_idx]))
-            errors = read_errors(scatter_paths_for_mol)
-
-            # Plot the errors
-            fig, axs = plt.subplots(2, 2, figsize=(13, 12))
-            plot_error_statistics(fig, axs, errors)  # type: ignore[arg-type]
-            error_plot_path = path_manager.get_output_path(stage, OutputType.ERROR_PLOT)
-            error_plot_path_mol = get_mol_path(error_plot_path, mol_idx)
-            fig.savefig(str(error_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-            # Plot the correlation plots
-            fig, ax = plt.subplots(1, 1, figsize=(6.5, 6))
-            plot_energy_correlation(
-                fig,
-                ax,
-                errors["energy_reference"],
-                errors["energy_predicted"],
-            )
-            corr_plot_path = path_manager.get_output_path(
-                stage, OutputType.CORRELATION_PLOT
-            )
-            corr_plot_path_mol = get_mol_path(corr_plot_path, mol_idx)
-            fig.savefig(str(corr_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-            # Plot the force error by atom index
-            fig, ax = plt.subplots(1, 1, figsize=(0.5 * mol.n_atoms, 6))
-            plot_force_error_by_atom_idx(fig, ax, errors["forces_differences"], mol)
-            force_error_plot_path = path_manager.get_output_path(
-                stage, OutputType.FORCE_ERROR_BY_ATOM_INDEX_PLOT
-            )
-            force_error_plot_path_mol = get_mol_path(force_error_plot_path, mol_idx)
-            fig.savefig(str(force_error_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
-
-            # Plot torsion dihedrals if trajectory files exist
-            pdb_traj_paths_by_mol = output_paths_by_type_by_mol.get(
-                OutputType.PDB_TRAJECTORY, {}
-            )
-            if mol_idx in pdb_traj_paths_by_mol:
-                # Get rotatable torsions for this molecule
-                torsions = get_rot_torsions_by_rot_bond(
-                    mol,
-                    include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
-                    exclude_smarts=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
+        columns = metrics_columns(len(train_protocols), len(test_protocols))
+        _plot_losses(losses, columns[:6], path_manager, plots_stage)
+        for split, protocols in (
+            (DatasetSplit.TRAIN, train_protocols),
+            (DatasetSplit.TEST, test_protocols),
+        ):
+            for k in range(len(protocols)):
+                prefix = f"loss_{split.name.lower()}_dataset_{k}_"
+                _plot_losses(
+                    losses,
+                    [name for name in columns if name.startswith(prefix)],
+                    path_manager,
+                    _dataset_stage(plots_stage, split, k),
                 )
 
-                if torsions:
-                    # Read trajectories and calculate dihedrals for each iteration
-                    dihedrals_by_iteration = {}
-                    pdb_paths_for_mol = pdb_traj_paths_by_mol[mol_idx]
-                    if not isinstance(pdb_paths_for_mol, list):
-                        pdb_paths_for_mol = [pdb_paths_for_mol]
-
-                    # Include initial statistics (iteration 0) and training iterations
-                    for iter_idx, pdb_path in enumerate(pdb_paths_for_mol):
-                        if pdb_path.exists():
-                            try:
-                                dihedrals = calculate_dihedrals_for_trajectory(
-                                    pdb_path, torsions
-                                )
-                                dihedrals_by_iteration[iter_idx] = dihedrals
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to read trajectory at {pdb_path}: {e}"
-                                )
-
-                    if dihedrals_by_iteration:
-                        # Determine figure layout based on number of torsions
-                        n_torsions = len(torsions)
-                        # Create a grid layout - 2 columns for better layout
-                        ncols = min(2, n_torsions)
-                        nrows = (n_torsions + ncols - 1) // ncols
-                        fig, axs = plt.subplots(
-                            nrows, ncols, figsize=(8 * ncols, 5 * nrows), squeeze=False
-                        )
-                        plot_torsion_sampling(fig, axs, dihedrals_by_iteration, mol)
-                        torsion_plot_path = path_manager.get_output_path(
-                            stage, OutputType.TORSION_SAMPLING_PLOT
-                        )
-                        torsion_plot_path_mol = get_mol_path(torsion_plot_path, mol_idx)
-                        fig.tight_layout()
-                        fig.savefig(
-                            str(torsion_plot_path_mol), dpi=300, bbox_inches="tight"
-                        )
-                        plt.close(fig)
-
-        # Plot the force field changes for each molecule
-        offxml_paths = output_paths_by_type.get(OutputType.OFFXML, [])
-        assert isinstance(offxml_paths, list)
-        ff_paths = load_force_fields(dict(enumerate(offxml_paths)))
+        iteration_stages = _iteration_stages(path_manager)
 
         for mol_idx, mol in enumerate(mols):
-            fig, axs = plot_all_ffs(ff_paths, mol, "values")
-            param_values_plot_path = path_manager.get_output_path(
-                stage, OutputType.PARAMETER_VALUES_PLOT
-            )
-            param_values_plot_path_mol = get_mol_path(param_values_plot_path, mol_idx)
-            fig.savefig(str(param_values_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
+            # Plot the errors on each test dataset, then on all of them pooled
+            errors_by_dataset = []
+            for k in range(len(test_protocols)):
+                scatter_paths = _existing_paths_for_mol(
+                    path_manager,
+                    {
+                        i: _dataset_stage(stage, DatasetSplit.TEST, k)
+                        for i, stage in iteration_stages.items()
+                    },
+                    OutputType.SCATTER,
+                    mol_idx,
+                )
+                if not scatter_paths:
+                    logger.warning(
+                        f"No scatter paths found for test dataset {k} molecule {mol_idx}"
+                    )
+                    continue
+                errors = read_errors(scatter_paths)
+                errors_by_dataset.append(errors)
+                _plot_errors(
+                    errors,
+                    mol,
+                    mol_idx,
+                    path_manager,
+                    _dataset_stage(plots_stage, DatasetSplit.TEST, k),
+                )
+            if errors_by_dataset:
+                _plot_errors(
+                    _pool_errors(errors_by_dataset),
+                    mol,
+                    mol_idx,
+                    path_manager,
+                    plots_stage,
+                )
 
-            fig, axs = plot_all_ffs(ff_paths, mol, "differences")
-            param_diff_plot_path = path_manager.get_output_path(
-                stage, OutputType.PARAMETER_DIFFERENCES_PLOT
+            # Plot torsion dihedrals sampled in each dataset's trajectories, where
+            # iteration 0 is the test data
+            torsions = get_rot_torsions_by_rot_bond(
+                mol,
+                include_smarts=DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
+                exclude_smarts=DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
             )
-            param_diff_plot_path_mol = get_mol_path(param_diff_plot_path, mol_idx)
-            fig.savefig(str(param_diff_plot_path_mol), dpi=300, bbox_inches="tight")
-            plt.close(fig)
+            if not torsions:
+                continue
+
+            pooled_dihedrals: dict[
+                int, list[dict[tuple[int, int, int, int], npt.NDArray[np.float64]]]
+            ] = {}
+            for split, protocols, stages_by_iteration in (
+                (
+                    DatasetSplit.TEST,
+                    test_protocols,
+                    {0: OutputStage(StageKind.TESTING)},
+                ),
+                (
+                    DatasetSplit.TRAIN,
+                    train_protocols,
+                    {
+                        i: stage
+                        for i, stage in iteration_stages.items()
+                        if stage.kind is StageKind.TRAINING
+                    },
+                ),
+            ):
+                for k, protocol in enumerate(protocols):
+                    if not _has_trajectory(protocol):
+                        continue
+                    dihedrals_by_iteration = _read_dihedrals(
+                        _existing_paths_for_mol(
+                            path_manager,
+                            {
+                                i: _dataset_stage(stage, split, k)
+                                for i, stage in stages_by_iteration.items()
+                            },
+                            OutputType.PDB_TRAJECTORY,
+                            mol_idx,
+                        ),
+                        torsions,
+                    )
+                    if not dihedrals_by_iteration:
+                        continue
+                    for iteration, dihedrals in dihedrals_by_iteration.items():
+                        pooled_dihedrals.setdefault(iteration, []).append(dihedrals)
+                    _plot_torsions(
+                        dihedrals_by_iteration,
+                        len(torsions),
+                        mol,
+                        mol_idx,
+                        path_manager,
+                        _dataset_stage(plots_stage, split, k),
+                    )
+            if pooled_dihedrals:
+                _plot_torsions(
+                    {
+                        iteration: _pool_dihedrals(dihedrals_list)
+                        for iteration, dihedrals_list in sorted(
+                            pooled_dihedrals.items()
+                        )
+                    },
+                    len(torsions),
+                    mol,
+                    mol_idx,
+                    path_manager,
+                    plots_stage,
+                )
+
+        # Plot the force field changes for each molecule
+        offxml_paths = [
+            path_manager.get_output_path(stage, OutputType.OFFXML)
+            for stage in iteration_stages.values()
+        ]
+        ff_paths = load_force_fields(
+            dict(enumerate(path for path in offxml_paths if path.exists()))
+        )
+
+        for mol_idx, mol in enumerate(mols):
+            fig, _ = plot_all_ffs(ff_paths, mol, "values")
+            _save(
+                fig,
+                path_manager.get_output_path_for_mol(
+                    plots_stage, OutputType.PARAMETER_VALUES_PLOT, mol_idx
+                ),
+            )
+            fig, _ = plot_all_ffs(ff_paths, mol, "differences")
+            _save(
+                fig,
+                path_manager.get_output_path_for_mol(
+                    plots_stage, OutputType.PARAMETER_DIFFERENCES_PLOT, mol_idx
+                ),
+            )
