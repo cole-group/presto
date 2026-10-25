@@ -116,7 +116,12 @@ class StageKind(StrEnum):
 
 
 class DatasetSplit(StrEnum):
-    """Names of the per-dataset subdirectories inside a stage directory."""
+    """Whether a per-dataset subdirectory holds a training or a testing dataset.
+
+    This names the dataset the outputs belong to, not the stage they were written
+    in. Any stage may hold either, e.g. ``training_iteration_1/test_dataset_0``
+    holds the scatter of the iteration 1 force field on testing dataset 0.
+    """
 
     TRAIN = "train_dataset"
     TEST = "test_dataset"
@@ -132,11 +137,15 @@ class WorkflowStatus(StrEnum):
 
 @dataclass(frozen=True)
 class OutputStage:
-    """A specific stage in the workflow output directory structure.
+    """A directory in the workflow output, optionally narrowed to one dataset.
 
-    A stage with a ``split`` and ``dataset`` is the subdirectory of its parent stage
-    holding the outputs for one training or testing dataset, e.g.
-    ``training_iteration_1/train_dataset_0``.
+    ``kind`` and ``index`` give the top-level stage directory, e.g.
+    ``training_iteration_1``, which holds everything written during that stage.
+    ``split`` and ``dataset`` optionally give one dataset's subdirectory within it,
+    e.g. ``train_dataset_0``. The two are independent: ``StageKind.TRAINING`` names
+    a training iteration, which holds both the training data sampled for it
+    (``train_dataset_<k>``) and the scatter of its force field on each testing
+    dataset (``test_dataset_<k>``).
     """
 
     kind: StageKind
