@@ -35,6 +35,7 @@ from .outputs import (
 from .sampling_coordinator import sample_ligands
 from .settings import SamplingSettings, WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
+from .utils.typing import TorchDevice
 from .writers import write_scatter
 
 logger = loguru.logger
@@ -49,7 +50,7 @@ def sample_datasets(
     mols: list[Molecule],
     offxml_path: pathlib.Path,
     path_manager: WorkflowPathManager,
-    device_type: str,
+    device_type: TorchDevice,
     n_processes: int,
     process_dataset: Callable[[int, int, datasets.Dataset], datasets.Dataset]
     | None = None,
@@ -82,7 +83,7 @@ def sample_datasets(
     path_manager : WorkflowPathManager
         Gives the output paths for each dataset.
 
-    device_type : str
+    device_type : TorchDevice
         The device to sample on.
 
     n_processes : int
