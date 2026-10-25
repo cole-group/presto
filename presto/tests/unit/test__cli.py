@@ -4,6 +4,10 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+from pydantic_settings import CliApp
+
 from presto._cli import (
     Analyse,
     Clean,
@@ -13,6 +17,9 @@ from presto._cli import (
 )
 from presto.settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
+    MLMDSamplingSettings,
+    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    MMMDSamplingSettings,
     ParamSettings,
     WorkflowSettings,
 )
@@ -96,6 +103,102 @@ class TestTrainFromCli:
             )
             cmd.cli_cmd()
             mock_get_ff.assert_called_once()
+        settings = mock_get_ff.call_args.args[0]
+        assert type(settings) is WorkflowSettings
+        assert isinstance(
+            settings.training_sampling_settings[0],
+            MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+        )
+        assert settings.testing_sampling_settings == (
+            WorkflowSettings(
+                param_settings=ParamSettings(molecules="CCO"), device_type="cpu"
+            ).testing_sampling_settings
+        )
+
+    def test_dotted_overrides_give_single_protocol_lists(self):
+        """Dotted overrides set the one training and testing protocol."""
+        cmd = CliApp.run(
+            TrainFromCli,
+            cli_args=[
+                "--device-type",
+                "cpu",
+                "--param-settings.molecules",
+                "CCO",
+                "--training-sampling-settings.sampling-protocol",
+                "mm_md",
+                "--training-sampling-settings.n-conformers",
+                "3",
+                "--training-sampling-settings.dataset-weight",
+                "2.0",
+                "--testing-sampling-settings.sampling-protocol",
+                "ml_md",
+                "--testing-sampling-settings.production-sampling-time-per-conformer",
+                "1 ps",
+            ],
+            cli_cmd_method_name="to_workflow_settings",
+        )
+        settings = cmd.to_workflow_settings()
+
+        [train] = settings.training_sampling_settings
+        [test] = settings.testing_sampling_settings
+        assert isinstance(train, MMMDSamplingSettings)
+        assert train.n_conformers == 3
+        assert train.dataset_weight == 2.0
+        assert isinstance(test, MLMDSamplingSettings)
+        assert str(test.production_sampling_time_per_conformer) == "1 ps"
+
+    def test_one_item_list_accepted(self):
+        """A one-item list is the same as a single protocol."""
+        cmd = TrainFromCli(
+            param_settings=ParamSettings(molecules="CCO"),
+            device_type="cpu",
+            training_sampling_settings=[MMMDSamplingSettings()],
+        )
+        assert isinstance(cmd.training_sampling_settings, MMMDSamplingSettings)
+
+    @pytest.mark.parametrize(
+        "field", ["training_sampling_settings", "testing_sampling_settings"]
+    )
+    def test_multiple_protocols_rejected(self, field):
+        """The CLI is for simple fits, so more than one protocol is an error."""
+        with pytest.raises(ValidationError, match="train-from-yaml"):
+            TrainFromCli(
+                param_settings=ParamSettings(molecules="CCO"),
+                device_type="cpu",
+                **{field: [MMMDSamplingSettings(), MLMDSamplingSettings()]},
+            )
+
+    def test_multiple_protocols_rejected_from_command_line(self):
+        """A JSON list of protocols on the command line is rejected too."""
+        with pytest.raises(ValidationError, match="train-from-yaml"):
+            CliApp.run(
+                TrainFromCli,
+                cli_args=[
+                    "--device-type",
+                    "cpu",
+                    "--param-settings.molecules",
+                    "CCO",
+                    "--training-sampling-settings",
+                    '[{"sampling_protocol": "mm_md"}, {"sampling_protocol": "ml_md"}]',
+                ],
+                cli_cmd_method_name="to_workflow_settings",
+            )
+
+    def test_workflow_validation_still_runs(self, tmp_path):
+        """Validators deferred from the CLI model run on the WorkflowSettings."""
+        from presto._exceptions import InvalidSettingsError
+        from presto.settings import PreComputedDatasetSettings
+
+        cmd = TrainFromCli(
+            param_settings=ParamSettings(molecules="CCO"),
+            device_type="cpu",
+            memory=True,
+            training_sampling_settings=PreComputedDatasetSettings(
+                dataset_paths=tmp_path
+            ),
+        )
+        with pytest.raises((ValidationError, InvalidSettingsError), match="memory"):
+            cmd.to_workflow_settings()
 
 
 class TestClean:

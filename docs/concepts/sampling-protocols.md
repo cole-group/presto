@@ -1,6 +1,6 @@
 # Sampling protocols
 
-`presto` generates training and validation data by running MD on each input molecule. The `sampling_protocol` field on `training_sampling_settings` and `testing_sampling_settings` chooses exactly which sampling protocol is used. Each protocol is implemented as a subclass of `_SamplingSettingsBase`.
+`presto` generates training and validation data by running MD on each input molecule. `training_sampling_settings` and `testing_sampling_settings` are each a list of sampling protocols, one per dataset, and the `sampling_protocol` field of each item chooses which protocol generates that dataset. Each protocol is implemented as a subclass of `_SamplingSettingsBase`. To combine several protocols, see **[Multiple datasets](#multiple-datasets)**.
 
 ## Why sampling matters in presto
 
@@ -79,6 +79,40 @@ Skip MD entirely and load a saved dataset from disk. Useful when:
 The dataset must be in `descent.train`-compatible format (HuggingFace `datasets.save_to_disk`). For multi-molecule fits, the order of `dataset_paths` must match the order of `param_settings.molecules`.
 
 See **[How-to → Use a pre-computed dataset](../how-to/use-precomputed-dataset.md)** for the recipe.
+
+## Multiple datasets
+
+You can give several protocols for training, testing, or both. Each one generates its own dataset, and datasets are generated one after another (each still parallel across molecules with `n_sampling_processes`). Training is then a single optimisation over all of the training data.
+
+```yaml
+training_sampling_settings:
+-   sampling_protocol: mm_md_metadynamics_torsion_minimisation
+    dataset_weight: 1.0
+-   sampling_protocol: mm_md_torsion_restrained_torsion_minimisation
+    starting_conformers: bound_pose.sdf
+    dataset_weight: 3.0
+testing_sampling_settings:
+-   sampling_protocol: ml_md
+    temperature: 298 K
+-   sampling_protocol: pre_computed
+    dataset_paths: [qm_dataset_mol0]
+```
+
+Each dataset's loss is computed separately, then combined using the `dataset_weight` of each protocol:
+
+$$
+L = \sum_k w_k L_k, \qquad w_k = \frac{\lambda_k}{\sum_j \lambda_j}
+$$
+
+where `λ_k` is `dataset_weight` and `L_k` is the energy (or force) loss of dataset `k` averaged over molecules, as for a single dataset. The regularisation loss is added once. Because each dataset is scored separately, its influence is set by its weight, not by how many conformers it contains, and the weights are relative: a single dataset gives exactly the same loss whatever its weight. The test loss combines the test datasets in the same way. Within a dataset, `loss_energy_weight` and `loss_force_weight` still balance the energy and force terms.
+
+Each dataset gets its own `train_dataset_<k>/` or `test_dataset_<k>/` subdirectory, and the metrics and plots report both the combined loss and each dataset's loss (see **[Output layout](output-layout.md#dataset-subdirectories)**). With `memory: true`, each training dataset is appended to the same dataset from earlier iterations, and outlier filtering is applied to each training dataset separately. `memory` cannot be combined with a `pre_computed` training protocol, since the same data would be appended every iteration.
+
+A single protocol written without the list (as in settings files from earlier versions) is read as a one-item list. In Python, pass a list of settings objects, e.g. `training_sampling_settings=[MMMDSamplingSettings(), MLMDSamplingSettings(dataset_weight=0.5)]`.
+
+!!! note "The command line takes one protocol of each kind"
+
+    `presto train` is intended for simple fits, so it takes exactly one training and one testing protocol, set with dotted options such as `--training-sampling-settings.sampling-protocol mm_md`. To fit to several datasets, write them in a YAML file and run `presto train-from-yaml`, or use the Python API.
 
 ## Choosing a protocol
 

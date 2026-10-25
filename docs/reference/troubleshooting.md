@@ -47,12 +47,15 @@ before validation.
 settings = WorkflowSettings.from_yaml(
     "workflow_settings.yaml",
     overwrite={
+        # Sampling settings are lists, so key each update by the protocol's index
         "training_sampling_settings": {
-            "mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}
+            0: {"mlp_settings": {"ml_system_kwargs": {"calculator": calculator}}}
         }
     },
 )
 ```
+
+Passing `{"training_sampling_settings": {"mlp_settings": ...}}` without the index raises a `ValueError` explaining the `{0: {...}}` form.
 
 ## Too few conformations after outlier filtering
 

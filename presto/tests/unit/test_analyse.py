@@ -29,8 +29,10 @@ from presto.analyse import (
     read_errors,
     read_losses,
 )
-from presto.outputs import OutputStage, OutputType, StageKind
+from presto.outputs import DatasetSplit, OutputStage, OutputType, StageKind
 from presto.settings import WorkflowSettings
+from presto.writers import SCATTER_KEYS, combined_metrics_columns, metrics_columns
+
 
 # Use non-interactive backend for tests
 matplotlib.use("Agg")
@@ -77,14 +79,16 @@ def scatter_paths(path_manager) -> dict[int, Path]:
     paths: dict[int, Path] = {}
 
     # Initial statistics (iteration 0)
-    initial_stage = OutputStage(StageKind.INITIAL_STATISTICS)
+    initial_stage = OutputStage(
+        StageKind.INITIAL_STATISTICS, None, DatasetSplit.TEST, 0
+    )
     paths[0] = path_manager.get_output_path_for_mol(
         initial_stage, OutputType.SCATTER, mol_idx=0
     )
 
     # Training iterations
     for i in range(1, path_manager.n_iterations + 1):
-        training_stage = OutputStage(StageKind.TRAINING, i)
+        training_stage = OutputStage(StageKind.TRAINING, i, DatasetSplit.TEST, 0)
         paths[i] = path_manager.get_output_path_for_mol(
             training_stage, OutputType.SCATTER, mol_idx=0
         )
@@ -220,6 +224,10 @@ class TestReadLosses:
         assert len(train_cols) > 0
         assert len(test_cols) > 0
 
+    def test_read_losses_columns_from_header(self, losses_data: pd.DataFrame) -> None:
+        """Columns are named by the metrics file header."""
+        assert list(losses_data.columns) == [*metrics_columns(1, 1), "iteration"]
+
     def test_read_losses_multiple_iterations(
         self, losses_data: pd.DataFrame, path_manager
     ) -> None:
@@ -281,13 +289,13 @@ class TestPlotLoss:
     def test_plot_loss_creates_plot(self, losses_data: pd.DataFrame) -> None:
         """Test that plot_loss creates a plot without errors."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         plt.close(fig)
 
     def test_plot_loss_has_labels(self, losses_data: pd.DataFrame) -> None:
         """Test that plot has axis labels."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         assert ax.get_xlabel() != ""
         assert ax.get_ylabel() != ""
         plt.close(fig)
@@ -295,7 +303,7 @@ class TestPlotLoss:
     def test_plot_loss_has_legend(self, losses_data: pd.DataFrame) -> None:
         """Test that plot has a legend."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         legend = ax.get_legend()
         assert legend is not None
         plt.close(fig)
@@ -373,6 +381,17 @@ class TestPlotDistributionsOfErrors:
         plot_distributions_of_errors(
             fig, ax, errors_data["forces_differences"], "force"
         )
+        plt.close(fig)
+
+    def test_plot_with_missing_iterations(self, errors_data: dict) -> None:
+        """Iterations missing from the keys keep their real labels."""
+        energies = errors_data["energy_differences"]
+        fig, ax = plt.subplots()
+        plot_distributions_of_errors(
+            fig, ax, {0: energies[0], 5: energies[2]}, "energy"
+        )
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        assert labels == ["Iteration 0", "Iteration 5"]
         plt.close(fig)
 
     def test_plot_has_legend(self, errors_data: dict) -> None:
@@ -453,6 +472,23 @@ class TestPlotFfValues:
         """Test plotting proper torsion parameter values."""
         fig, ax = plt.subplots()
         plot_ff_values(fig, ax, force_fields, test_molecule, "ProperTorsions", "k1")
+        plt.close(fig)
+
+    def test_plot_with_missing_iterations(
+        self, force_fields: dict[int, ForceField], test_molecule: Molecule
+    ) -> None:
+        """Iterations missing from the keys keep their real labels."""
+        fig, ax = plt.subplots()
+        plot_ff_values(
+            fig,
+            ax,
+            {0: force_fields[0], 5: force_fields[2]},
+            test_molecule,
+            "Bonds",
+            "length",
+        )
+        _, labels = ax.get_legend_handles_labels()
+        assert set(labels) == {"Iteration 0", "Iteration 5"}
         plt.close(fig)
 
 
@@ -615,7 +651,7 @@ def test_plot_loss_with_regularisation(losses_data):
     # Add a regularisation loss column
     losses_with_reg = losses_data.copy()
     losses_with_reg["loss_test_regularisation"] = 0.1
-    plot_loss(fig, ax, losses_with_reg)
+    plot_loss(fig, ax, losses_with_reg, combined_metrics_columns())
     # Check that it didn't crash
     plt.close(fig)
 
@@ -728,3 +764,171 @@ def test_read_errors_multiple_iterations(tmp_path):
     paths = {0: path1, 1: path2}
     res = read_errors(paths)
     assert len(res["energy_reference"]) == 2
+
+
+def _copy_example_run(tmp_path: Path) -> WorkflowSettings:
+    """Copy the example run, without its plots, and point its settings at the copy."""
+    import shutil
+
+    output_dir = tmp_path / "run"
+    shutil.copytree(
+        get_example_data_path(), output_dir, ignore=shutil.ignore_patterns("plots")
+    )
+    settings = WorkflowSettings.from_yaml(output_dir / "workflow_settings.yaml")
+    settings.output_dir = output_dir
+    return settings
+
+
+def _plot_paths(output_dir: Path) -> set[str]:
+    return {
+        str(path.relative_to(output_dir / "plots"))
+        for path in (output_dir / "plots").rglob("*.png")
+    }
+
+
+class TestAnalyseWorkflow:
+    """Tests for analysing a whole run, combined and per dataset."""
+
+    def test_single_dataset(self, tmp_path: Path) -> None:
+        """Combined plots go in plots/ and per-dataset plots in subdirectories."""
+        from presto.analyse import analyse_workflow
+
+        settings = _copy_example_run(tmp_path)
+        analyse_workflow(settings)
+
+        # The example's test trajectory is unreadable, so it has no torsion plot
+        assert _plot_paths(settings.output_dir) == {
+            "loss.png",
+            "error_distributions_mol0.png",
+            "correlation_mol0.png",
+            "force_error_by_atom_index_mol0.png",
+            "parameter_values_mol0.png",
+            "parameter_differences_mol0.png",
+            "torsion_sampling_mol0.png",
+            "test_dataset_0/loss.png",
+            "test_dataset_0/error_distributions_mol0.png",
+            "test_dataset_0/correlation_mol0.png",
+            "test_dataset_0/force_error_by_atom_index_mol0.png",
+            "train_dataset_0/loss.png",
+            "train_dataset_0/torsion_sampling_mol0.png",
+        }
+
+    def test_multiple_datasets(self, tmp_path: Path) -> None:
+        """Every dataset gets its own plots, alongside the plots pooling all of them."""
+        import shutil
+
+        from presto.analyse import analyse_workflow
+
+        settings = _copy_example_run(tmp_path)
+        output_dir = settings.output_dir
+        train, test = (
+            settings.training_sampling_settings[0],
+            settings.testing_sampling_settings[0],
+        )
+        settings.training_sampling_settings = [train, train.model_copy()]
+        settings.testing_sampling_settings = [test, test.model_copy(), test]
+        for stage in ("test_data", "initial_statistics", "training_iteration_1"):
+            for k in (1, 2):
+                shutil.copytree(
+                    output_dir / stage / "test_dataset_0",
+                    output_dir / stage / f"test_dataset_{k}",
+                )
+        for i in (1, 2):
+            iteration = output_dir / f"training_iteration_{i}"
+            shutil.copytree(
+                iteration / "train_dataset_0", iteration / "train_dataset_1"
+            )
+            # Iteration 2 lacks test dataset 2's scatter, which is skipped
+            if i == 2:
+                shutil.copytree(
+                    iteration / "test_dataset_0", iteration / "test_dataset_1"
+                )
+            metrics = iteration / "metrics.txt"
+            _header, *rows = metrics.read_text().splitlines()
+            rows = [" ".join(row.split()[:6] + ["1.0"] * 10) for row in rows]
+            metrics.write_text(
+                "\n".join([" ".join(metrics_columns(2, 3)), *rows]) + "\n"
+            )
+
+        analyse_workflow(settings)
+
+        plots = _plot_paths(output_dir)
+        for k in range(3):
+            assert {
+                f"test_dataset_{k}/loss.png",
+                f"test_dataset_{k}/error_distributions_mol0.png",
+                f"test_dataset_{k}/correlation_mol0.png",
+                f"test_dataset_{k}/force_error_by_atom_index_mol0.png",
+            } <= plots
+        for k in range(2):
+            assert {
+                f"train_dataset_{k}/loss.png",
+                f"train_dataset_{k}/torsion_sampling_mol0.png",
+            } <= plots
+        assert {
+            "loss.png",
+            "error_distributions_mol0.png",
+            "torsion_sampling_mol0.png",
+            "parameter_values_mol0.png",
+        } <= plots
+
+
+def test_pool_errors_concatenates_each_iteration():
+    """Pooled errors join every dataset's values, per iteration, and drop scalars."""
+    from presto.analyse import _pool_errors
+
+    def errors(value, iterations):
+        return {
+            **{
+                key: {i: np.full(2, value + i, dtype=float) for i in iterations}
+                for key in SCATTER_KEYS
+            },
+            "n_atoms": 3,
+            "n_conformers": 2,
+        }
+
+    pooled = _pool_errors([errors(0.0, [0, 1, 2]), errors(10.0, [0, 2])])
+
+    assert set(pooled) == set(SCATTER_KEYS)
+    energies = pooled["energy_differences"]
+    assert list(energies) == [0, 1, 2]
+    np.testing.assert_array_equal(energies[0], [0, 0, 10, 10])
+    np.testing.assert_array_equal(energies[1], [1, 1])
+    np.testing.assert_array_equal(energies[2], [2, 2, 12, 12])
+
+
+def test_pool_dihedrals_concatenates_each_torsion():
+    """Pooled dihedrals join every trajectory's angles for each torsion."""
+    from presto.analyse import _pool_dihedrals
+
+    pooled = _pool_dihedrals(
+        [
+            {(0, 1, 2, 3): np.array([1.0]), (1, 2, 3, 4): np.array([2.0])},
+            {(0, 1, 2, 3): np.array([3.0, 4.0]), (1, 2, 3, 4): np.array([5.0])},
+        ]
+    )
+    np.testing.assert_array_equal(pooled[(0, 1, 2, 3)], [1, 3, 4])
+    np.testing.assert_array_equal(pooled[(1, 2, 3, 4)], [2, 5])
+
+
+def test_existing_paths_keyed_by_real_iteration(tmp_path, path_manager):
+    """A missing iteration is skipped, not renumbered."""
+    from presto.analyse import _existing_paths_for_mol, _iteration_stages
+    from presto.outputs import WorkflowPathManager
+
+    manager = WorkflowPathManager(
+        output_dir=tmp_path,
+        n_iterations=3,
+        testing_sampling_settings=path_manager.testing_sampling_settings,
+    )
+    stages = _iteration_stages(manager, DatasetSplit.TEST, 0)
+    for i in (0, 2, 3):
+        path = manager.get_output_path_for_mol(stages[i], OutputType.SCATTER, 0)
+        path.parent.mkdir(parents=True)
+        path.touch()
+
+    paths = _existing_paths_for_mol(manager, stages, OutputType.SCATTER, 0)
+
+    assert list(paths) == [0, 2, 3]
+    assert paths[2].parent.name == "test_dataset_0"
+    assert paths[2].parent.parent.name == "training_iteration_2"

@@ -30,7 +30,8 @@ param_settings:
             include: []
             exclude: []
 training_sampling_settings:
-    sampling_protocol: mm_md_metadynamics_torsion_minimisation
+-   sampling_protocol: mm_md_metadynamics_torsion_minimisation
+    dataset_weight: 1.0
     mlp_settings:
         ml_potential: egret-1
     timestep: 1 fs
@@ -57,7 +58,8 @@ training_sampling_settings:
         loss_energy_weight_ml_torsion_min: 1000.0
         loss_force_weight_ml_torsion_min: 0.1
 testing_sampling_settings:
-    sampling_protocol: ml_md
+-   sampling_protocol: ml_md
+    dataset_weight: 1.0
     mlp_settings:
         ml_potential: egret-1
     timestep: 1 fs

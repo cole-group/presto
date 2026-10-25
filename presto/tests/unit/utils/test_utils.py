@@ -118,3 +118,66 @@ class TestPathLike:
         args = get_args(PathLike)
         # Check that it includes Path and str in some form
         assert len(args) > 0
+
+
+class TestDeepUpdate:
+    """Tests for deep_update."""
+
+    def test_nested_dicts_merge(self):
+        """Nested dicts are merged rather than replaced."""
+        from presto.utils.dicts import deep_update
+
+        data = {"a": {"b": 1, "c": 2}, "d": 3}
+        assert deep_update(data, {"a": {"b": 10}}) == {"a": {"b": 10, "c": 2}, "d": 3}
+
+    def test_list_items_updated_by_index(self):
+        """A dict keyed by index updates those list items."""
+        from presto.utils.dicts import deep_update
+
+        data = {"protocols": [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5}]}
+        updated = deep_update(
+            data, {"protocols": {0: {"x": 10}, 2: {"z": {"nested": True}}}}
+        )
+        assert updated == {
+            "protocols": [
+                {"x": 10, "y": 2},
+                {"x": 3, "y": 4},
+                {"x": 5, "z": {"nested": True}},
+            ]
+        }
+
+    def test_input_not_mutated(self):
+        """Neither the data nor its lists are modified in place."""
+        from presto.utils.dicts import deep_update
+
+        data = {"protocols": [{"x": 1}], "a": {"b": 1}}
+        deep_update(data, {"protocols": {0: {"x": 2}}, "a": {"b": 2}})
+        assert data == {"protocols": [{"x": 1}], "a": {"b": 1}}
+
+    def test_list_replaced_by_list(self):
+        """A list overwrite replaces the whole list."""
+        from presto.utils.dicts import deep_update
+
+        assert deep_update({"p": [1, 2]}, {"p": [3]}) == {"p": [3]}
+
+    def test_non_index_keys_for_list_raise(self):
+        """String keys for a list explain the index form."""
+        from presto.utils.dicts import deep_update
+
+        with pytest.raises(ValueError, match=r"keyed by list index.*\{0: \{\.\.\.\}\}"):
+            deep_update({"p": [{"x": 1}]}, {"p": {"x": 2}})
+
+    def test_out_of_range_index_raises(self):
+        """An index past the end of the list raises."""
+        from presto.utils.dicts import deep_update
+
+        with pytest.raises(IndexError, match="out of range"):
+            deep_update({"p": [{"x": 1}]}, {"p": {1: {"x": 2}}})
+
+    @pytest.mark.parametrize("index", [-1, -2])
+    def test_negative_index_raises(self, index):
+        """Negative indices raise, so two keys cannot address the same item."""
+        from presto.utils.dicts import deep_update
+
+        with pytest.raises(IndexError, match="non-negative"):
+            deep_update({"p": [{"x": 1}]}, {"p": {0: {"x": 2}, index: {"x": 3}}})

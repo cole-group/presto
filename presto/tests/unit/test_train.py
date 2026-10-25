@@ -15,6 +15,7 @@ from presto.data_utils import create_dataset_with_uniform_weights
 from presto.outputs import OutputType
 from presto.settings import TrainingSettings
 from presto.train import train_adam, train_levenberg_marquardt
+from presto.writers import metrics_columns
 
 
 # Shared fixtures for both TestTrainAdam and TestTrainLevenbergMarquardt
@@ -108,8 +109,10 @@ def ethanol_training_setup():
         "trainable_parameters": trainable_parameters,
         "initial_parameters": initial_parameters,
         "topologies": [tensor_top],
-        "datasets": [dataset_train],
-        "datasets_test": [dataset_test],
+        "datasets": [[dataset_train]],
+        "datasets_test": [[dataset_test]],
+        "dataset_weights": [1.0],
+        "dataset_weights_test": [1.0],
         "device": torch.device("cpu"),
     }
 
@@ -154,6 +157,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -177,6 +182,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -198,6 +205,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -220,6 +229,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -247,6 +258,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -255,7 +268,8 @@ class TestTrainAdam:
         # Read metrics file and check that loss values are written
         metrics_file = output_paths[OutputType.TRAINING_METRICS]
         with open(metrics_file) as f:
-            lines = f.readlines()
+            header, *lines = f.readlines()
+        assert header.split()[:2] == ["loss_train_energy", "loss_train_forces"]
 
         # Check that we have metric outputs (at least 6 lines: 0, 10, 20, 30, 40, 50)
         assert len(lines) >= 6, "Should have metrics for at least 6 checkpoints"
@@ -296,6 +310,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -321,6 +337,8 @@ class TestTrainAdam:
                 topologies=setup["topologies"],
                 datasets=setup["datasets"],
                 datasets_test=setup["datasets_test"],
+                dataset_weights=setup["dataset_weights"],
+                dataset_weights_test=setup["dataset_weights_test"],
                 settings=training_settings,
                 output_paths=incomplete_paths,
                 device=setup["device"],
@@ -344,6 +362,8 @@ class TestTrainAdam:
                 topologies=setup["topologies"],
                 datasets=setup["datasets"],
                 datasets_test=setup["datasets_test"],
+                dataset_weights=setup["dataset_weights"],
+                dataset_weights_test=setup["dataset_weights_test"],
                 settings=training_settings,
                 output_paths=extra_paths,
                 device=setup["device"],
@@ -362,6 +382,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -388,6 +410,8 @@ class TestTrainAdam:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -480,8 +504,10 @@ class TestTrainAdam:
             initial_parameters=initial_parameters,
             trainable=trainable,
             topologies=[tensor_top1, tensor_top2],
-            datasets=datasets_train,
-            datasets_test=datasets_test,
+            datasets=[datasets_train],
+            datasets_test=[datasets_test],
+            dataset_weights=[1.0],
+            dataset_weights_test=[1.0],
             settings=training_settings,
             output_paths=output_paths,
             device=torch.device("cpu"),
@@ -534,6 +560,8 @@ class TestTrainLevenbergMarquardt:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -557,6 +585,8 @@ class TestTrainLevenbergMarquardt:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -580,6 +610,8 @@ class TestTrainLevenbergMarquardt:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -595,9 +627,12 @@ class TestTrainLevenbergMarquardt:
     ):
         """Test that LM metrics file has the same format as Adam metrics file.
 
-        Both optimizers should output 6 values per line:
+        Both optimizers write a header row, then 10 values per line for one
+        training and one test dataset:
         - train_energy, train_forces, train_regularisation
         - test_energy, test_forces, test_regularisation
+        - train_dataset_0_energy, train_dataset_0_forces
+        - test_dataset_0_energy, test_dataset_0_forces
         """
         setup = ethanol_training_setup
 
@@ -609,6 +644,8 @@ class TestTrainLevenbergMarquardt:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -617,16 +654,17 @@ class TestTrainLevenbergMarquardt:
         # Read LM metrics
         lm_metrics_file = output_paths[OutputType.TRAINING_METRICS]
         with open(lm_metrics_file) as f:
-            lm_lines = f.readlines()
+            header, *lm_lines = f.readlines()
+        assert header.split() == metrics_columns(1, 1)
 
         # Check that LM produced metrics
         assert len(lm_lines) > 0, "LM should produce at least one metrics line"
 
-        # Check format of each line - should have 6 values (3 train + 3 test)
+        # Check format of each line - should have 10 values
         for i, line in enumerate(lm_lines):
             parts = line.strip().split()
-            assert len(parts) == 6, (
-                f"LM metrics line {i} should have 6 values, got {len(parts)}: {line}"
+            assert len(parts) == 10, (
+                f"LM metrics line {i} should have 10 values, got {len(parts)}: {line}"
             )
             # All values should be valid floats
             for j, part in enumerate(parts):
@@ -650,6 +688,8 @@ class TestTrainLevenbergMarquardt:
             topologies=setup["topologies"],
             datasets=setup["datasets"],
             datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
             settings=training_settings,
             output_paths=output_paths,
             device=setup["device"],
@@ -657,7 +697,7 @@ class TestTrainLevenbergMarquardt:
 
         metrics_file = output_paths[OutputType.TRAINING_METRICS]
         with open(metrics_file) as f:
-            lines = f.readlines()
+            _header, *lines = f.readlines()
 
         for i, line in enumerate(lines):
             parts = line.strip().split()
@@ -669,6 +709,119 @@ class TestTrainLevenbergMarquardt:
                 assert abs(value) < 1e10, (  # Reasonable bound
                     f"LM metrics line {i}, value {j} is too large: {value}"
                 )
+
+
+class TestTrainMultipleDatasets:
+    """Training with several weighted training and test datasets."""
+
+    @pytest.fixture
+    def two_dataset_setup(self, ethanol_training_setup):
+        """Split the ethanol data into two training and two test datasets.
+
+        The second training dataset has a much larger force weight, so the datasets'
+        losses differ.
+        """
+        setup = ethanol_training_setup
+        [[train]] = setup["datasets"]
+        [[test]] = setup["datasets_test"]
+        entry = train[0]
+        n_confs = len(entry["energy"])
+        reweighted = create_dataset_with_uniform_weights(
+            smiles=entry["smiles"],
+            coords=entry["coords"].reshape(n_confs, -1, 3),
+            energy=entry["energy"],
+            forces=entry["forces"].reshape(n_confs, -1, 3),
+            energy_weight=10.0,
+            forces_weight=5.0,
+        )
+        return {
+            **setup,
+            "datasets": [[train], [reweighted]],
+            "datasets_test": [[test], [train]],
+            "dataset_weights": [1.0, 3.0],
+            "dataset_weights_test": [2.0, 2.0],
+        }
+
+    @pytest.fixture
+    def output_paths(self, tmp_path):
+        """Return the training output paths."""
+        return {
+            OutputType.TENSORBOARD: tmp_path / "tensorboard",
+            OutputType.TRAINING_METRICS: tmp_path / "metrics.txt",
+        }
+
+    @pytest.mark.parametrize("train_fn", [train_adam, train_levenberg_marquardt])
+    def test_metrics_have_combined_and_per_dataset_columns(
+        self, two_dataset_setup, output_paths, train_fn
+    ):
+        """The metrics file names every column, and combines the datasets' losses.
+
+        The combined losses are the normalised weighted sums of each dataset's loss.
+        """
+        setup = two_dataset_setup
+        train_fn(
+            trainable_parameters=setup["trainable_parameters"]
+            .detach()
+            .clone()
+            .requires_grad_(True),
+            initial_parameters=setup["initial_parameters"],
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets=setup["datasets"],
+            datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
+            settings=TrainingSettings(n_epochs=20),
+            output_paths=output_paths,
+            device=setup["device"],
+        )
+
+        with open(output_paths[OutputType.TRAINING_METRICS]) as f:
+            header, *lines = f.readlines()
+        columns = header.split()
+        assert columns == metrics_columns(2, 2)
+        assert lines
+        for line in lines:
+            row = dict(zip(columns, map(float, line.split()), strict=True))
+            for split, weights in (("train", (0.25, 0.75)), ("test", (0.5, 0.5))):
+                for field in ("energy", "forces"):
+                    expected = sum(
+                        w * row[f"loss_{split}_dataset_{k}_{field}"]
+                        for k, w in enumerate(weights)
+                    )
+                    # Losses are single precision, and written with 10 decimal places
+                    assert row[f"loss_{split}_{field}"] == pytest.approx(
+                        expected, rel=1e-6, abs=2e-10
+                    )
+            assert row["loss_train_dataset_0_forces"] != pytest.approx(
+                row["loss_train_dataset_1_forces"]
+            )
+        assert (output_paths[OutputType.TENSORBOARD]).exists()
+
+    def test_adam_decreases_combined_loss(self, two_dataset_setup, output_paths):
+        """Joint optimisation reduces the combined loss over both datasets."""
+        setup = two_dataset_setup
+        train_adam(
+            trainable_parameters=setup["trainable_parameters"]
+            .detach()
+            .clone()
+            .requires_grad_(True),
+            initial_parameters=setup["initial_parameters"],
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets=setup["datasets"],
+            datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
+            settings=TrainingSettings(n_epochs=50, learning_rate=0.01),
+            output_paths=output_paths,
+            device=setup["device"],
+        )
+
+        with open(output_paths[OutputType.TRAINING_METRICS]) as f:
+            _header, *lines = f.readlines()
+        totals = [sum(map(float, line.split()[:2])) for line in lines]
+        assert totals[-1] < totals[0]
 
 
 class TestTrainingRegistry:

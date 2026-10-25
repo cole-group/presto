@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Each sampling stage now writes into a per-dataset subdirectory: `test_data/test_dataset_<k>/`, `training_iteration_<n>/train_dataset_<k>/`, and the scatter data in `initial_statistics/test_dataset_<k>/` and `training_iteration_<n>/test_dataset_<k>/`. Output directories from earlier versions cannot be read by `presto analyse` or cleaned by `presto clean`.
+- `metrics.txt` now starts with a header row and has extra per-dataset loss columns after the combined ones.
+- `training_sampling_settings` and `testing_sampling_settings` are lists in `WorkflowSettings` (a single protocol is still accepted and wrapped in a list). Overwrites with `deep_update` must address list items by index, e.g. `{"training_sampling_settings": {0: {"mlp_settings": {...}}}}`.
+- `memory: true` with a `pre_computed` training protocol now raises an error, as it would concatenate the same data every iteration.
+- Remove `WorkflowPathManager.get_all_output_paths_by_output_type` and `get_all_output_paths_by_output_type_by_molecule`.
+
+### Features
+
+- Add the `mm_md_torsion_restrained_torsion_minimisation` sampling protocol. It runs the same pipeline as `mm_md_metadynamics_torsion_minimisation`, but restrains each rotatable torsion to its value in the starting conformer instead of applying a metadynamics bias, so sampling stays near the conformers you supply with `starting_conformers`. The restraint strength is set by `md_torsion_restraint_force_constant`, and the protocol warns when used without `starting_conformers`. See [the protocol's documentation](concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation).
+- Allow lists of training and testing sampling protocols. Datasets are generated one protocol after another and fitted jointly, with each dataset's loss weighted by the new `dataset_weight` setting (normalised over all datasets). Combined and per-dataset losses are written to `metrics.txt` and TensorBoard, and `presto analyse` writes combined plots plus per-dataset plots under `plots/train_dataset_<k>/` and `plots/test_dataset_<k>/`. See [Multiple datasets](concepts/sampling-protocols.md#multiple-datasets). The `presto train` CLI still takes one training and one testing protocol; use `presto train-from-yaml` or the Python API for more.
+- Check that each `pre_computed` protocol supplies one dataset path per molecule when the settings are validated, rather than during sampling.
+
+### Fixes
+
+- Fix the Levenberg-Marquardt optimiser (`optimiser: lm`), whose Hessian had been identically zero since 0.4.0 because it was computed from detached losses, so each step was a scaled gradient-descent step. The Hessian is now accumulated one molecule at a time, as the gradient is.
+- `presto analyse` now labels plots by the real training iteration, so a stage without trajectory or scatter output no longer shifts the labels of later iterations.
+
 ## 0.9.0
 
 ### Breaking changes

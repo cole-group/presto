@@ -12,7 +12,7 @@ Instead of running MD sampling inside `presto`, you can supply a dataset of ener
 
 The dataset must be in `descent.train`-compatible format, which is HuggingFace `datasets.save_to_disk` output. Each row holds energies, forces, and coordinates for one snapshot.
 
-The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved dataset directory from a previous run — for example, `training_iteration_1/energy_and_force_data_mol0`.
+The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved dataset directory from a previous run, for example `training_iteration_1/train_dataset_0/energy_and_force_data_mol0`.
 
 ## Set `sampling_protocol: pre_computed`
 
@@ -20,7 +20,7 @@ In YAML:
 
 ```yaml
 training_sampling_settings:
-    sampling_protocol: pre_computed
+-   sampling_protocol: pre_computed
     dataset_paths:
         - path/to/training_dataset
 ```
@@ -33,13 +33,22 @@ from presto.settings import PreComputedDatasetSettings, WorkflowSettings
 
 settings = WorkflowSettings(
     param_settings=...,
-    training_sampling_settings=PreComputedDatasetSettings(
-        dataset_paths=[Path("path/to/training_dataset")],
-    ),
+    training_sampling_settings=[
+        PreComputedDatasetSettings(dataset_paths=[Path("path/to/training_dataset")]),
+    ],
 )
 ```
 
-You can use `pre_computed` for `training_sampling_settings`, `testing_sampling_settings`, or both.
+You can use `pre_computed` for any item of `training_sampling_settings`, `testing_sampling_settings`, or both, and combine it with sampled datasets, each weighted by its `dataset_weight` (see **[Multiple datasets](../concepts/sampling-protocols.md#multiple-datasets)**). For example, to fit to MD samples and an external QM dataset together:
+
+```yaml
+training_sampling_settings:
+-   sampling_protocol: mm_md_metadynamics_torsion_minimisation
+-   sampling_protocol: pre_computed
+    dataset_paths:
+        - path/to/qm_dataset
+    dataset_weight: 2.0
+```
 
 ## Multi-molecule fits
 
@@ -51,7 +60,7 @@ param_settings:
         - CCO
         - CCC
 training_sampling_settings:
-    sampling_protocol: pre_computed
+-   sampling_protocol: pre_computed
     dataset_paths:
         - cco_data.hf
         - ccc_data.hf
@@ -63,7 +72,7 @@ If `molecules` has more entries than `dataset_paths`, `presto` will raise during
 
 - **No trajectory output.** `pre_computed` does not produce `trajectory_mol<n>.pdb` since there is no MD. The corresponding `output_types` set is empty.
 - **No outlier filtering by MM comparison.** Outlier filtering still applies but its MM-energy reference is computed on the dataset coordinates, not freshly sampled coordinates.
-- **Memory mode behaviour.** With `memory: true`, datasets from earlier iterations are concatenated with the pre-computed dataset for later iterations. Disable `memory` if you want each iteration to train on exactly the supplied dataset.
+- **No memory mode.** `memory: true` cannot be used with a `pre_computed` training protocol, because the same pre-computed data would be appended again every iteration, and settings validation raises an error.
 
 ## API reference
 

@@ -19,7 +19,13 @@ If one of those directories holds a path the settings do not predict, such as yo
 notes or a plot you made, `presto clean` refuses and deletes nothing. Move the file
 out, or use a different `output_dir`. The only way your own input is deleted is by
 placing it at a path Presto generates, for example a pre-computed dataset saved to
-`test_data/energy_and_force_data_mol0/`.
+`test_data/test_dataset_0/energy_and_force_data_mol0/`.
+
+Each sampling protocol writes into its own `train_dataset_<k>/` or `test_dataset_<k>/`
+subdirectory. If you remove a protocol from a list in the settings, its old
+subdirectory is no longer predicted, so `presto clean` treats it as foreign and
+refuses. Clean with the settings the output was generated with, or remove that
+subdirectory yourself.
 
 The output manager reports a fit as:
 

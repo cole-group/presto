@@ -1,19 +1,24 @@
 """A CLI for presto."""
 
 from pathlib import Path
+from typing import Any, Self
 
 import loguru
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand
 from rich.logging import RichHandler
 
 from . import __version__
 from .analyse import analyse_workflow
 from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
+from ._exceptions import InvalidSettingsError
 from .settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     ParamSettings,
+    SamplingSettings,
     WorkflowSettings,
+    get_default_testing_sampling_settings,
+    get_default_training_sampling_settings,
 )
 from .utils._suppress_output import suppress_unwanted_output
 from .workflow import get_bespoke_force_field
@@ -52,10 +57,69 @@ class TrainFromCli(WorkflowSettings):
 
     All ``WorkflowSettings`` fields can be set with dotted overrides like
     ``--training-sampling-settings.mlp-settings.ml-potential aimnet2``.
+
+    The CLI is intended for simple fits, so it takes a single training and a single
+    testing sampling protocol. Use ``presto train-from-yaml`` or the Python API to
+    fit to multiple datasets.
     """
 
+    # Single protocols rather than lists, so pydantic-settings generates dotted
+    # overrides for their fields.
+    training_sampling_settings: SamplingSettings = Field(  # type: ignore[assignment]
+        default_factory=get_default_training_sampling_settings,
+        description="Settings for sampling for generating the training data "
+        "(usually molecular dynamics)",
+        discriminator="sampling_protocol",
+    )
+
+    testing_sampling_settings: SamplingSettings = Field(  # type: ignore[assignment]
+        default_factory=get_default_testing_sampling_settings,
+        description="Settings for sampling for generating the testing data "
+        "(usually molecular dynamics)",
+        discriminator="sampling_protocol",
+    )
+
+    @field_validator(
+        "training_sampling_settings", "testing_sampling_settings", mode="before"
+    )
+    @classmethod
+    def wrap_single_sampling_settings(cls, value: Any) -> Any:
+        """Reject more than one protocol, replacing the list-wrapping validator."""
+        if not isinstance(value, list):
+            return value
+        if len(value) != 1:
+            raise InvalidSettingsError(
+                "The `presto train` CLI supports one training and one testing "
+                "sampling protocol. Use `presto train-from-yaml` or the Python API "
+                "to fit to multiple datasets."
+            )
+        return value[0]
+
+    # These validators expect lists of protocols, so they run instead on the
+    # WorkflowSettings built in cli_cmd.
+    @model_validator(mode="after")
+    def validate_starting_conformers_match_molecules(self) -> Self:
+        """Defer to the WorkflowSettings built in cli_cmd."""
+        return self
+
+    @model_validator(mode="after")
+    def validate_pre_computed_dataset_counts(self) -> Self:
+        """Defer to the WorkflowSettings built in cli_cmd."""
+        return self
+
+    @model_validator(mode="after")
+    def validate_memory_without_pre_computed(self) -> Self:
+        """Defer to the WorkflowSettings built in cli_cmd."""
+        return self
+
+    def to_workflow_settings(self) -> WorkflowSettings:
+        """Return the equivalent WorkflowSettings, with one-protocol lists."""
+        return WorkflowSettings(
+            **{name: getattr(self, name) for name in WorkflowSettings.model_fields}
+        )
+
     def cli_cmd(self) -> None:
-        get_bespoke_force_field(self, write_settings=True)
+        get_bespoke_force_field(self.to_workflow_settings(), write_settings=True)
 
 
 class TrainFromYAML(BaseModel):

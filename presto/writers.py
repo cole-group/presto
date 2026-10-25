@@ -14,10 +14,27 @@ import smee
 import tensorboardX
 import torch
 
-from .loss import LossRecord, compute_overall_loss_and_grad, predict_with_weights
+from .loss import (
+    DatasetLoss,
+    LossRecord,
+    compute_overall_loss_and_grad,
+    predict_with_weights,
+)
+from .outputs import DatasetSplit
 from .utils.typing import PathLike
 
 logger = loguru.logger
+
+
+SCATTER_KEYS = (
+    "energy_reference",
+    "energy_predicted",
+    "energy_differences",
+    "forces_reference",
+    "forces_predicted",
+    "forces_differences",
+)
+"""The names of the arrays `write_scatter` saves to each HDF5 file."""
 
 
 @contextlib.contextmanager
@@ -52,13 +69,19 @@ def write_scatter(
 
         # Save to HDF5
         with h5py.File(filename, "w") as f:
-            f.create_dataset("energy_reference", data=energy_ref_all.cpu().numpy())
-            f.create_dataset("energy_predicted", data=energy_pred_all.cpu().numpy())
-            f.create_dataset("energy_differences", data=energy_diffs.cpu().numpy())
-
-            f.create_dataset("forces_reference", data=forces_ref_all.cpu().numpy())
-            f.create_dataset("forces_predicted", data=forces_pred_all.cpu().numpy())
-            f.create_dataset("forces_differences", data=force_diffs.cpu().numpy())
+            for key, values in zip(
+                SCATTER_KEYS,
+                (
+                    energy_ref_all,
+                    energy_pred_all,
+                    energy_diffs,
+                    forces_ref_all,
+                    forces_pred_all,
+                    force_diffs,
+                ),
+                strict=True,
+            ):
+                f.create_dataset(key, data=values.cpu().numpy())
 
             f.attrs["n_conformers"] = len(energy_ref_all)
             f.attrs["n_atoms"] = forces_ref_all.shape[0] // len(energy_ref_all)
@@ -82,8 +105,10 @@ def report(
     accept_step: bool,
     trainable: descent.train.Trainable,
     topologies: list[smee.TensorTopology],
-    datasets_train: list[datasets.Dataset],
-    datasets_test: list[datasets.Dataset],
+    datasets_train: list[list[datasets.Dataset]],
+    datasets_test: list[list[datasets.Dataset]],
+    dataset_weights: list[float],
+    dataset_weights_test: list[float],
     initial_parameters: torch.Tensor,
     regularisation_target: typing.Literal["initial", "zero"],
     metrics_file: PathLike,
@@ -105,17 +130,21 @@ def report(
         accept_step: Whether the step was accepted (not used in reporting).
         trainable: The trainable object containing the force field.
         topologies: List of topologies for all molecules.
-        datasets_train: List of training datasets for all molecules.
-        datasets_test: List of test datasets for all molecules.
+        datasets_train: For each training dataset, the dataset for each molecule.
+        datasets_test: For each test dataset, the dataset for each molecule.
+        dataset_weights: The weight of each training dataset.
+        dataset_weights_test: The weight of each test dataset.
         initial_parameters: Initial parameters for regularization.
         regularisation_target: Regularization target ('initial' or 'zero').
-        metrics_file: Path to the metrics output file.
+        metrics_file: Path to the metrics output file, which must already contain
+            its header (see `write_metrics_header`).
         experiment_dir: Path to the TensorBoard experiment directory.
     """
     with torch.enable_grad():  # type: ignore[no-untyped-call]
         # Compute training loss using the same function as train_adam
-        loss_train, _ = compute_overall_loss_and_grad(
+        loss_train, dataset_losses_train, _ = compute_overall_loss_and_grad(
             datasets_train,
+            dataset_weights,
             trainable,
             x,
             initial_parameters,
@@ -126,8 +155,9 @@ def report(
         )
 
         # Compute test loss using the same function as train_adam
-        loss_test, _ = compute_overall_loss_and_grad(
+        loss_test, dataset_losses_test, _ = compute_overall_loss_and_grad(
             datasets_test,
+            dataset_weights_test,
             trainable,
             x,
             initial_parameters,
@@ -139,25 +169,78 @@ def report(
 
         with open_writer(experiment_dir) as writer:
             with open(metrics_file, "a") as f:
-                write_metrics(step, loss_train, loss_test, writer, f)
+                write_metrics(
+                    step,
+                    loss_train,
+                    loss_test,
+                    dataset_losses_train,
+                    dataset_losses_test,
+                    writer,
+                    f,
+                )
+
+
+def combined_metrics_columns() -> list[str]:
+    """Return the metrics columns of the combined (weighted) losses."""
+    return [
+        f"loss_{split}_{field}"
+        for split in ("train", "test")
+        for field in LossRecord._fields
+    ]
+
+
+def dataset_metrics_columns(split: DatasetSplit, dataset: int) -> list[str]:
+    """Return the metrics columns of one training or test dataset's losses."""
+    return [f"loss_{split.value}_{dataset}_{field}" for field in DatasetLoss._fields]
+
+
+def metrics_columns(n_train: int, n_test: int) -> list[str]:
+    """Return the metrics file column names, which are also the TensorBoard tags.
+
+    The combined (weighted) losses come first, followed by the energy and force
+    losses of each training and then each test dataset.
+    """
+    return [
+        *combined_metrics_columns(),
+        *(
+            column
+            for split, n in ((DatasetSplit.TRAIN, n_train), (DatasetSplit.TEST, n_test))
+            for k in range(n)
+            for column in dataset_metrics_columns(split, k)
+        ),
+    ]
+
+
+def write_metrics_header(outfile: TextIO, n_train: int, n_test: int) -> None:
+    """Write the header row naming the columns written by `write_metrics`."""
+    outfile.write(" ".join(metrics_columns(n_train, n_test)) + "\n")
 
 
 def write_metrics(
     i: int,
     loss_train: LossRecord,
     loss_test: LossRecord,
+    dataset_losses_train: list[DatasetLoss],
+    dataset_losses_test: list[DatasetLoss],
     writer: tensorboardX.SummaryWriter,
     outfile: TextIO,
 ) -> None:
     """Write metrics to TensorBoard and output file."""
-    for loss_record in (loss_train, loss_test):
-        for field in loss_record._fields:
-            outfile.write(f"{getattr(loss_record, field).detach().item():.10f} ")
-            writer.add_scalar(
-                f"{'loss_train' if loss_record is loss_train else 'loss_test'}_{field}",
-                getattr(loss_record, field).detach().item(),
-                i,
-            )
+    # Records iterate over their fields in the order of metrics_columns
+    values = [
+        loss.detach().item()
+        for loss_record in (
+            loss_train,
+            loss_test,
+            *dataset_losses_train,
+            *dataset_losses_test,
+        )
+        for loss in loss_record
+    ]
+    names = metrics_columns(len(dataset_losses_train), len(dataset_losses_test))
+    for name, value in zip(names, values, strict=True):
+        outfile.write(f"{value:.10f} ")
+        writer.add_scalar(name, value, i)
     outfile.write("\n")
 
 

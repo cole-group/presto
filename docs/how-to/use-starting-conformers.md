@@ -6,9 +6,9 @@ poses, or a torsion scan) by pointing a stage at an SDF file with `starting_conf
 
 This is available **per stage**, so you can mix supplied conformers and ETKDG freely:
 
-- `training_sampling_settings.starting_conformers` — training-data MD
-- `testing_sampling_settings.starting_conformers` — test-data MD
-- `param_settings.msm_settings.starting_conformers` — the MSM Hessian step that seeds the
+- `starting_conformers` on each item of `training_sampling_settings`: training-data MD
+- `starting_conformers` on each item of `testing_sampling_settings`: test-data MD
+- `param_settings.msm_settings.starting_conformers`: the MSM Hessian step that seeds the
   initial bond/angle parameters
 
 Any stage left unset keeps generating conformers with ETKDG.
@@ -30,8 +30,11 @@ Any stage left unset keeps generating conformers with ETKDG.
 ```bash
 presto train \
     --param-settings.molecules "CCO" \
+    --training-sampling-settings.sampling-protocol mm_md_metadynamics_torsion_minimisation \
     --training-sampling-settings.starting-conformers my_conformers.sdf
 ```
+
+The protocol must be given alongside any other `--training-sampling-settings.*` option.
 
 ## YAML form
 
@@ -45,11 +48,11 @@ param_settings:
         starting_conformers: my_conformers.sdf
 
 training_sampling_settings:
-    sampling_protocol: mm_md_metadynamics_torsion_minimisation
+-   sampling_protocol: mm_md_metadynamics_torsion_minimisation
     starting_conformers: my_conformers.sdf
 
 testing_sampling_settings:
-    sampling_protocol: ml_md
+-   sampling_protocol: ml_md
     # left unset -> ETKDG
 ```
 
