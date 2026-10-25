@@ -29,12 +29,14 @@ from .outputs import OutputType
 from .settings import (
     TrainingSettings,
 )
+from .utils.gpu import free_gpu_memory
 from .utils.register import get_registry_decorator
 from .utils.typing import OptimiserName, PathLike
 from .writers import (
     open_writer,
     report,
     write_metrics,
+    write_metrics_header,
 )
 
 logger = loguru.logger
@@ -47,8 +49,10 @@ class TrainingFnArgs(TypedDict):
     initial_parameters: torch.Tensor
     trainable: descent.train.Trainable
     topologies: list[smee.TensorTopology]
-    datasets: list[datasets.Dataset]
-    datasets_test: list[datasets.Dataset]
+    datasets: list[list[datasets.Dataset]]
+    datasets_test: list[list[datasets.Dataset]]
+    dataset_weights: list[float]
+    dataset_weights_test: list[float]
     settings: TrainingSettings
     output_paths: dict[OutputType, Path]
     device: torch.device
@@ -75,8 +79,10 @@ def train_levenberg_marquardt(
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
     topologies: list[smee.TensorTopology],
-    datasets: list[datasets.Dataset],
-    datasets_test: list[datasets.Dataset],
+    datasets: list[list[datasets.Dataset]],
+    datasets_test: list[list[datasets.Dataset]],
+    dataset_weights: list[float],
+    dataset_weights_test: list[float],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -93,10 +99,14 @@ def train_levenberg_marquardt(
         The trainable object containing the parameters.
     topologies : list[smee.TensorTopology]
         The topologies of the systems.
-    datasets : list[datasets.Dataset]
-        The datasets to be used for training.
-    datasets_test : list[datasets.Dataset]
-        The datasets to be used for testing.
+    datasets : list[list[datasets.Dataset]]
+        For each training dataset, the dataset for each molecule.
+    datasets_test : list[list[datasets.Dataset]]
+        For each test dataset, the dataset for each molecule.
+    dataset_weights : list[float]
+        The weight of each training dataset in the loss.
+    dataset_weights_test : list[float]
+        The weight of each test dataset in the test loss.
     settings : TrainingSettings
         The settings object containing training parameters.
     output_paths : dict[OutputType, PathLike]
@@ -129,6 +139,7 @@ def train_levenberg_marquardt(
 
     closure_fn = get_loss_closure_fn(
         datasets,
+        dataset_weights,
         trainable,
         trainable_parameters,
         initial_parameters,
@@ -145,11 +156,17 @@ def train_levenberg_marquardt(
         topologies=topologies,
         datasets_train=datasets,
         datasets_test=datasets_test,
+        dataset_weights=dataset_weights,
+        dataset_weights_test=dataset_weights_test,
         initial_parameters=initial_parameters,
         regularisation_target=settings.regularisation_target,
         metrics_file=output_paths[OutputType.TRAINING_METRICS],
         experiment_dir=Path(output_paths[OutputType.TENSORBOARD]),
     )
+
+    # report appends a row each step, so start the file with its header
+    with open(output_paths[OutputType.TRAINING_METRICS], "w") as metrics_file:
+        write_metrics_header(metrics_file, len(datasets), len(datasets_test))
 
     trainable_parameters = descent.optim.levenberg_marquardt(
         trainable_parameters, lm_config, closure_fn, correct_fn, report_fn
@@ -165,8 +182,10 @@ def train_adam(
     initial_parameters: torch.Tensor,
     trainable: descent.train.Trainable,
     topologies: list[smee.TensorTopology],
-    datasets: list[datasets.Dataset],
-    datasets_test: list[datasets.Dataset],
+    datasets: list[list[datasets.Dataset]],
+    datasets_test: list[list[datasets.Dataset]],
+    dataset_weights: list[float],
+    dataset_weights_test: list[float],
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
@@ -183,10 +202,14 @@ def train_adam(
         The trainable object containing the parameters.
     topologies : list[smee.TensorTopology]
         The topologies of the systems.
-    datasets : list[datasets.Dataset]
-        The datasets to be used for training.
-    datasets_test : list[datasets.Dataset]
-        The datasets to be used for testing.
+    datasets : list[list[datasets.Dataset]]
+        For each training dataset, the dataset for each molecule.
+    datasets_test : list[list[datasets.Dataset]]
+        For each test dataset, the dataset for each molecule.
+    dataset_weights : list[float]
+        The weight of each training dataset in the loss.
+    dataset_weights_test : list[float]
+        The weight of each test dataset in the test loss.
     settings : TrainingSettings
         The settings object containing training parameters.
     output_paths : dict[OutputType, PathLike]
@@ -209,6 +232,7 @@ def train_adam(
     # run the ML training
 
     with open(output_paths[OutputType.TRAINING_METRICS], "w") as metrics_file:
+        write_metrics_header(metrics_file, len(datasets), len(datasets_test))
         with open_writer(Path(output_paths[OutputType.TENSORBOARD])) as writer:
             optimizer = torch.optim.Adam(
                 [trainable_parameters], lr=settings.learning_rate, amsgrad=True
@@ -233,14 +257,17 @@ def train_adam(
                 ):
                     # Memory optimisation: Use manual gradient computation which
                     # computes gradients per-molecule and detaches immediately
-                    losses_train, gradient = compute_overall_loss_and_grad(
-                        datasets,
-                        trainable,
-                        trainable_parameters,
-                        initial_parameters,
-                        topologies,
-                        settings.regularisation_target,
-                        device,
+                    losses_train, dataset_losses_train, gradient = (
+                        compute_overall_loss_and_grad(
+                            datasets,
+                            dataset_weights,
+                            trainable,
+                            trainable_parameters,
+                            initial_parameters,
+                            topologies,
+                            settings.regularisation_target,
+                            device,
+                        )
                     )
 
                     logger.debug(
@@ -250,21 +277,26 @@ def train_adam(
                         f"Reg={losses_train.regularisation.item():.4f}"
                     )
                     if i % 10 == 0:
-                        losses_test, _ = compute_overall_loss_and_grad(
-                            datasets_test,
-                            trainable,
-                            trainable_parameters,
-                            initial_parameters,
-                            topologies,
-                            settings.regularisation_target,
-                            device,
-                            compute_grad=False,
+                        losses_test, dataset_losses_test, _ = (
+                            compute_overall_loss_and_grad(
+                                datasets_test,
+                                dataset_weights_test,
+                                trainable,
+                                trainable_parameters,
+                                initial_parameters,
+                                topologies,
+                                settings.regularisation_target,
+                                device,
+                                compute_grad=False,
+                            )
                         )
 
                         write_metrics(
                             i,
                             losses_train,
                             losses_test,
+                            dataset_losses_train,
+                            dataset_losses_test,
                             writer,
                             metrics_file,
                         )
@@ -279,13 +311,12 @@ def train_adam(
 
         # Required to avoid filling up the GPU memory between iterations
         # TODO: Find a better way to do this.
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+        free_gpu_memory()
 
         # some book-keeping and outputting
-        losses_train, _ = compute_overall_loss_and_grad(
+        losses_train, dataset_losses_train, _ = compute_overall_loss_and_grad(
             datasets,
+            dataset_weights,
             trainable,
             trainable_parameters,
             initial_parameters,
@@ -294,8 +325,9 @@ def train_adam(
             device,
             compute_grad=False,
         )
-        losses_test, _ = compute_overall_loss_and_grad(
+        losses_test, dataset_losses_test, _ = compute_overall_loss_and_grad(
             datasets_test,
+            dataset_weights_test,
             trainable,
             trainable_parameters,
             initial_parameters,
@@ -306,7 +338,13 @@ def train_adam(
         )
 
         write_metrics(
-            settings.n_epochs, losses_train, losses_test, writer, metrics_file
+            settings.n_epochs,
+            losses_train,
+            losses_test,
+            dataset_losses_train,
+            dataset_losses_test,
+            writer,
+            metrics_file,
         )
 
         return trainable_parameters, trainable
