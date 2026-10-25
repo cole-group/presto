@@ -31,7 +31,7 @@ from presto.analyse import (
 )
 from presto.outputs import DatasetSplit, OutputStage, OutputType, StageKind
 from presto.settings import WorkflowSettings
-from presto.writers import combined_metrics_columns, metrics_columns
+from presto.writers import SCATTER_KEYS, combined_metrics_columns, metrics_columns
 
 
 # Use non-interactive backend for tests
@@ -847,13 +847,13 @@ class TestAnalyseWorkflow:
 
 def test_pool_errors_concatenates_each_iteration():
     """Pooled errors join every dataset's values, per iteration, and drop scalars."""
-    from presto.analyse import _ERROR_KEYS, _pool_errors
+    from presto.analyse import _pool_errors
 
     def errors(value, iterations):
         return {
             **{
                 key: {i: np.full(2, value + i, dtype=float) for i in iterations}
-                for key in _ERROR_KEYS
+                for key in SCATTER_KEYS
             },
             "n_atoms": 3,
             "n_conformers": 2,
@@ -861,7 +861,7 @@ def test_pool_errors_concatenates_each_iteration():
 
     pooled = _pool_errors([errors(0.0, [0, 1, 2]), errors(10.0, [0, 2])])
 
-    assert set(pooled) == set(_ERROR_KEYS)
+    assert set(pooled) == set(SCATTER_KEYS)
     energies = pooled["energy_differences"]
     assert list(energies) == [0, 1, 2]
     np.testing.assert_array_equal(energies[0], [0, 0, 10, 10])

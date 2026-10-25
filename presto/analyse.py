@@ -32,7 +32,7 @@ from .outputs import (
     WorkflowPathManager,
 )
 from .settings import SamplingSettings, WorkflowSettings
-from .writers import combined_metrics_columns, dataset_metrics_columns
+from .writers import SCATTER_KEYS, combined_metrics_columns, dataset_metrics_columns
 
 logger = loguru.logger
 
@@ -62,22 +62,13 @@ def read_errors(
         Each value is a dict mapping iteration number to numpy array.
     """
     results: dict[str, dict[int, npt.NDArray[np.float64]]] = {
-        "energy_reference": {},
-        "energy_predicted": {},
-        "energy_differences": {},
-        "forces_reference": {},
-        "forces_predicted": {},
-        "forces_differences": {},
+        key: {} for key in SCATTER_KEYS
     }
 
     for i, filepath in paths_by_iter.items():
         with h5py.File(filepath, "r") as f:
-            results["energy_reference"][i] = f["energy_reference"][:]
-            results["energy_predicted"][i] = f["energy_predicted"][:]
-            results["energy_differences"][i] = f["energy_differences"][:]
-            results["forces_reference"][i] = f["forces_reference"][:]
-            results["forces_predicted"][i] = f["forces_predicted"][:]
-            results["forces_differences"][i] = f["forces_differences"][:]
+            for key in SCATTER_KEYS:
+                results[key][i] = f[key][:]
             results["n_atoms"] = f.attrs["n_atoms"]
             results["n_conformers"] = f.attrs["n_conformers"]
 
@@ -721,22 +712,12 @@ def plot_torsion_sampling(
         axs.flat[idx].axis("off")
 
 
-_ERROR_KEYS = (
-    "energy_reference",
-    "energy_predicted",
-    "energy_differences",
-    "forces_reference",
-    "forces_predicted",
-    "forces_differences",
-)
-
-
 def _pool_errors(
     errors_by_dataset: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Concatenate the errors of several datasets for each iteration."""
     pooled: dict[str, Any] = {}
-    for key in _ERROR_KEYS:
+    for key in SCATTER_KEYS:
         by_iteration: dict[int, list[npt.NDArray[np.float64]]] = {}
         for errors in errors_by_dataset:
             for iteration, values in errors[key].items():

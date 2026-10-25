@@ -26,6 +26,17 @@ from .utils.typing import PathLike
 logger = loguru.logger
 
 
+SCATTER_KEYS = (
+    "energy_reference",
+    "energy_predicted",
+    "energy_differences",
+    "forces_reference",
+    "forces_predicted",
+    "forces_differences",
+)
+"""The names of the arrays `write_scatter` saves to each HDF5 file."""
+
+
 @contextlib.contextmanager
 def open_writer(path: pathlib.Path) -> tensorboardX.SummaryWriter:
     """Open a TensorBoard writer."""
@@ -58,13 +69,19 @@ def write_scatter(
 
         # Save to HDF5
         with h5py.File(filename, "w") as f:
-            f.create_dataset("energy_reference", data=energy_ref_all.cpu().numpy())
-            f.create_dataset("energy_predicted", data=energy_pred_all.cpu().numpy())
-            f.create_dataset("energy_differences", data=energy_diffs.cpu().numpy())
-
-            f.create_dataset("forces_reference", data=forces_ref_all.cpu().numpy())
-            f.create_dataset("forces_predicted", data=forces_pred_all.cpu().numpy())
-            f.create_dataset("forces_differences", data=force_diffs.cpu().numpy())
+            for key, values in zip(
+                SCATTER_KEYS,
+                (
+                    energy_ref_all,
+                    energy_pred_all,
+                    energy_diffs,
+                    forces_ref_all,
+                    forces_pred_all,
+                    force_diffs,
+                ),
+                strict=True,
+            ):
+                f.create_dataset(key, data=values.cpu().numpy())
 
             f.attrs["n_conformers"] = len(energy_ref_all)
             f.attrs["n_atoms"] = forces_ref_all.shape[0] // len(energy_ref_all)
