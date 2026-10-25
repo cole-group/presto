@@ -13,6 +13,7 @@ import smee.utils
 import torch
 
 from .data_utils import get_weights_from_entry
+from .utils.gpu import free_gpu_memory
 
 logger = loguru.logger
 _CPU_DEVICE = torch.device("cpu")
@@ -239,8 +240,7 @@ def compute_dataset_loss_and_grad(
 
         # Free GPU memory after each molecule
         if device.type == "cuda":
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+            free_gpu_memory()
 
     # Average losses across molecules
     avg_energy_loss = torch.stack(energy_losses).mean()
@@ -482,8 +482,7 @@ def compute_overall_loss_hessian(
             hessian += weight / len(datasets_list) * molecule_hessian.detach()
 
             if device.type == "cuda":
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
+                free_gpu_memory()
 
     def regularisation_loss(_x: torch.Tensor) -> torch.Tensor:
         return compute_regularisation_loss(
@@ -565,8 +564,7 @@ def get_loss_closure_fn(
 
         # Free GPU memory explicitly
         if x.device.type == "cuda":
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
+            free_gpu_memory()
 
         return total_loss, gradient, hessian
 
