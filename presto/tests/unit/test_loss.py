@@ -1257,25 +1257,84 @@ class TestWeightedLossClosure:
         assert torch.allclose(closure_gradient, gradient)
         assert hessian is None
 
-    def test_closure_hessian_runs(self, two_molecule_setup):
-        """The Hessian path still runs with several datasets.
-
-        Its values are a known, separate issue: the losses it differentiates are
-        detached.
-        """
-        from presto.loss import get_loss_closure_fn
+    def test_closure_hessian_is_overall_hessian(self, two_molecule_setup):
+        """The closure returns the Hessian from compute_overall_loss_hessian."""
+        from presto.loss import compute_overall_loss_hessian, get_loss_closure_fn
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
-        closure = get_loss_closure_fn(
-            per_molecule_datasets_by_dataset=all_datasets[:2],
-            dataset_weights=[1.0, 3.0],
-            trainable=trainable,
-            trainable_parameters=params,
-            initial_parameters=initial,
-            topologies=topologies,
-            regularisation_target="initial",
-        )
+        args = (all_datasets[:2], [1.0, 3.0], trainable)
+        closure = get_loss_closure_fn(*args, params, initial, topologies, "initial")
         x = params.clone().requires_grad_(True)
-        _, _, hessian = closure(x, compute_gradient=False, compute_hessian=True)
+        _, gradient, hessian = closure(x, compute_gradient=False, compute_hessian=True)
+
+        expected = compute_overall_loss_hessian(
+            *args, params, initial, topologies, "initial", torch.device("cpu")
+        )
+        assert gradient is None
+        assert torch.equal(hessian, expected)
+
+
+class TestComputeOverallLossHessian:
+    """Tests for the Hessian of the weighted loss."""
+
+    @pytest.mark.parametrize("target", ["initial", "zero"])
+    @pytest.mark.parametrize("weights", [[1.0], [1.0, 3.0]])
+    def test_matches_hessian_of_explicit_objective(
+        self, two_molecule_setup, target, weights
+    ):
+        """The accumulated Hessian matches autograd of the explicit weighted loss."""
+        from presto.loss import compute_overall_loss_hessian
+
+        trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        per_molecule_datasets_by_dataset = all_datasets[: len(weights)]
+
+        def total_loss(x):
+            energy, forces, reg = _explicit_weighted_objective(
+                per_molecule_datasets_by_dataset,
+                weights,
+                trainable,
+                x,
+                initial,
+                topologies,
+                target,
+            )
+            return energy + forces + reg
+
+        expected = torch.autograd.functional.hessian(total_loss, params.clone())
+
+        hessian = compute_overall_loss_hessian(
+            per_molecule_datasets_by_dataset,
+            weights,
+            trainable,
+            params,
+            initial,
+            topologies,
+            target,
+            torch.device("cpu"),
+        )
 
         assert hessian.shape == (len(params), len(params))
+        assert not hessian.requires_grad
+        assert hessian.abs().max() > 0
+        # Predictions are single precision, so small entries are noisy relative to
+        # their size; compare on the scale of the largest entry
+        tolerance = {"rtol": 1e-5, "atol": 1e-6 * expected.abs().max().item()}
+        torch.testing.assert_close(hessian, hessian.T, **tolerance)
+        torch.testing.assert_close(hessian, expected, **tolerance)
+
+    def test_weight_count_mismatch_raises(self, two_molecule_setup):
+        """There must be one weight per dataset."""
+        from presto.loss import compute_overall_loss_hessian
+
+        trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        with pytest.raises(ValueError, match="3 datasets"):
+            compute_overall_loss_hessian(
+                all_datasets,
+                [1.0],
+                trainable,
+                params,
+                initial,
+                topologies,
+                "initial",
+                torch.device("cpu"),
+            )
