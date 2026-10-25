@@ -36,8 +36,8 @@ settings = WorkflowSettings(
         msm_settings=MSMSettings(mlp_settings=ase_mlp),
     ),
     device_type="cuda",
-    training_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
-    testing_sampling_settings=MLMDSamplingSettings(mlp_settings=ase_mlp),
+    training_sampling_settings=[MLMDSamplingSettings(mlp_settings=ase_mlp)],
+    testing_sampling_settings=[MLMDSamplingSettings(mlp_settings=ase_mlp)],
 )
 
 bespoke_ff = get_bespoke_force_field(settings)
@@ -71,8 +71,11 @@ loaded = WorkflowSettings.from_yaml(
         "param_settings": {
             "msm_settings": {"mlp_settings": ase_kwargs}
         },
-        "training_sampling_settings": {"mlp_settings": ase_kwargs},
-        "testing_sampling_settings": {"mlp_settings": ase_kwargs},
+        # Sampling settings are lists, so give the index of each protocol to update
+        "training_sampling_settings": {0: {"mlp_settings": ase_kwargs}},
+        "testing_sampling_settings": {0: {"mlp_settings": ase_kwargs}},
     },
 )
 ```
+
+With several training or testing datasets, add an entry for each index that uses the calculator, e.g. `{0: {...}, 2: {...}}`.

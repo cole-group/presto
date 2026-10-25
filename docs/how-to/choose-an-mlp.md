@@ -31,12 +31,14 @@ param_settings:
         mlp_settings:
             ml_potential: aimnet2
 training_sampling_settings:
-    mlp_settings:
+-   mlp_settings:
         ml_potential: aimnet2
 testing_sampling_settings:
-    mlp_settings:
+-   mlp_settings:
         ml_potential: aimnet2
 ```
+
+If you use several training or testing datasets, set `mlp_settings` on each item of the list.
 
 Programmatically:
 
@@ -49,10 +51,10 @@ settings = WorkflowSettings(
         molecules="CCO",
         msm_settings=MSMSettings(mlp_settings=mlp),
     ),
-    training_sampling_settings=MMMDMetadynamicsTorsionMinimisationSamplingSettings(
-        mlp_settings=mlp,
-    ),
-    testing_sampling_settings=MLMDSamplingSettings(mlp_settings=mlp),
+    training_sampling_settings=[
+        MMMDMetadynamicsTorsionMinimisationSamplingSettings(mlp_settings=mlp)
+    ],
+    testing_sampling_settings=[MLMDSamplingSettings(mlp_settings=mlp)],
 )
 ```
 

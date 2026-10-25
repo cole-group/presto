@@ -4,6 +4,8 @@ After a run, your bespoke force field is at `<output_dir>/training_iteration_<n>
 
 For the underlying directory tree, see **[Concepts → Output directory layout](../concepts/output-layout.md)**.
 
+The plots directly under `plots/` combine all datasets: test plots pool every test dataset, and torsion plots pool every trajectory. When you supply several sampling protocols, the same plots for each dataset alone are written to `plots/test_dataset_<k>/` and `plots/train_dataset_<k>/` (see **[Multiple datasets](../concepts/sampling-protocols.md#multiple-datasets)**). The pooled plots weight datasets by their number of conformers, not by `dataset_weight`.
+
 ## What each plot tells you
 
 ### `plots/loss.png`
@@ -59,11 +61,11 @@ system = ff.create_interchange(mol.to_topology()).to_openmm()
 
 ## The HDF5 energy/force data
 
-Per-iteration training data is saved with HuggingFace `datasets.save_to_disk`. Reload with:
+Per-iteration training data for each training dataset `k` is saved under `training_iteration_<n>/train_dataset_<k>/` with HuggingFace `datasets.save_to_disk`. Reload with:
 
 ```python
 from datasets import load_from_disk
-ds = load_from_disk("training_iteration_2/energy_and_force_data_mol0")
+ds = load_from_disk("training_iteration_2/train_dataset_0/energy_and_force_data_mol0")
 ```
 
 Each row holds energies and forces for one snapshot, plus the coordinates.
@@ -78,6 +80,6 @@ Each row holds energies and forces for one snapshot, plus the coordinates.
 | Sparse torsion coverage | `torsion_sampling_mol<n>.png` | Make metadynamics more aggressive, increase sampling time |
 | A few pairs of atoms dominate force error | `force_error_by_atom_index_mol<n>.png` | Likely close atom contacts with overly repulsive MM non-bonded interactions, no easy fix without training nonbonded parameters |
 
-When any of these look off, inspect the sample PDB files e.g. (`training_iteration_<n>/trajectory_mol<n>.pdb`) to see the configurations that went into training — this often helps reveal the root cause (e.g. connectivity changes, steric clashes, or poor conformer diversity).
+When any of these look off, inspect the sample PDB files e.g. (`training_iteration_<n>/train_dataset_<k>/trajectory_mol<m>.pdb`) to see the configurations that went into training. This often helps reveal the root cause (e.g. connectivity changes, steric clashes, or poor conformer diversity).
 
 For more failure modes and their fixes, see **[Reference → Troubleshooting](../reference/troubleshooting.md)**.
