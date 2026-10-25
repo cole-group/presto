@@ -383,6 +383,17 @@ class TestPlotDistributionsOfErrors:
         )
         plt.close(fig)
 
+    def test_plot_with_missing_iterations(self, errors_data: dict) -> None:
+        """Iterations missing from the keys keep their real labels."""
+        energies = errors_data["energy_differences"]
+        fig, ax = plt.subplots()
+        plot_distributions_of_errors(
+            fig, ax, {0: energies[0], 5: energies[2]}, "energy"
+        )
+        labels = [text.get_text() for text in ax.get_legend().get_texts()]
+        assert labels == ["Iteration 0", "Iteration 5"]
+        plt.close(fig)
+
     def test_plot_has_legend(self, errors_data: dict) -> None:
         """Test that distribution plot has a legend."""
         fig, ax = plt.subplots()
@@ -461,6 +472,23 @@ class TestPlotFfValues:
         """Test plotting proper torsion parameter values."""
         fig, ax = plt.subplots()
         plot_ff_values(fig, ax, force_fields, test_molecule, "ProperTorsions", "k1")
+        plt.close(fig)
+
+    def test_plot_with_missing_iterations(
+        self, force_fields: dict[int, ForceField], test_molecule: Molecule
+    ) -> None:
+        """Iterations missing from the keys keep their real labels."""
+        fig, ax = plt.subplots()
+        plot_ff_values(
+            fig,
+            ax,
+            {0: force_fields[0], 5: force_fields[2]},
+            test_molecule,
+            "Bonds",
+            "length",
+        )
+        _, labels = ax.get_legend_handles_labels()
+        assert set(labels) == {"Iteration 0", "Iteration 5"}
         plt.close(fig)
 
 

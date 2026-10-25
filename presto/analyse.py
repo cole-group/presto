@@ -258,12 +258,13 @@ def plot_distributions_of_errors(
     iterations = errors.keys()
     colours = plt.colormaps["viridis"](np.linspace(0, 1, len(iterations) + 1))
 
-    for i in iterations:
+    # Colour by position, as iterations may be missing from the keys
+    for colour, i in zip(colours, iterations, strict=False):
         ax.hist(
             errors[i].flat if error_type == "force" else errors[i],
             label=f"Iteration {i}",
             alpha=0.8,
-            color=colours[i],
+            color=colour,
             edgecolor="black",
         )
 
@@ -444,7 +445,8 @@ def plot_ff_values(
     potentials_set = set(labeled[potential_type].values())
     param_ids = sorted([p.id for p in potentials_set])
 
-    for i, ff in force_fields.items():
+    # Colour by position, as iterations may be missing from the keys
+    for colour, (i, ff) in zip(colours, force_fields.items(), strict=False):
         # Get the initial and final potentials
         labeled = ff.label_molecules(molecule.to_topology())[0]
         objects = set(labeled[potential_type].values())
@@ -483,7 +485,7 @@ def plot_ff_values(
         ax.scatter(
             x_vals,
             [float(vals[k] / q_units) for k in vals.keys()],
-            color=colours[i],
+            color=colour,
             label=f"Iteration {i}",
             # small
             s=10,
@@ -1014,12 +1016,12 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                 )
 
         # Plot the force field changes for each molecule
-        offxml_paths = [
-            path_manager.get_output_path(stage, OutputType.OFFXML)
-            for stage in _iteration_stages(path_manager).values()
-        ]
+        offxml_paths = {
+            i: path_manager.get_output_path(stage, OutputType.OFFXML)
+            for i, stage in _iteration_stages(path_manager).items()
+        }
         ff_paths = load_force_fields(
-            dict(enumerate(path for path in offxml_paths if path.exists()))
+            {i: path for i, path in offxml_paths.items() if path.exists()}
         )
 
         for mol_idx, mol in enumerate(mols):
