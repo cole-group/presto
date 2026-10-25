@@ -45,6 +45,7 @@ def test_non_clean_fit_fails_before_parameterisation(
     parameterise.assert_not_called()
 
 
+@pytest.mark.parametrize("memory", [True, False], ids=["memory", "no-memory"])
 @pytest.mark.parametrize(
     ("train_protocols", "test_protocols"),
     [
@@ -72,7 +73,7 @@ def test_non_clean_fit_fails_before_parameterisation(
     ],
 )
 def test_datasets_sampled_in_turn_and_trained_together(
-    tmp_path, train_protocols, test_protocols
+    tmp_path, train_protocols, test_protocols, memory
 ):
     """Datasets are sampled one after another, then trained on together.
 
@@ -88,7 +89,7 @@ def test_datasets_sampled_in_turn_and_trained_together(
         output_dir=tmp_path,
         device_type="cpu",
         n_iterations=2,
-        memory=True,
+        memory=memory,
         param_settings=ParamSettings(molecules=["CCO", "CCC"]),
         training_sampling_settings=train_protocols,
         testing_sampling_settings=test_protocols,
@@ -202,6 +203,8 @@ def test_datasets_sampled_in_turn_and_trained_together(
         [
             f"[training_iteration_1/train_dataset_{k}/mol{m} + "
             f"training_iteration_2/train_dataset_{k}/mol{m}]"
+            if memory
+            else f"training_iteration_2/train_dataset_{k}/mol{m}"
             for m in (0, 1)
         ]
         for k in (0, 1)
