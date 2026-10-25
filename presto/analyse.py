@@ -37,6 +37,7 @@ from .writers import SCATTER_KEYS, combined_metrics_columns, dataset_metrics_col
 logger = loguru.logger
 
 PLT_STYLE = "ggplot"
+PLOT_DPI = 300
 
 
 def _add_legend_if_labels(ax: Axes, **kwargs: Any) -> None:
@@ -773,7 +774,7 @@ def _existing_paths_for_mol(
 
 
 def _save(fig: Figure, path: Path) -> None:
-    fig.savefig(str(path), dpi=300, bbox_inches="tight")
+    fig.savefig(str(path), dpi=PLOT_DPI, bbox_inches="tight")
     plt.close(fig)
 
 
