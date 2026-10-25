@@ -894,10 +894,7 @@ def test_existing_paths_keyed_by_real_iteration(tmp_path, path_manager):
         n_iterations=3,
         testing_sampling_settings=path_manager.testing_sampling_settings,
     )
-    stages = {
-        i: OutputStage(stage.kind, stage.index, DatasetSplit.TEST, 0)
-        for i, stage in _iteration_stages(manager).items()
-    }
+    stages = _iteration_stages(manager, DatasetSplit.TEST, 0)
     for i in (0, 2, 3):
         path = manager.get_output_path_for_mol(stages[i], OutputType.SCATTER, 0)
         path.parent.mkdir(parents=True)

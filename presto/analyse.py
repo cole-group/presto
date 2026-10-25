@@ -762,12 +762,16 @@ def _has_trajectory(protocol: SamplingSettings) -> bool:
     return OutputType.PDB_TRAJECTORY in protocol.output_types
 
 
-def _iteration_stages(path_manager: WorkflowPathManager) -> dict[int, OutputStage]:
-    """Return the stage holding test-set scatter data for each iteration (0 is initial)."""
+def _iteration_stages(
+    path_manager: WorkflowPathManager,
+    split: DatasetSplit | None = None,
+    dataset: int | None = None,
+) -> dict[int, OutputStage]:
+    """Return the stage for each iteration (0 is initial), or one dataset's subdirectory."""
     return {
-        0: OutputStage(StageKind.INITIAL_STATISTICS),
+        0: OutputStage(StageKind.INITIAL_STATISTICS, split=split, dataset=dataset),
         **{
-            i: OutputStage(StageKind.TRAINING, i)
+            i: OutputStage(StageKind.TRAINING, i, split, dataset)
             for i in range(1, path_manager.n_iterations + 1)
         },
     }
@@ -785,10 +789,6 @@ def _existing_paths_for_mol(
         for iteration, stage in stages_by_iteration.items()
     }
     return {iteration: path for iteration, path in paths.items() if path.exists()}
-
-
-def _dataset_stage(stage: OutputStage, split: DatasetSplit, k: int) -> OutputStage:
-    return OutputStage(stage.kind, stage.index, split, k)
 
 
 def _save(fig: Figure, path: Path) -> None:
@@ -906,7 +906,9 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         (DatasetSplit.TEST, test_protocols),
     ):
         for k in range(len(protocols)):
-            path_manager.mk_stage_dir(_dataset_stage(plots_stage, split, k))
+            path_manager.mk_stage_dir(
+                OutputStage(StageKind.PLOTS, split=split, dataset=k)
+            )
 
     with plt.style.context(PLT_STYLE):
         # Plot the losses
@@ -931,10 +933,8 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                     losses,
                     [name for name in columns if name.startswith(prefix)],
                     path_manager,
-                    _dataset_stage(plots_stage, split, k),
+                    OutputStage(StageKind.PLOTS, split=split, dataset=k),
                 )
-
-        iteration_stages = _iteration_stages(path_manager)
 
         for mol_idx, mol in enumerate(mols):
             # Plot the errors on each test dataset, then on all of them pooled
@@ -942,10 +942,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             for k in range(len(test_protocols)):
                 scatter_paths = _existing_paths_for_mol(
                     path_manager,
-                    {
-                        i: _dataset_stage(stage, DatasetSplit.TEST, k)
-                        for i, stage in iteration_stages.items()
-                    },
+                    _iteration_stages(path_manager, DatasetSplit.TEST, k),
                     OutputType.SCATTER,
                     mol_idx,
                 )
@@ -961,7 +958,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                     mol,
                     mol_idx,
                     path_manager,
-                    _dataset_stage(plots_stage, DatasetSplit.TEST, k),
+                    OutputStage(StageKind.PLOTS, split=DatasetSplit.TEST, dataset=k),
                 )
             if errors_by_dataset:
                 _plot_errors(
@@ -985,32 +982,25 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
             pooled_dihedrals: dict[
                 int, list[dict[tuple[int, int, int, int], npt.NDArray[np.float64]]]
             ] = {}
-            for split, protocols, stages_by_iteration in (
-                (
-                    DatasetSplit.TEST,
-                    test_protocols,
-                    {0: OutputStage(StageKind.TESTING)},
-                ),
-                (
-                    DatasetSplit.TRAIN,
-                    train_protocols,
-                    {
-                        i: stage
-                        for i, stage in iteration_stages.items()
-                        if stage.kind is StageKind.TRAINING
-                    },
-                ),
+            for split, protocols in (
+                (DatasetSplit.TEST, test_protocols),
+                (DatasetSplit.TRAIN, train_protocols),
             ):
                 for k, protocol in enumerate(protocols):
                     if not _has_trajectory(protocol):
                         continue
+                    trajectory_stages = (
+                        {0: OutputStage(StageKind.TESTING, split=split, dataset=k)}
+                        if split is DatasetSplit.TEST
+                        else {
+                            i: OutputStage(StageKind.TRAINING, i, split, k)
+                            for i in range(1, path_manager.n_iterations + 1)
+                        }
+                    )
                     dihedrals_by_iteration = _read_dihedrals(
                         _existing_paths_for_mol(
                             path_manager,
-                            {
-                                i: _dataset_stage(stage, split, k)
-                                for i, stage in stages_by_iteration.items()
-                            },
+                            trajectory_stages,
                             OutputType.PDB_TRAJECTORY,
                             mol_idx,
                         ),
@@ -1026,7 +1016,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
                         mol,
                         mol_idx,
                         path_manager,
-                        _dataset_stage(plots_stage, split, k),
+                        OutputStage(StageKind.PLOTS, split=split, dataset=k),
                     )
             if pooled_dihedrals:
                 _plot_torsions(
@@ -1046,7 +1036,7 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         # Plot the force field changes for each molecule
         offxml_paths = [
             path_manager.get_output_path(stage, OutputType.OFFXML)
-            for stage in iteration_stages.values()
+            for stage in _iteration_stages(path_manager).values()
         ]
         ff_paths = load_force_fields(
             dict(enumerate(path for path in offxml_paths if path.exists()))
