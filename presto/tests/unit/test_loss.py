@@ -952,9 +952,7 @@ class TestComputeDatasetLossAndGrad:
         energy, forces, reg = _explicit_weighted_objective(
             [datasets_list], [1.0], trainable, x, initial, topologies, "initial"
         )
-        (expected_gradient,) = torch.autograd.grad(
-            energy + forces, x, retain_graph=True
-        )
+        (expected_gradient,) = torch.autograd.grad(energy + forces, x)
         (reg_grad,) = torch.autograd.grad(reg, x)
 
         loss, gradient = _run_compute_dataset_loss_and_grad(
