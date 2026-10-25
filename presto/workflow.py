@@ -7,8 +7,10 @@ from collections.abc import Callable
 
 import datasets
 import loguru
+import smee
+import torch
 from descent.train import Trainable
-from openff.toolkit import ForceField
+from openff.toolkit import ForceField, Molecule
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -23,7 +25,13 @@ from presto.convert import convert_to_smirnoff
 from .analyse import analyse_workflow
 from .convert import parameterise
 from .data_utils import filter_dataset_outliers
-from .outputs import DatasetSplit, OutputStage, OutputType, StageKind
+from .outputs import (
+    DatasetSplit,
+    OutputStage,
+    OutputType,
+    StageKind,
+    WorkflowPathManager,
+)
 from .sampling_coordinator import sample_ligands
 from .settings import SamplingSettings, WorkflowSettings
 from .train import _TRAINING_FNS_REGISTRY
@@ -31,6 +39,157 @@ from .writers import write_scatter
 
 logger = loguru.logger
 console = Console()
+
+
+def sample_datasets(
+    *,
+    stage: OutputStage,
+    split: DatasetSplit,
+    protocols: list[SamplingSettings],
+    mols: list[Molecule],
+    offxml_path: pathlib.Path,
+    path_manager: WorkflowPathManager,
+    device_type: str,
+    n_processes: int,
+    process_dataset: Callable[[int, int, datasets.Dataset], datasets.Dataset]
+    | None = None,
+) -> list[list[datasets.Dataset]]:
+    """Sample each dataset in turn, for every molecule.
+
+    Protocols are sampled one after another, each into its own
+    ``<stage>/<split>_<k>`` subdirectory, while the molecules for each protocol are
+    sampled in parallel across ``n_processes`` workers.
+
+    Parameters
+    ----------
+    stage : OutputStage
+        The top-level stage to sample into, e.g. ``training_iteration_1``.
+
+    split : DatasetSplit
+        Whether these are training or testing datasets, which names their
+        subdirectories within ``stage``.
+
+    protocols : list[SamplingSettings]
+        The sampling protocol for each dataset, in order. Dataset ``k`` is sampled
+        with ``protocols[k]``.
+
+    mols : list[Molecule]
+        The molecules to sample.
+
+    offxml_path : pathlib.Path
+        The force field the sampling workers load.
+
+    path_manager : WorkflowPathManager
+        Gives the output paths for each dataset.
+
+    device_type : str
+        The device to sample on.
+
+    n_processes : int
+        The number of worker processes to sample the molecules with.
+
+    process_dataset : Callable[[int, int, datasets.Dataset], datasets.Dataset] | None, optional
+        Applied to each sampled dataset with the dataset index, molecule index and
+        dataset, e.g. to filter outliers or add data from the previous iteration.
+        By default None, which leaves the datasets unchanged.
+
+    Returns:
+    -------
+    list[list[datasets.Dataset]]
+        One list per dataset, holding that dataset's data for each molecule in
+        order.
+    """
+    sampled = []
+    for k, protocol in enumerate(protocols):
+        logger.info(f"Generating {split.value}_{k} ({protocol.sampling_protocol})")
+        dataset_stage = OutputStage(stage.kind, stage.index, split, k)
+        path_manager.mk_stage_dir(dataset_stage)
+        sampled.append(
+            sample_ligands(
+                mols=mols,
+                offxml_path=offxml_path,
+                device_type=device_type,
+                sampling_settings=protocol,
+                output_paths={
+                    output_type: path_manager.get_output_path(
+                        dataset_stage, output_type
+                    )
+                    for output_type in protocol.output_types
+                },
+                dataset_output_paths=[
+                    path_manager.get_output_path_for_mol(
+                        dataset_stage, OutputType.ENERGIES_AND_FORCES, i
+                    )
+                    for i in range(len(mols))
+                ],
+                n_processes=n_processes,
+                process_dataset=(
+                    None
+                    if process_dataset is None
+                    else functools.partial(process_dataset, k)
+                ),
+            )
+        )
+    return sampled
+
+
+def write_test_scatter(
+    *,
+    stage: OutputStage,
+    label: str,
+    datasets_test: list[list[datasets.Dataset]],
+    force_field: smee.TensorForceField,
+    topologies: list[smee.TensorTopology],
+    path_manager: WorkflowPathManager,
+    device: torch.device,
+) -> None:
+    """Write scatter data for every test dataset and molecule.
+
+    Parameters
+    ----------
+    stage : OutputStage
+        The top-level stage to write into, e.g. ``training_iteration_1``. Each test
+        dataset's scatter data goes in its ``test_dataset_<k>`` subdirectory.
+
+    label : str
+        Describes the force field in the logged statistics, e.g. ``"Initial"``.
+
+    datasets_test : list[list[datasets.Dataset]]
+        One list per test dataset, holding that dataset's data for each molecule in
+        order.
+
+    force_field : smee.TensorForceField
+        The force field to predict energies and forces with.
+
+    topologies : list[smee.TensorTopology]
+        The topology of each molecule.
+
+    path_manager : WorkflowPathManager
+        Gives the output paths for each dataset.
+
+    device : torch.device
+        The device to predict on.
+    """
+    for k, datasets_for_mols in enumerate(datasets_test):
+        dataset_stage = OutputStage(stage.kind, stage.index, DatasetSplit.TEST, k)
+        path_manager.mk_stage_dir(dataset_stage)
+        for mol_idx, (dataset_test, topology) in enumerate(
+            zip(datasets_for_mols, topologies, strict=True)
+        ):
+            energy_mean, energy_sd, forces_mean, forces_sd = write_scatter(
+                dataset_test,
+                force_field,
+                topology,
+                device,
+                str(
+                    path_manager.get_output_path_for_mol(
+                        dataset_stage, OutputType.SCATTER, mol_idx
+                    )
+                ),
+            )
+            logger.info(
+                f"{label} test dataset {k} molecule {mol_idx} force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e} kcal/mol, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e} kcal/mol/Å"
+            )
 
 
 def get_bespoke_force_field(
@@ -105,112 +264,19 @@ def get_bespoke_force_field(
     initial_offxml_path = path_manager.get_output_path(initial_stage, OutputType.OFFXML)
     initial_off_ff.to_file(str(initial_offxml_path))
 
-    def sample_datasets(
-        stage: OutputStage,
-        split: DatasetSplit,
-        protocols: list[SamplingSettings],
-        offxml_path: pathlib.Path,
-        process_dataset: Callable[[int, int, datasets.Dataset], datasets.Dataset]
-        | None = None,
-    ) -> list[list[datasets.Dataset]]:
-        """Sample each dataset in turn, for every molecule.
-
-        Protocols are sampled one after another, each into its own
-        ``<stage>/<split>_<k>`` subdirectory, while the molecules for each protocol
-        are sampled in parallel across ``settings.n_sampling_processes`` workers.
-
-        Parameters
-        ----------
-        stage : OutputStage
-            The top-level stage to sample into, e.g. ``training_iteration_1``.
-
-        split : DatasetSplit
-            Whether these are training or testing datasets, which names their
-            subdirectories within ``stage``.
-
-        protocols : list[SamplingSettings]
-            The sampling protocol for each dataset, in order. Dataset ``k`` is
-            sampled with ``protocols[k]``.
-
-        offxml_path : pathlib.Path
-            The force field the sampling workers load.
-
-        process_dataset : Callable[[int, int, datasets.Dataset], datasets.Dataset] | None, optional
-            Applied to each sampled dataset with the dataset index, molecule index
-            and dataset, e.g. to filter outliers or add data from the previous
-            iteration. By default None, which leaves the datasets unchanged.
-
-        Returns:
-        -------
-        list[list[datasets.Dataset]]
-            One list per dataset, holding that dataset's data for each molecule in
-            order.
-        """
-        sampled = []
-        for k, protocol in enumerate(protocols):
-            logger.info(f"Generating {split.value}_{k} ({protocol.sampling_protocol})")
-            dataset_stage = OutputStage(stage.kind, stage.index, split, k)
-            path_manager.mk_stage_dir(dataset_stage)
-            sampled.append(
-                sample_ligands(
-                    mols=off_mols,
-                    offxml_path=offxml_path,
-                    device_type=settings.device_type,
-                    sampling_settings=protocol,
-                    output_paths={
-                        output_type: path_manager.get_output_path(
-                            dataset_stage, output_type
-                        )
-                        for output_type in protocol.output_types
-                    },
-                    dataset_output_paths=[
-                        path_manager.get_output_path_for_mol(
-                            dataset_stage, OutputType.ENERGIES_AND_FORCES, i
-                        )
-                        for i in range(len(off_mols))
-                    ],
-                    n_processes=settings.n_sampling_processes,
-                    process_dataset=(
-                        None
-                        if process_dataset is None
-                        else functools.partial(process_dataset, k)
-                    ),
-                )
-            )
-        return sampled
-
-    def write_test_scatter(stage: OutputStage, label: str) -> None:
-        """Write scatter data for every test dataset and molecule."""
-        for k, datasets_for_mols in enumerate(datasets_test):
-            dataset_stage = OutputStage(stage.kind, stage.index, DatasetSplit.TEST, k)
-            path_manager.mk_stage_dir(dataset_stage)
-            for mol_idx, (dataset_test, tensor_top) in enumerate(
-                zip(datasets_for_mols, tensor_tops, strict=True)
-            ):
-                energy_mean, energy_sd, forces_mean, forces_sd = write_scatter(
-                    dataset_test,
-                    tensor_ff,
-                    tensor_top,
-                    settings.device,
-                    str(
-                        path_manager.get_output_path_for_mol(
-                            dataset_stage, OutputType.SCATTER, mol_idx
-                        )
-                    ),
-                )
-                logger.info(
-                    f"{label} test dataset {k} molecule {mol_idx} force field statistics: Energy (Mean/SD): {energy_mean:.3e}/{energy_sd:.3e} kcal/mol, Forces (Mean/SD): {forces_mean:.3e}/{forces_sd:.3e} kcal/mol/Å"
-                )
-
     # Generate the test data for all molecules
     stage = OutputStage(StageKind.TESTING)
     path_manager.mk_stage_dir(stage)
     logger.info("Generating test data")
     datasets_test = sample_datasets(
-        stage,
-        DatasetSplit.TEST,
-        settings.testing_sampling_settings,
-        initial_offxml_path,
+        stage=stage,
+        split=DatasetSplit.TEST,
+        protocols=settings.testing_sampling_settings,
+        mols=off_mols,
+        offxml_path=initial_offxml_path,
+        path_manager=path_manager,
+        device_type=settings.device_type,
+        n_processes=settings.n_sampling_processes,
     )
     dataset_weights_test = [
         protocol.dataset_weight for protocol in settings.testing_sampling_settings
@@ -219,7 +285,15 @@ def get_bespoke_force_field(
     # Write out statistics on the initial force field
     stage = OutputStage(StageKind.INITIAL_STATISTICS)
     path_manager.mk_stage_dir(stage)
-    write_test_scatter(stage, "Initial")
+    write_test_scatter(
+        stage=stage,
+        label="Initial",
+        datasets_test=datasets_test,
+        force_field=tensor_ff,
+        topologies=tensor_tops,
+        path_manager=path_manager,
+        device=settings.device,
+    )
 
     off_ff = convert_to_smirnoff(
         trainable.to_force_field(trainable_parameters), base=initial_off_ff
@@ -279,10 +353,14 @@ def get_bespoke_force_field(
                 )
             )
             datasets_train = sample_datasets(
-                stage,
-                DatasetSplit.TRAIN,
-                settings.training_sampling_settings,
-                sampling_offxml_path,
+                stage=stage,
+                split=DatasetSplit.TRAIN,
+                protocols=settings.training_sampling_settings,
+                mols=off_mols,
+                offxml_path=sampling_offxml_path,
+                path_manager=path_manager,
+                device_type=settings.device_type,
+                n_processes=settings.n_sampling_processes,
                 process_dataset=process_training_dataset,
             )
 
@@ -317,7 +395,15 @@ def get_bespoke_force_field(
             )
             off_ff.to_file(str(path_manager.get_output_path(stage, OutputType.OFFXML)))
 
-            write_test_scatter(stage, f"Iteration {iteration}")
+            write_test_scatter(
+                stage=stage,
+                label=f"Iteration {iteration}",
+                datasets_test=datasets_test,
+                force_field=tensor_ff,
+                topologies=tensor_tops,
+                path_manager=path_manager,
+                device=settings.device,
+            )
 
             previous_datasets = datasets_train  # Carry into the next iteration
 
