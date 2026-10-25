@@ -20,6 +20,7 @@ from .loss import (
     compute_overall_loss_and_grad,
     predict_with_weights,
 )
+from .outputs import DatasetSplit
 from .utils.typing import PathLike
 
 logger = loguru.logger
@@ -162,6 +163,20 @@ def report(
                 )
 
 
+def combined_metrics_columns() -> list[str]:
+    """Return the metrics columns of the combined (weighted) losses."""
+    return [
+        f"loss_{split}_{field}"
+        for split in ("train", "test")
+        for field in LossRecord._fields
+    ]
+
+
+def dataset_metrics_columns(split: DatasetSplit, dataset: int) -> list[str]:
+    """Return the metrics columns of one training or test dataset's losses."""
+    return [f"loss_{split.value}_{dataset}_{field}" for field in DatasetLoss._fields]
+
+
 def metrics_columns(n_train: int, n_test: int) -> list[str]:
     """Return the metrics file column names, which are also the TensorBoard tags.
 
@@ -169,16 +184,12 @@ def metrics_columns(n_train: int, n_test: int) -> list[str]:
     losses of each training and then each test dataset.
     """
     return [
+        *combined_metrics_columns(),
         *(
-            f"loss_{split}_{field}"
-            for split in ("train", "test")
-            for field in LossRecord._fields
-        ),
-        *(
-            f"loss_{split}_dataset_{k}_{field}"
-            for split, n in (("train", n_train), ("test", n_test))
+            column
+            for split, n in ((DatasetSplit.TRAIN, n_train), (DatasetSplit.TEST, n_test))
             for k in range(n)
-            for field in DatasetLoss._fields
+            for column in dataset_metrics_columns(split, k)
         ),
     ]
 

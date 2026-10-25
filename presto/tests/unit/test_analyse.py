@@ -31,9 +31,8 @@ from presto.analyse import (
 )
 from presto.outputs import DatasetSplit, OutputStage, OutputType, StageKind
 from presto.settings import WorkflowSettings
-from presto.writers import metrics_columns
+from presto.writers import combined_metrics_columns, metrics_columns
 
-COMBINED_LOSSES = metrics_columns(1, 1)[:6]
 
 # Use non-interactive backend for tests
 matplotlib.use("Agg")
@@ -290,13 +289,13 @@ class TestPlotLoss:
     def test_plot_loss_creates_plot(self, losses_data: pd.DataFrame) -> None:
         """Test that plot_loss creates a plot without errors."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data, COMBINED_LOSSES)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         plt.close(fig)
 
     def test_plot_loss_has_labels(self, losses_data: pd.DataFrame) -> None:
         """Test that plot has axis labels."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data, COMBINED_LOSSES)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         assert ax.get_xlabel() != ""
         assert ax.get_ylabel() != ""
         plt.close(fig)
@@ -304,7 +303,7 @@ class TestPlotLoss:
     def test_plot_loss_has_legend(self, losses_data: pd.DataFrame) -> None:
         """Test that plot has a legend."""
         fig, ax = plt.subplots()
-        plot_loss(fig, ax, losses_data, COMBINED_LOSSES)
+        plot_loss(fig, ax, losses_data, combined_metrics_columns())
         legend = ax.get_legend()
         assert legend is not None
         plt.close(fig)
@@ -624,7 +623,7 @@ def test_plot_loss_with_regularisation(losses_data):
     # Add a regularisation loss column
     losses_with_reg = losses_data.copy()
     losses_with_reg["loss_test_regularisation"] = 0.1
-    plot_loss(fig, ax, losses_with_reg, COMBINED_LOSSES)
+    plot_loss(fig, ax, losses_with_reg, combined_metrics_columns())
     # Check that it didn't crash
     plt.close(fig)
 

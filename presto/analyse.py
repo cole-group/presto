@@ -32,7 +32,7 @@ from .outputs import (
     WorkflowPathManager,
 )
 from .settings import SamplingSettings, WorkflowSettings
-from .writers import metrics_columns
+from .writers import combined_metrics_columns, dataset_metrics_columns
 
 logger = loguru.logger
 
@@ -921,17 +921,15 @@ def analyse_workflow(workflow_settings: WorkflowSettings) -> None:
         losses = read_losses(
             {i: path for i, path in metrics_paths.items() if path.exists()}
         )
-        columns = metrics_columns(len(train_protocols), len(test_protocols))
-        _plot_losses(losses, columns[:6], path_manager, plots_stage)
+        _plot_losses(losses, combined_metrics_columns(), path_manager, plots_stage)
         for split, protocols in (
             (DatasetSplit.TRAIN, train_protocols),
             (DatasetSplit.TEST, test_protocols),
         ):
             for k in range(len(protocols)):
-                prefix = f"loss_{split.name.lower()}_dataset_{k}_"
                 _plot_losses(
                     losses,
-                    [name for name in columns if name.startswith(prefix)],
+                    dataset_metrics_columns(split, k),
                     path_manager,
                     OutputStage(StageKind.PLOTS, split=split, dataset=k),
                 )
