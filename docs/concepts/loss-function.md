@@ -20,7 +20,7 @@ Each level of the loss is a mean over the level below, and each level has its ow
 
 Absolute weights set the scale: energies against forces against regularisation, and one entry against another. Relative weights only move weight between the conformers of one entry and cannot change the scale. Conformers whose reference energy (or forces) are not finite are excluded from that term automatically.
 
-Conformer counts are never weights. Adding conformers to an entry does not change its influence, and adding conformers or `memory` iterations does not change a molecule's. Only `molecule_weights` changes a molecule's influence. The one count that matters is the number of entries: each active entry of a molecule gets one share.
+Conformer counts are never weights. Adding conformers to an entry does not change its influence, and adding conformers or `memory` iterations does not change a molecule's. Only `molecule_weights` changes a molecule's influence. The only count that matters is the number of entries: each active entry of a molecule gets one share.
 
 ## Per-molecule loss
 
