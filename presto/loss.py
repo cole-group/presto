@@ -12,7 +12,7 @@ import smee
 import smee.utils
 import torch
 
-from .data_utils import get_weights_from_entry
+from .data_utils import get_conformer_weights_from_entry, get_weights_from_entry
 from .utils.gpu import free_gpu_memory
 
 logger = loguru.logger
@@ -27,63 +27,114 @@ class LossRecord(typing.NamedTuple):
     regularisation: torch.Tensor
 
 
+class Prediction(typing.NamedTuple):
+    """Predicted and reference energies and forces of one molecule, with weights.
+
+    Each tensor covers the conformations of every entry of the molecule, in order.
+    """
+
+    energy_ref: torch.Tensor
+    """Reference energies relative to each entry's offset, with shape (n_confs,)."""
+    energy_pred: torch.Tensor
+    """Predicted energies relative to each entry's offset, with shape (n_confs,)."""
+    forces_ref: torch.Tensor
+    """Reference forces with shape (n_confs * n_atoms, 3), 0 where not finite."""
+    forces_pred: torch.Tensor
+    """Predicted forces with shape (n_confs * n_atoms, 3)."""
+    energy_weights: torch.Tensor
+    """Absolute energy weights with shape (n_confs,)."""
+    forces_weights: torch.Tensor
+    """Absolute force weights with shape (n_confs,)."""
+    energy_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where the reference energy is not finite."""
+    forces_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where any reference force is not finite."""
+    entry_sizes: list[int]
+    """The number of conformations in each entry, in order."""
+
+
+def _mean_over_active_entries(
+    loss_per_conf: torch.Tensor,
+    weights: torch.Tensor,
+    conformer_weights: torch.Tensor,
+    entry_sizes: list[int],
+    min_n_confs: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Average the weighted mean losses of the active entries of one molecule.
+
+    Each entry's loss is ``sum(w r d) / sum(r)``. An entry is active when
+    ``sum(w r) > 0`` and it has at least ``min_n_confs`` conformations with ``r > 0``.
+    Activity depends only on the weights, so inactive entries are skipped without
+    forming ``0 / 0``. Returns 0 if no entry is active.
+    """
+    entry_losses = []
+    for entry_loss, entry_w, entry_r in zip(
+        torch.split(loss_per_conf, entry_sizes),
+        torch.split(weights, entry_sizes),
+        torch.split(conformer_weights, entry_sizes),
+        strict=True,
+    ):
+        if (entry_r > 0).sum() < min_n_confs or (entry_w * entry_r).sum() <= 0:
+            continue
+        entry_losses.append((entry_w * entry_r * entry_loss).sum() / entry_r.sum())
+
+    if not entry_losses:
+        return torch.tensor(0.0, dtype=loss_per_conf.dtype, device=device)
+    return torch.stack(entry_losses).mean()
+
+
 def _compute_molecule_energy_force_loss(
-    energy_ref: torch.Tensor,
-    energy_pred: torch.Tensor,
-    forces_ref: torch.Tensor,
-    forces_pred: torch.Tensor,
-    energy_weights: torch.Tensor,
-    forces_weights: torch.Tensor,
+    prediction: Prediction,
     n_atoms: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute weighted energy and force loss for a single molecule.
 
+    For each entry ``e`` and term (energy or forces), the loss is the weighted mean
+    ``L_e = sum_i(w_i r_i d_i) / sum_i(r_i)``, where ``w`` are the absolute weights,
+    ``r`` the relative conformer weights (0 for conformations with missing reference
+    data) and ``d`` the squared errors. The molecule's loss is the mean of ``L_e``
+    over the active entries, so each entry gets one share regardless of its number
+    of conformations. An entry is inactive for a term when ``sum(w r) == 0``, or, for
+    energies, when fewer than two conformations have ``r > 0`` (the energy offset
+    makes a single energy carry no information).
+
     Args:
-        energy_ref: Reference energies with shape (n_confs,).
-        energy_pred: Predicted energies with shape (n_confs,).
-        forces_ref: Reference forces with shape (n_confs * n_atoms, 3).
-        forces_pred: Predicted forces with shape (n_confs * n_atoms, 3).
-        energy_weights: Per-conformation energy weights with shape (n_confs,).
-        forces_weights: Per-conformation force weights with shape (n_confs,).
+        prediction: The molecule's predicted and reference energies and forces, with
+            their weights.
         n_atoms: Number of atoms in the molecule.
         device: Device for tensor creation.
 
     Returns:
         Tuple of (energy_loss, force_loss) for this molecule.
     """
-    n_confs = energy_ref.shape[0]
+    n_confs = prediction.energy_ref.shape[0]
 
-    # Energy loss (weighted per conformation, then averaged)
-    energy_diff_sq = ((energy_ref - energy_pred) / n_atoms) ** 2
-    weighted_energy_loss = (energy_diff_sq * energy_weights).sum()
+    energy_diff_sq = ((prediction.energy_ref - prediction.energy_pred) / n_atoms) ** 2
 
-    # Effective sample size for weighted average
-    effective_energy_sample_size = torch.sum(energy_weights) ** 2 / torch.sum(
-        energy_weights**2
-    )
-    if effective_energy_sample_size > 0:
-        energy_loss = weighted_energy_loss / effective_energy_sample_size
-    else:
-        energy_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
-
-    # Force loss (weighted per conformation, then averaged)
-    forces_ref_reshaped = forces_ref.reshape(n_confs, n_atoms, 3)
-    forces_pred_reshaped = forces_pred.reshape(n_confs, n_atoms, 3)
+    forces_ref_reshaped = prediction.forces_ref.reshape(n_confs, n_atoms, 3)
+    forces_pred_reshaped = prediction.forces_pred.reshape(n_confs, n_atoms, 3)
     forces_diff_sq = (forces_ref_reshaped - forces_pred_reshaped) ** 2
-
-    # Sum over atoms and dimensions for each conformation
+    # Average over atoms and dimensions for each conformation
     forces_loss_per_conf = forces_diff_sq.sum(dim=[1, 2]) / (3 * n_atoms)
-    weighted_force_loss = (forces_loss_per_conf * forces_weights).sum()
 
-    effective_force_sample_size = torch.sum(forces_weights) ** 2 / torch.sum(
-        forces_weights**2
+    energy_loss = _mean_over_active_entries(
+        energy_diff_sq,
+        prediction.energy_weights,
+        prediction.energy_conformer_weights,
+        prediction.entry_sizes,
+        min_n_confs=2,
+        device=device,
     )
-    if effective_force_sample_size > 0:
-        force_loss = weighted_force_loss / effective_force_sample_size
-    else:
-        force_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
-
+    force_loss = _mean_over_active_entries(
+        forces_loss_per_conf,
+        prediction.forces_weights,
+        prediction.forces_conformer_weights,
+        prediction.entry_sizes,
+        min_n_confs=1,
+        device=device,
+    )
     return energy_loss, force_loss
 
 
@@ -99,14 +150,7 @@ def _compute_molecule_loss(
     The losses stay attached to the force field parameters when ``create_graph``
     is True, so they can be differentiated.
     """
-    (
-        energy_ref,
-        energy_pred,
-        forces_ref,
-        forces_pred,
-        energy_weights,
-        forces_weights,
-    ) = predict_with_weights(
+    prediction = predict_with_weights(
         dataset,
         force_field,
         {dataset[0]["smiles"]: topology},
@@ -114,16 +158,7 @@ def _compute_molecule_loss(
         normalize=False,
         create_graph=create_graph,
     )
-    return _compute_molecule_energy_force_loss(
-        energy_ref,
-        energy_pred,
-        forces_ref,
-        forces_pred,
-        energy_weights,
-        forces_weights,
-        topology.n_atoms,
-        device,
-    )
+    return _compute_molecule_energy_force_loss(prediction, topology.n_atoms, device)
 
 
 def _compute_molecule_total_loss_and_grad(
@@ -192,6 +227,7 @@ def compute_dataset_loss_and_grad(
     topologies: list[smee.TensorTopology],
     device: torch.device,
     compute_grad: bool = True,
+    molecule_weights: list[float] | None = None,
 ) -> tuple[DatasetLoss, torch.Tensor | None]:
     """Compute the loss of one dataset and optionally its gradient, without regularisation.
 
@@ -200,6 +236,9 @@ def compute_dataset_loss_and_grad(
     than computing the full loss and calling .backward(), especially when
     training with multiple molecules.
 
+    The molecules are combined as ``sum_j m_j L_j / sum_j m_j``, and molecules with
+    a weight of 0 are skipped.
+
     Args:
         datasets_list: The dataset for each molecule, in the order of ``topologies``.
         trainable: The trainable object containing the force field.
@@ -207,9 +246,11 @@ def compute_dataset_loss_and_grad(
         topologies: List of topologies of the molecules in the datasets.
         device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
+        molecule_weights: The weight of each molecule. None (the default) weights
+            the molecules equally.
 
     Returns:
-        Tuple of (DatasetLoss averaged over molecules, averaged gradient or None)
+        Tuple of (DatasetLoss weighted over molecules, weighted gradient or None)
     """
     # Create force field once and reuse for all molecules
     force_field = trainable.to_force_field(trainable_parameters)
@@ -220,8 +261,16 @@ def compute_dataset_loss_and_grad(
     if compute_grad:
         accumulated_gradient = torch.zeros_like(trainable_parameters)
 
+    normalised_weights = _normalise_molecule_weights(
+        molecule_weights, len(datasets_list)
+    )
+
     # Process each molecule separately to minimize memory usage
-    for dataset, topology in zip(datasets_list, topologies, strict=True):
+    for dataset, topology, weight in zip(
+        datasets_list, topologies, normalised_weights, strict=True
+    ):
+        if weight == 0.0:
+            continue
         energy_loss, force_loss, gradient = _compute_molecule_total_loss_and_grad(
             force_field,
             dataset,
@@ -233,22 +282,18 @@ def compute_dataset_loss_and_grad(
 
         if compute_grad and gradient is not None and accumulated_gradient is not None:
             # Accumulate gradients from each molecule
-            accumulated_gradient += gradient
+            accumulated_gradient += weight * gradient
 
-        energy_losses.append(energy_loss)
-        force_losses.append(force_loss)
+        energy_losses.append(weight * energy_loss)
+        force_losses.append(weight * force_loss)
 
         # Free GPU memory after each molecule
         if device.type == "cuda":
             free_gpu_memory()
 
-    # Average losses across molecules
-    avg_energy_loss = torch.stack(energy_losses).mean()
-    avg_force_loss = torch.stack(force_losses).mean()
-
-    # Average accumulated gradients
-    if compute_grad and accumulated_gradient is not None:
-        accumulated_gradient /= len(datasets_list)
+    # The weights are normalised, so the sums are weighted means over molecules
+    avg_energy_loss = torch.stack(energy_losses).sum()
+    avg_force_loss = torch.stack(force_losses).sum()
 
     return DatasetLoss(energy=avg_energy_loss, forces=avg_force_loss), (
         accumulated_gradient
@@ -272,6 +317,42 @@ def _normalise_dataset_weights(
     return [weight / total_weight for weight in dataset_weights]
 
 
+def _normalise_molecule_weights(
+    molecule_weights: list[float] | None, n_molecules: int
+) -> list[float]:
+    """Check there is one weight per molecule and normalise them to sum to one.
+
+    None weights the molecules equally.
+    """
+    if molecule_weights is None:
+        return [1.0 / n_molecules] * n_molecules
+    if len(molecule_weights) != n_molecules:
+        raise ValueError(
+            f"Got {len(molecule_weights)} molecule weights for {n_molecules} molecules"
+        )
+    total_weight = sum(molecule_weights)
+    if any(weight < 0 for weight in molecule_weights) or total_weight <= 0:
+        raise ValueError(
+            "Molecule weights must be non-negative with at least one positive, "
+            f"got {molecule_weights}"
+        )
+    return [weight / total_weight for weight in molecule_weights]
+
+
+def _molecule_weights_for_dataset(
+    molecule_weights: list[list[float] | None] | None, n_datasets: int, dataset_idx: int
+) -> list[float] | None:
+    """Return the molecule weights of one dataset, checking there is a list per dataset."""
+    if molecule_weights is None:
+        return None
+    if len(molecule_weights) != n_datasets:
+        raise ValueError(
+            f"Got {len(molecule_weights)} lists of molecule weights for "
+            f"{n_datasets} datasets"
+        )
+    return molecule_weights[dataset_idx]
+
+
 def compute_overall_loss_and_grad(
     per_molecule_datasets_by_dataset: list[list[datasets.Dataset]],
     dataset_weights: list[float],
@@ -282,6 +363,7 @@ def compute_overall_loss_and_grad(
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
     compute_grad: bool = True,
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> tuple[LossRecord, list[DatasetLoss], torch.Tensor | None]:
     """Compute the weighted loss over several datasets, plus regularisation.
 
@@ -301,6 +383,9 @@ def compute_overall_loss_and_grad(
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
@@ -313,8 +398,8 @@ def compute_overall_loss_and_grad(
     accumulated_gradient = (
         torch.zeros_like(trainable_parameters) if compute_grad else None
     )
-    for datasets_list, weight in zip(
-        per_molecule_datasets_by_dataset, normalised_weights, strict=True
+    for k, (datasets_list, weight) in enumerate(
+        zip(per_molecule_datasets_by_dataset, normalised_weights, strict=True)
     ):
         dataset_loss, gradient = compute_dataset_loss_and_grad(
             datasets_list,
@@ -323,6 +408,9 @@ def compute_overall_loss_and_grad(
             topologies,
             device,
             compute_grad=compute_grad,
+            molecule_weights=_molecule_weights_for_dataset(
+                molecule_weights, len(per_molecule_datasets_by_dataset), k
+            ),
         )
         dataset_losses.append(dataset_loss)
         if gradient is not None and accumulated_gradient is not None:
@@ -408,15 +496,14 @@ def compute_regularisation_loss(
             f"regularisation value {regularisation_target} not implemented"
         )
 
-    effective_sample_size = torch.sum(regularisation_weights) ** 2 / torch.sum(
-        regularisation_weights**2
-    )
-
-    # L2 regularisation on all parameters
+    # Mean of the weighted squared deviations over the parameters with a positive
+    # weight, so the loss rises linearly with each weight and a weight of 0 is the
+    # same as not regularising the parameter
+    n_weighted = (regularisation_weights > 0).sum()
     reg_loss += (
         ((trainable_parameters[regularised_idxs] - target) ** 2)
         * regularisation_weights
-    ).sum() / effective_sample_size
+    ).sum() / n_weighted
 
     return reg_loss
 
@@ -430,6 +517,7 @@ def compute_overall_loss_hessian(
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> torch.Tensor:
     """Compute the Hessian of the loss from `compute_overall_loss_and_grad`.
 
@@ -446,6 +534,9 @@ def compute_overall_loss_hessian(
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         The Hessian with ``shape=(n_parameters, n_parameters)``.
@@ -456,10 +547,20 @@ def compute_overall_loss_hessian(
     x = trainable_parameters.detach()
     hessian = torch.zeros(len(x), len(x), dtype=x.dtype, device=x.device)
 
-    for datasets_list, weight in zip(
-        per_molecule_datasets_by_dataset, normalised_weights, strict=True
+    for k, (datasets_list, weight) in enumerate(
+        zip(per_molecule_datasets_by_dataset, normalised_weights, strict=True)
     ):
-        for dataset, topology in zip(datasets_list, topologies, strict=True):
+        normalised_molecule_weights = _normalise_molecule_weights(
+            _molecule_weights_for_dataset(
+                molecule_weights, len(per_molecule_datasets_by_dataset), k
+            ),
+            len(datasets_list),
+        )
+        for dataset, topology, molecule_weight in zip(
+            datasets_list, topologies, normalised_molecule_weights, strict=True
+        ):
+            if molecule_weight == 0.0:
+                continue
 
             def molecule_loss(
                 _x: torch.Tensor,
@@ -479,7 +580,7 @@ def compute_overall_loss_hessian(
             molecule_hessian = torch.autograd.functional.hessian(  # type: ignore[no-untyped-call]
                 molecule_loss, x
             )
-            hessian += weight / len(datasets_list) * molecule_hessian.detach()
+            hessian += weight * molecule_weight * molecule_hessian.detach()
 
             if device.type == "cuda":
                 free_gpu_memory()
@@ -503,6 +604,7 @@ def get_loss_closure_fn(
     initial_parameters: torch.Tensor,
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> descent.optim.ClosureFn:
     """Return a closure function for use with Levenberg-Marquardt optimizer.
 
@@ -519,6 +621,9 @@ def get_loss_closure_fn(
         initial_parameters: The initial parameters before training.
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: Type of regularisation ('initial' or 'zero').
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient
@@ -543,6 +648,7 @@ def get_loss_closure_fn(
                 topologies,
                 regularisation_target,
                 x.device,
+                molecule_weights=molecule_weights,
             )
 
         # Compute loss and gradient
@@ -556,6 +662,7 @@ def get_loss_closure_fn(
             regularisation_target,
             x.device,
             compute_grad=compute_gradient,
+            molecule_weights=molecule_weights,
         )
 
         total_loss = (
@@ -579,13 +686,13 @@ def predict_with_weights(
     normalize: bool = True,
     device: torch.device = _CPU_DEVICE,
     create_graph: bool = False,
-) -> tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
-    """Predict the relative energies and forces with associated weights from the dataset.
+) -> Prediction:
+    """Predict the relative energies and forces of a dataset, with their weights.
 
-    This function is similar to `predict` but also returns the energy and force weights
-    from the dataset entries.
+    With ``reference="mean"``, each entry's energies are offset by their mean weighted
+    by the relative conformer weights. Non-finite reference energies and forces are
+    replaced with 0, so no NaN enters the graph, and their conformations get a
+    conformer weight of 0 for that term.
 
     Args:
         dataset: The dataset to predict the energies and forces of.
@@ -594,15 +701,16 @@ def predict_with_weights(
         reference: The reference energy to compute the relative energies with respect to.
         normalize: Whether to scale the relative energies and forces.
         device: Device for computations.
-
         create_graph: Whether to create a computation graph for gradients.
 
     Returns:
-        Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
+        The predicted and reference energies and forces, with their weights.
     """
     energy_ref_all, energy_pred_all = [], []
     forces_ref_all, forces_pred_all = [], []
     energy_weights_all, forces_weights_all = [], []
+    energy_conformer_weights_all, forces_conformer_weights_all = [], []
+    entry_sizes = []
 
     for entry in dataset:
         smiles = entry["smiles"]
@@ -614,6 +722,15 @@ def predict_with_weights(
         energy_weights, forces_weights = get_weights_from_entry(entry)
         energy_weights = energy_weights.to(device)
         forces_weights = forces_weights.to(device)
+        conformer_weights = get_conformer_weights_from_entry(entry).to(device)
+
+        # Mask missing reference data before it is used anywhere
+        energy_valid = torch.isfinite(energy_ref)
+        forces_valid = torch.isfinite(forces_ref).all(dim=(1, 2))
+        energy_ref = torch.where(energy_valid, energy_ref, 0.0)
+        forces_ref = torch.where(torch.isfinite(forces_ref), forces_ref, 0.0)
+        energy_conformer_weights = conformer_weights * energy_valid
+        forces_conformer_weights = conformer_weights * forces_valid
 
         coords_flat = smee.utils.tensor_like(
             entry["coords"], force_field.potentials[0].parameters
@@ -637,8 +754,16 @@ def predict_with_weights(
         )[0]
 
         if reference.lower() == "mean":
-            energy_ref_0 = energy_ref.mean()
-            energy_pred_0 = energy_pred.mean()
+            # Weighted by the relative weights only, so the loss stays linear in the
+            # absolute weights
+            offset_weights = energy_conformer_weights
+            total_offset_weight = offset_weights.sum()
+            if total_offset_weight > 0:
+                offset_weights = offset_weights / total_offset_weight
+            energy_ref_0 = (offset_weights * energy_ref).sum()
+            energy_pred_0 = (
+                smee.utils.tensor_like(offset_weights, energy_pred) * energy_pred
+            ).sum()
         elif reference.lower() == "min":
             min_idx = energy_ref.argmin()
             energy_ref_0 = energy_ref[min_idx]
@@ -663,6 +788,9 @@ def predict_with_weights(
 
         energy_weights_all.append(energy_weights)
         forces_weights_all.append(forces_weights)
+        energy_conformer_weights_all.append(energy_conformer_weights)
+        forces_conformer_weights_all.append(forces_conformer_weights)
+        entry_sizes.append(len(energy_ref))
 
     energy_pred_all_tensor = torch.cat(energy_pred_all)
     forces_pred_all_tensor = torch.cat(forces_pred_all)
@@ -677,14 +805,14 @@ def predict_with_weights(
         forces_ref_all_tensor, forces_pred_all_tensor
     )
 
-    energy_weights_tensor = torch.cat(energy_weights_all)
-    forces_weights_tensor = torch.cat(forces_weights_all)
-
-    return (
-        energy_ref_all_tensor,
-        energy_pred_all_tensor,
-        forces_ref_all_tensor,
-        forces_pred_all_tensor,
-        energy_weights_tensor,
-        forces_weights_tensor,
+    return Prediction(
+        energy_ref=energy_ref_all_tensor,
+        energy_pred=energy_pred_all_tensor,
+        forces_ref=forces_ref_all_tensor,
+        forces_pred=forces_pred_all_tensor,
+        energy_weights=torch.cat(energy_weights_all),
+        forces_weights=torch.cat(forces_weights_all),
+        energy_conformer_weights=torch.cat(energy_conformer_weights_all),
+        forces_conformer_weights=torch.cat(forces_conformer_weights_all),
+        entry_sizes=entry_sizes,
     )

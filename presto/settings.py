@@ -25,6 +25,7 @@ from pydantic_units import OpenMMQuantity
 
 from . import __version__
 from ._exceptions import InvalidSettingsError
+from .data_utils import DEFAULT_ENERGY_WEIGHT, DEFAULT_FORCES_WEIGHT
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
@@ -213,8 +214,64 @@ class _DatasetSettingsBase(_DefaultSettings, ABC):
         "training or testing datasets are given. Each dataset's loss is computed "
         "separately, so its influence does not depend on how many conformers it "
         "contains, and the weights are normalised by their sum. Has no effect when "
-        "only one dataset is given.",
+        "only one dataset is given. Within a dataset, molecules are combined "
+        "according to `molecule_weights`.",
     )
+
+    molecule_weights: list[float] | None = Field(
+        None,
+        description="Relative weight of each molecule in this dataset's loss, one per "
+        "molecule in the order they are loaded from `param_settings.molecules`. The "
+        "weights are normalised by their sum, and a molecule with weight 0 is left out "
+        "of the loss (it is still sampled). This, not its number of conformers, sets "
+        "a molecule's influence. None (the default) weights all molecules equally.",
+    )
+
+    conformer_weights_fn: str | None = Field(
+        None,
+        description="Optional function giving relative weights to the conformers of "
+        "each molecule, as 'package.module:func' (the module must be importable, "
+        "e.g. on PYTHONPATH). It is called with each molecule's dataset after outlier "
+        "filtering and `memory`, and must return one finite, non-negative weight per "
+        "conformer, ordered entry by entry, with at least one positive. Only ratios "
+        "within an entry matter, and 0 excludes a conformer. See the 'Weight "
+        "conformers and molecules' how-to guide.",
+    )
+
+    @field_validator("molecule_weights")
+    @classmethod
+    def validate_molecule_weights(cls, value: list[float] | None) -> list[float] | None:
+        """Check the molecule weights are non-negative with at least one positive."""
+        if value is None:
+            return value
+        if any(weight < 0 for weight in value) or not any(w > 0 for w in value):
+            raise InvalidSettingsError(
+                "molecule_weights must be non-negative with at least one positive, "
+                f"got {value}"
+            )
+        return value
+
+    @field_validator("conformer_weights_fn")
+    @classmethod
+    def validate_conformer_weights_fn(cls, value: str | None) -> str | None:
+        """Check the spec has the form 'package.module:func'.
+
+        The function is only imported when a fit starts, so that commands such as
+        ``presto clean`` never import user code.
+        """
+        if value is None:
+            return value
+        module_name, sep, attr_name = value.partition(":")
+        if (
+            not sep
+            or not all(part.isidentifier() for part in module_name.split("."))
+            or not attr_name.isidentifier()
+        ):
+            raise InvalidSettingsError(
+                "conformer_weights_fn must have the form 'package.module:func', "
+                f"got {value!r}"
+            )
+        return value
 
     @property
     @abstractmethod
@@ -283,16 +340,18 @@ class _SamplingSettingsBase(_DatasetSettingsBase, ABC):
     )
 
     loss_energy_weight: float = Field(
-        1000.0,
-        description="Scaling factor for the energy loss term (energies are in "
-        "kcal/mol). The default (1000) is much larger than `loss_force_weight` (0.1) "
-        "to balance the different units of energy and force contributions to the loss.",
+        DEFAULT_ENERGY_WEIGHT,
+        description="Absolute scale of the energy loss term (energies are in "
+        "kcal/mol); the loss rises linearly with it. The default (1000) is much "
+        "larger than `loss_force_weight` (0.1) to balance the different units of "
+        "energy and force contributions to the loss.",
     )
 
     loss_force_weight: float = Field(
-        0.1,
-        description="Scaling factor for the force loss term (forces are in "
-        "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
+        DEFAULT_FORCES_WEIGHT,
+        description="Absolute scale of the force loss term (forces are in "
+        "kcal/mol/Å); the loss rises linearly with it. See `loss_energy_weight` for "
+        "context on the default ratio.",
     )
 
     @property
@@ -424,30 +483,36 @@ class TorsionMinimisationSettings(_DefaultSettings):
 
     loss_energy_weight_mm_torsion_min: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_energy_weight field.",
+        description="Absolute scale of the energy loss term for torsion-minimised samples, "
+        "using MM minimisation. The MD, MLP-minimised and MM-minimised samples each "
+        "count as one entry of equal share, so this sets their balance directly, "
+        "independent of how many conformers each has, and 0 drops these samples from "
+        "the energy term. Note that the weights for the MMMD samples are controlled "
+        "by the loss_energy_weight field.",
     )
 
     loss_force_weight_mm_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples, using "
-        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_force_weight field.",
+        description="Absolute scale of the force loss term for torsion-minimised samples, "
+        "using MM minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the force term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_force_weight field.",
     )
 
     loss_energy_weight_ml_torsion_min: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_energy_weight field.",
+        description="Absolute scale of the energy loss term for torsion-minimised samples, "
+        "using MLP minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the energy term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_energy_weight field.",
     )
 
     loss_force_weight_ml_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples, using "
-        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_force_weight field.",
+        description="Absolute scale of the force loss term for torsion-minimised samples, "
+        "using MLP minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the force term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_force_weight field.",
     )
 
 
@@ -1267,6 +1332,26 @@ class WorkflowSettings(_DefaultSettings):
                         f"{name}[{k}] has {len(protocol.dataset_paths)} dataset paths, "
                         f"but there are {n_mols} molecules. Provide one dataset path "
                         "per molecule."
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def validate_molecule_weight_counts(self) -> Self:
+        """Fail before any sampling if a protocol has the wrong number of molecule weights."""
+        n_mols = len(self.param_settings.openff_molecules)
+        for name, protocols in (
+            ("training_sampling_settings", self.training_sampling_settings),
+            ("testing_sampling_settings", self.testing_sampling_settings),
+        ):
+            for k, protocol in enumerate(protocols):
+                if (
+                    protocol.molecule_weights is not None
+                    and len(protocol.molecule_weights) != n_mols
+                ):
+                    raise InvalidSettingsError(
+                        f"{name}[{k}] has {len(protocol.molecule_weights)} molecule "
+                        f"weights, but there are {n_mols} molecules. Provide one "
+                        "weight per molecule."
                     )
         return self
 

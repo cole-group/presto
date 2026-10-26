@@ -53,15 +53,15 @@ def write_scatter(
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
-    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
-        predict_with_weights(
-            dataset,
-            force_field,
-            {dataset[0]["smiles"]: topology_in},
-            device=device,
-            normalize=False,
-        )
+    prediction = predict_with_weights(
+        dataset,
+        force_field,
+        {dataset[0]["smiles"]: topology_in},
+        device=device,
+        normalize=False,
     )
+    energy_ref_all, energy_pred_all = prediction.energy_ref, prediction.energy_pred
+    forces_ref_all, forces_pred_all = prediction.forces_ref, prediction.forces_pred
 
     with torch.no_grad():
         energy_diffs = energy_pred_all - energy_ref_all
@@ -113,6 +113,8 @@ def report(
     regularisation_target: typing.Literal["initial", "zero"],
     metrics_file: PathLike,
     experiment_dir: pathlib.Path,
+    molecule_weights: list[list[float] | None] | None = None,
+    molecule_weights_test: list[list[float] | None] | None = None,
 ) -> None:
     """Report training progress for Levenberg-Marquardt optimizer.
 
@@ -139,6 +141,10 @@ def report(
         metrics_file: Path to the metrics output file, which must already contain
             its header (see `write_metrics_header`).
         experiment_dir: Path to the TensorBoard experiment directory.
+        molecule_weights: For each training dataset, the weight of each molecule.
+            None, for all datasets or one, weights the molecules equally.
+        molecule_weights_test: For each test dataset, the weight of each molecule.
+            None, for all datasets or one, weights the molecules equally.
     """
     with torch.enable_grad():  # type: ignore[no-untyped-call]
         # Compute training loss using the same function as train_adam
@@ -152,6 +158,7 @@ def report(
             regularisation_target,
             x.device,
             compute_grad=False,
+            molecule_weights=molecule_weights,
         )
 
         # Compute test loss using the same function as train_adam
@@ -165,6 +172,7 @@ def report(
             regularisation_target,
             x.device,
             compute_grad=False,
+            molecule_weights=molecule_weights_test,
         )
 
         with open_writer(experiment_dir) as writer:

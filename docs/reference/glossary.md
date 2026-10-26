@@ -8,6 +8,15 @@ One-line definitions for terms used throughout these docs.
 **Congeneric series**
 : A set of related molecules sharing a common scaffold. In `presto`, congeneric fits share parameters across the series wherever SMIRKS overlap (controlled by `max_extend_distance`).
 
+**Conformer weight**
+: A relative weight for one conformer within its entry, set with `conformer_weights_fn`. Only ratios within an entry matter, and 0 excludes the conformer. See **[The loss function](../concepts/loss-function.md)**.
+
+**Dataset weight**
+: The relative weight of a training (or testing) dataset in the loss, set with `dataset_weight` and normalised across datasets.
+
+**Entry**
+: A set of conformers of one molecule that share an energy offset, such as the snapshots of an MD run, a set of minimised structures, or a row of a pre-computed dataset. Each active entry gets an equal share of its molecule's loss.
+
 **Interchange**
 : OpenFF's intermediate representation between SMIRNOFF and downstream MD engines. Produced by `ForceField.create_interchange(topology)`.
 
@@ -19,6 +28,9 @@ One-line definitions for terms used throughout these docs.
 
 **MSM** (modified Seminario method)
 : An algorithm for deriving bond and angle force constants and equilibrium values from the molecular Hessian. See [the paper](https://doi.org/10.1021/acs.jctc.7b00785).
+
+**Molecule weight**
+: The relative weight of a molecule within a dataset's loss, set with `molecule_weights` and normalised across the dataset's molecules.
 
 **offxml**
 : The XML serialisation of a SMIRNOFF force field. Produced by OpenFF and consumed by anything that parses SMIRNOFF.

@@ -24,7 +24,12 @@ from presto.convert import convert_to_smirnoff
 
 from .analyse import analyse_workflow
 from .convert import parameterise
-from .data_utils import filter_dataset_outliers
+from .data_utils import (
+    ConformerWeightsFn,
+    apply_conformer_weights,
+    filter_dataset_outliers,
+    load_conformer_weights_fn,
+)
 from .outputs import (
     DatasetSplit,
     OutputStage,
@@ -193,6 +198,18 @@ def write_test_scatter(
             )
 
 
+def _load_conformer_weights_fns(
+    protocols: list[SamplingSettings],
+) -> list[ConformerWeightsFn | None]:
+    """Import the conformer weights function of each protocol, or None if it has none."""
+    return [
+        None
+        if protocol.conformer_weights_fn is None
+        else load_conformer_weights_fn(protocol.conformer_weights_fn)
+        for protocol in protocols
+    ]
+
+
 def get_bespoke_force_field(
     settings: WorkflowSettings, write_settings: bool = True
 ) -> ForceField:
@@ -219,6 +236,14 @@ def get_bespoke_force_field(
     ForceField
         The fitted bespoke force field.
     """
+    # Import any user code before creating output, so a bad spec fails early
+    conformer_weights_fns_train = _load_conformer_weights_fns(
+        settings.training_sampling_settings
+    )
+    conformer_weights_fns_test = _load_conformer_weights_fns(
+        settings.testing_sampling_settings
+    )
+
     path_manager = settings.get_path_manager()
     # Refuse to run if generated output from an earlier fit is still present.
     path_manager.require_clean()
@@ -269,6 +294,15 @@ def get_bespoke_force_field(
     stage = OutputStage(StageKind.TESTING)
     path_manager.mk_stage_dir(stage)
     logger.info("Generating test data")
+
+    def process_testing_dataset(
+        dataset_idx: int, mol_idx: int, dataset: datasets.Dataset
+    ) -> datasets.Dataset:
+        conformer_weights_fn = conformer_weights_fns_test[dataset_idx]
+        if conformer_weights_fn is None:
+            return dataset
+        return apply_conformer_weights(dataset, conformer_weights_fn)
+
     datasets_test = sample_datasets(
         stage=stage,
         split=DatasetSplit.TEST,
@@ -278,9 +312,13 @@ def get_bespoke_force_field(
         path_manager=path_manager,
         device_type=settings.device_type,
         n_processes=settings.n_sampling_processes,
+        process_dataset=process_testing_dataset,
     )
     dataset_weights_test = [
         protocol.dataset_weight for protocol in settings.testing_sampling_settings
+    ]
+    molecule_weights_test = [
+        protocol.molecule_weights for protocol in settings.testing_sampling_settings
     ]
 
     # Write out statistics on the initial force field
@@ -304,6 +342,9 @@ def get_bespoke_force_field(
     train_fn = _TRAINING_FNS_REGISTRY[settings.training_settings.optimiser]
     dataset_weights = [
         protocol.dataset_weight for protocol in settings.training_sampling_settings
+    ]
+    molecule_weights = [
+        protocol.molecule_weights for protocol in settings.training_sampling_settings
     ]
 
     # Train the force field
@@ -335,6 +376,10 @@ def get_bespoke_force_field(
             dataset = datasets.combine.concatenate_datasets(
                 [previous_datasets[dataset_idx][mol_idx], dataset]
             )
+        # After memory, so the function sees every conformer the loss will
+        conformer_weights_fn = conformer_weights_fns_train[dataset_idx]
+        if conformer_weights_fn is not None:
+            dataset = apply_conformer_weights(dataset, conformer_weights_fn)
         return dataset
 
     with progress:
@@ -379,6 +424,8 @@ def get_bespoke_force_field(
                 datasets_test=datasets_test,
                 dataset_weights=dataset_weights,
                 dataset_weights_test=dataset_weights_test,
+                molecule_weights=molecule_weights,
+                molecule_weights_test=molecule_weights_test,
                 settings=settings.training_settings,
                 output_paths=train_output_paths,
                 device=settings.device,

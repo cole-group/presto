@@ -1,13 +1,19 @@
 """Utilities for creating and manipulating datasets with energy and force weights.
 
 This module provides a custom dataset schema that extends the descent.targets.energy
-schema with energy_weights and forces_weights fields for per-conformation loss weighting.
+schema with per-conformation loss weights. ``energy_weights`` and ``forces_weights``
+are absolute scales, while ``conformer_weights`` are relative weights which only
+redistribute weight between the conformations of one entry. Conformations with
+non-finite reference data are masked out of the loss automatically. See the loss
+function concept page in the docs for how these are combined.
 """
 
 from __future__ import annotations
 
+import importlib
 import typing
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, NotRequired
 
 import datasets
 import datasets.table
@@ -23,6 +29,11 @@ if TYPE_CHECKING:
 logger = loguru.logger
 _CPU_DEVICE = torch.device("cpu")
 
+# Default absolute scales of the energy and force losses, used by the sampling
+# settings and for datasets without weight columns
+DEFAULT_ENERGY_WEIGHT = 1000.0
+DEFAULT_FORCES_WEIGHT = 0.1
+
 # Schema with weights for energy and forces
 WEIGHTED_DATA_SCHEMA = pyarrow.schema(
     [
@@ -32,8 +43,12 @@ WEIGHTED_DATA_SCHEMA = pyarrow.schema(
         ("forces", pyarrow.list_(pyarrow.float64())),
         ("energy_weights", pyarrow.list_(pyarrow.float64())),
         ("forces_weights", pyarrow.list_(pyarrow.float64())),
+        ("conformer_weights", pyarrow.list_(pyarrow.float64())),
     ]
 )
+
+ConformerWeightsFn = Callable[[datasets.Dataset], typing.Any]
+"""A user function returning one relative weight per conformation of a dataset."""
 
 
 class WeightedEntry(typing.TypedDict):
@@ -54,13 +69,17 @@ class WeightedEntry(typing.TypedDict):
     """The reference forces [kcal/mol/Å] with ``shape=(n_confs, n_particles, 3)``."""
 
     energy_weights: torch.Tensor
-    """The weights for energy loss contributions with ``shape=(n_confs,)``.
-    Values of 0 will exclude that conformation from energy loss."""
+    """The absolute scales of the energy loss contributions with ``shape=(n_confs,)``.
+    The loss rises linearly with each of them."""
 
     forces_weights: torch.Tensor
-    """The weights for forces loss contributions with ``shape=(n_confs,)``.
-    Values of 0 will exclude that conformation from forces loss.
-    NaN forces should have weight 0."""
+    """The absolute scales of the forces loss contributions with ``shape=(n_confs,)``.
+    The loss rises linearly with each of them."""
+
+    conformer_weights: NotRequired[torch.Tensor]
+    """The relative weights of the conformations within this entry with
+    ``shape=(n_confs,)``. Only their ratios matter, and 0 excludes a conformation from
+    both the energy and forces loss. Defaults to ones."""
 
 
 def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
@@ -68,7 +87,8 @@ def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
 
     Args:
         entries: The entries to create the dataset from. Each entry must include
-            energy_weights and forces_weights tensors.
+            energy_weights and forces_weights tensors, and may include
+            conformer_weights (ones if absent).
 
     Returns:
         The created dataset with torch format.
@@ -84,6 +104,11 @@ def create_weighted_dataset(entries: list[WeightedEntry]) -> datasets.Dataset:
                 .flatten()
                 .tolist(),
                 "forces_weights": torch.as_tensor(entry["forces_weights"])
+                .flatten()
+                .tolist(),
+                "conformer_weights": torch.as_tensor(
+                    get_conformer_weights_from_entry(entry)
+                )
                 .flatten()
                 .tolist(),
             }
@@ -124,14 +149,7 @@ def create_dataset_with_uniform_weights(
     """
     n_confs = len(energy)
 
-    # Check if forces contain NaN - set forces_weight to 0 for those conformations
-    forces_reshaped = forces.reshape(n_confs, -1, 3) if forces.dim() == 2 else forces
-    forces_weights_array = torch.full((n_confs,), forces_weight, dtype=torch.float64)
-
-    for i in range(n_confs):
-        if torch.isnan(forces_reshaped[i]).any():
-            forces_weights_array[i] = 0.0
-
+    # Conformations with NaN reference data are masked by the loss itself
     return create_weighted_dataset(
         [
             {
@@ -142,7 +160,9 @@ def create_dataset_with_uniform_weights(
                 "energy_weights": torch.full(
                     (n_confs,), energy_weight, dtype=torch.float64
                 ),
-                "forces_weights": forces_weights_array,
+                "forces_weights": torch.full(
+                    (n_confs,), forces_weight, dtype=torch.float64
+                ),
             }
         ]
     )
@@ -190,6 +210,7 @@ def merge_weighted_datasets(datasets_list: list[datasets.Dataset]) -> datasets.D
 
             # Make energies relative to minimum within this entry
             energy = entry["energy"] - entry["energy"].min()
+            energy_weights, forces_weights = get_weights_from_entry(entry)
 
             all_entries.append(
                 {
@@ -197,8 +218,9 @@ def merge_weighted_datasets(datasets_list: list[datasets.Dataset]) -> datasets.D
                     "coords": coords,
                     "energy": energy,
                     "forces": forces,
-                    "energy_weights": entry["energy_weights"],
-                    "forces_weights": entry["forces_weights"],
+                    "energy_weights": energy_weights,
+                    "forces_weights": forces_weights,
+                    "conformer_weights": get_conformer_weights_from_entry(entry),
                 }
             )
 
@@ -223,8 +245,8 @@ def has_weights(dataset: datasets.Dataset) -> bool:
 
 def get_weights_from_entry(
     entry: WeightedEntry,
-    default_energy_weight: float = 1.0,
-    default_forces_weight: float = 1.0,
+    default_energy_weight: float = DEFAULT_ENERGY_WEIGHT,
+    default_forces_weight: float = DEFAULT_FORCES_WEIGHT,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Get energy and forces weights from a dataset entry.
 
@@ -255,6 +277,101 @@ def get_weights_from_entry(
         )
 
     return energy_weights, forces_weights
+
+
+def get_conformer_weights_from_entry(
+    entry: typing.Mapping[str, typing.Any],
+) -> torch.Tensor:
+    """Get the relative conformer weights of a dataset entry.
+
+    Args:
+        entry: A single entry from a dataset.
+
+    Returns:
+        The conformer weights with ``shape=(n_confs,)``, or ones if the entry has
+        none (e.g. datasets saved by earlier versions or pre-computed datasets).
+    """
+    if entry.get("conformer_weights") is not None:
+        return torch.as_tensor(entry["conformer_weights"], dtype=torch.float64)
+    return torch.ones(len(entry["energy"]), dtype=torch.float64)
+
+
+def load_conformer_weights_fn(spec: str) -> ConformerWeightsFn:
+    """Import a conformer weights function from a ``"package.module:func"`` spec.
+
+    Args:
+        spec: The module path and attribute name, separated by a colon.
+
+    Returns:
+        The function.
+
+    Raises:
+        ValueError: If the spec is malformed or does not name a callable.
+        ImportError: If the module cannot be imported.
+    """
+    module_name, _, attr_name = spec.partition(":")
+    if not module_name or not attr_name:
+        raise ValueError(
+            f"Conformer weights function must be given as 'package.module:func', "
+            f"got {spec!r}"
+        )
+    fn = getattr(importlib.import_module(module_name), attr_name, None)
+    if not callable(fn):
+        raise ValueError(f"{spec!r} does not name a callable")
+    return typing.cast(ConformerWeightsFn, fn)
+
+
+def apply_conformer_weights(
+    dataset: datasets.Dataset, fn: ConformerWeightsFn
+) -> datasets.Dataset:
+    """Set the relative conformer weights of a dataset with a user function.
+
+    Any existing conformer weights are overwritten, so applying the same function
+    again gives the same dataset.
+
+    Args:
+        dataset: The dataset of one molecule, with one or more entries.
+        fn: Returns one weight per conformation of ``dataset``, ordered entry by
+            entry. The weights must be finite and non-negative, with at least one
+            positive.
+
+    Returns:
+        A new dataset with the conformer weights set.
+
+    Raises:
+        ValueError: If the weights have the wrong length or invalid values.
+    """
+    weights = torch.as_tensor(fn(dataset), dtype=torch.float64).flatten().cpu()
+    entry_sizes = [len(entry["energy"]) for entry in dataset]
+    n_confs = sum(entry_sizes)
+    if len(weights) != n_confs:
+        raise ValueError(
+            f"Conformer weights function returned {len(weights)} weights for "
+            f"{n_confs} conformations"
+        )
+    if not torch.isfinite(weights).all() or (weights < 0).any():
+        raise ValueError("Conformer weights must be finite and non-negative")
+    if not (weights > 0).any():
+        raise ValueError("At least one conformer weight must be positive")
+
+    entries = []
+    for entry, entry_weights in zip(
+        dataset, torch.split(weights, entry_sizes), strict=True
+    ):
+        n_entry_confs = len(entry["energy"])
+        energy_weights, forces_weights = get_weights_from_entry(entry)
+        entries.append(
+            {
+                "smiles": entry["smiles"],
+                "coords": entry["coords"].reshape(n_entry_confs, -1, 3),
+                "energy": entry["energy"],
+                "forces": entry["forces"].reshape(n_entry_confs, -1, 3),
+                "energy_weights": energy_weights,
+                "forces_weights": forces_weights,
+                "conformer_weights": entry_weights,
+            }
+        )
+    return create_weighted_dataset(typing.cast(list[WeightedEntry], entries))
 
 
 def filter_dataset_outliers(
@@ -296,13 +413,13 @@ def filter_dataset_outliers(
         logger.info("No outlier filtering enabled, returning original dataset")
         return dataset
 
-    # Build topologies dict and track entry sizes for un-flattening
+    # Build topologies dict
     smiles = dataset[0]["smiles"]
     topologies = {smiles: topology}
     n_atoms = topology.n_atoms
 
-    # Get predictions using predict_with_weights (no graph needed, no normalization)
-    energy_ref, energy_pred, forces_ref, forces_pred, _, _ = predict_with_weights(
+    # Get predictions (no graph needed, no normalization)
+    prediction = predict_with_weights(
         dataset,
         force_field,
         topologies,
@@ -312,16 +429,14 @@ def filter_dataset_outliers(
         create_graph=False,
     )
 
-    # Track entry sizes for un-flattening
-    entry_sizes = [len(entry["energy"]) for entry in dataset]
-
     # Un-flatten results back to per-entry lists
-    energy_ref_list = torch.split(energy_ref, entry_sizes)
-    energy_pred_list = torch.split(energy_pred, entry_sizes)
+    entry_sizes = prediction.entry_sizes
+    energy_ref_list = torch.split(prediction.energy_ref, entry_sizes)
+    energy_pred_list = torch.split(prediction.energy_pred, entry_sizes)
     # Forces are (n_total_confs * n_atoms, 3), need to split by n_confs * n_atoms
     forces_split_sizes = [n * n_atoms for n in entry_sizes]
-    forces_ref_list = torch.split(forces_ref, forces_split_sizes)
-    forces_pred_list = torch.split(forces_pred, forces_split_sizes)
+    forces_ref_list = torch.split(prediction.forces_ref, forces_split_sizes)
+    forces_pred_list = torch.split(prediction.forces_pred, forces_split_sizes)
 
     filtered_entries = []
 
@@ -388,13 +503,16 @@ def filter_dataset_outliers(
         coords = entry["coords"].reshape(n_confs, n_atoms, 3)
 
         # Build filtered entry
+        energy_weights, forces_weights = get_weights_from_entry(entry)
+        conformer_weights = get_conformer_weights_from_entry(entry)
         filtered_entry: dict[str, typing.Any] = {
             "smiles": entry_smiles,
             "coords": coords.to(device)[keep_indices],
             "energy": original_energy.to(device)[keep_indices],
             "forces": original_forces.to(device)[keep_indices],
-            "energy_weights": entry["energy_weights"].to(device)[keep_indices],
-            "forces_weights": entry["forces_weights"].to(device)[keep_indices],
+            "energy_weights": energy_weights.to(device)[keep_indices],
+            "forces_weights": forces_weights.to(device)[keep_indices],
+            "conformer_weights": conformer_weights.to(device)[keep_indices],
         }
 
         filtered_entries.append(filtered_entry)

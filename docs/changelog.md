@@ -9,15 +9,23 @@
 - `training_sampling_settings` and `testing_sampling_settings` are lists in `WorkflowSettings` (a single protocol is still accepted and wrapped in a list). Overwrites with `deep_update` must address list items by index, e.g. `{"training_sampling_settings": {0: {"mlp_settings": {...}}}}`.
 - `memory: true` with a `pre_computed` training protocol now raises an error, as it would concatenate the same data every iteration.
 - Remove `WorkflowPathManager.get_all_output_paths_by_output_type` and `get_all_output_paths_by_output_type_by_molecule`.
+- Replace the effective-sample-size normalisation of the loss with a mean over each molecule's entries of weighted means, so the loss is linear in every weight and no level is weighted by its number of conformers. Fits with default weights are unchanged, apart from small differences when outlier filtering leaves a molecule's entries with different numbers of conformers. Fits with non-default `loss_*_weight_*_torsion_min` change, as do pre-computed datasets with rows of different sizes. A per-conformer absolute weight of 0 no longer excludes that conformer; use a conformer weight of 0 instead. See [The loss function](concepts/loss-function.md).
+- Datasets without `energy_weights` or `forces_weights` columns, such as most pre-computed datasets, now default to the same weights as sampled data (1000 for energies and 0.1 for forces, from `loss_energy_weight` and `loss_force_weight`) instead of 1 and 1, so fits to them change.
+- The regularisation loss is divided by the number of regularised parameters with a non-zero weight instead of the effective sample size of the weights. The two agree when the non-zero weights are equal, so only a `regularize` config with unequal non-zero weights gives a different loss.
+- `compute_overall_loss_and_grad`, `compute_overall_loss_hessian`, `get_loss_closure_fn`, `compute_dataset_loss_and_grad` and the training functions take new optional `molecule_weights` arguments.
+- `predict_with_weights` returns a `Prediction` named tuple, which also holds the relative conformer weights and entry sizes, instead of a 6-tuple.
 
 ### Features
 
 - Add the `mm_md_torsion_restrained_torsion_minimisation` sampling protocol. It runs the same pipeline as `mm_md_metadynamics_torsion_minimisation`, but restrains each rotatable torsion to its value in the starting conformer instead of applying a metadynamics bias, so sampling stays near the conformers you supply with `starting_conformers`. The restraint strength is set by `md_torsion_restraint_force_constant`, and the protocol warns when used without `starting_conformers`. See [the protocol's documentation](concepts/sampling-protocols.md#mm_md_torsion_restrained_torsion_minimisation).
 - Allow lists of training and testing sampling protocols. Datasets are generated one protocol after another and fitted jointly, with each dataset's loss weighted by the new `dataset_weight` setting (normalised over all datasets). Combined and per-dataset losses are written to `metrics.txt` and TensorBoard, and `presto analyse` writes combined plots plus per-dataset plots under `plots/train_dataset_<k>/` and `plots/test_dataset_<k>/`. See [Multiple datasets](concepts/sampling-protocols.md#multiple-datasets). The `presto train` CLI still takes one training and one testing protocol; use `presto train-from-yaml` or the Python API for more.
 - Check that each `pre_computed` protocol supplies one dataset path per molecule when the settings are validated, rather than during sampling.
+- Add `molecule_weights` to every sampling protocol, to weight the molecules of a dataset, and `conformer_weights_fn`, to weight the conformers of each molecule with your own function (e.g. by Ramachandran region). Conformer weights are stored in a new `conformer_weights` dataset column. See [Weight conformers and molecules](how-to/weight-conformers-and-molecules.md).
 
 ### Fixes
 
+- Conformers with NaN reference energies or forces are masked out of the loss, so they no longer make the loss or its gradient NaN.
+- Outlier filtering and merging work on `pre_computed` datasets without weight columns.
 - Fix the Levenberg-Marquardt optimiser (`optimiser: lm`), whose Hessian had been identically zero since 0.4.0 because it was computed from detached losses, so each step was a scaled gradient-descent step. The Hessian is now accumulated one molecule at a time, as the gradient is.
 - `presto analyse` now labels plots by the real training iteration, so a stage without trajectory or scatter output no longer shifts the labels of later iterations.
 

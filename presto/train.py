@@ -2,7 +2,7 @@
 
 import functools
 from pathlib import Path
-from typing import Protocol, TypedDict, Unpack
+from typing import NotRequired, Protocol, TypedDict, Unpack
 
 import datasets
 import datasets.combine
@@ -56,6 +56,8 @@ class TrainingFnArgs(TypedDict):
     settings: TrainingSettings
     output_paths: dict[OutputType, Path]
     device: torch.device
+    molecule_weights: NotRequired[list[list[float] | None] | None]
+    molecule_weights_test: NotRequired[list[list[float] | None] | None]
 
 
 class TrainFn(Protocol):
@@ -86,6 +88,8 @@ def train_levenberg_marquardt(
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
+    molecule_weights: list[list[float] | None] | None = None,
+    molecule_weights_test: list[list[float] | None] | None = None,
 ) -> tuple[torch.Tensor, descent.train.Trainable]:
     """Iterate the training process using the Levenberg-Marquardt algorithm.
 
@@ -114,6 +118,12 @@ def train_levenberg_marquardt(
         expected: ``OutputType.TENSORBOARD`` and ``OutputType.TRAINING_METRICS``.
     device : torch.device
         The device to perform training on.
+    molecule_weights : list[list[float] | None] | None, optional
+        For each training dataset, the weight of each molecule. By default None,
+        which weights the molecules equally, as does None for one dataset.
+    molecule_weights_test : list[list[float] | None] | None, optional
+        For each test dataset, the weight of each molecule. By default None,
+        which weights the molecules equally, as does None for one dataset.
 
     Returns:
     -------
@@ -145,6 +155,7 @@ def train_levenberg_marquardt(
         initial_parameters,
         topologies,
         settings.regularisation_target,
+        molecule_weights=molecule_weights,
     )
 
     correct_fn = trainable.clamp
@@ -158,6 +169,8 @@ def train_levenberg_marquardt(
         datasets_test=datasets_test,
         dataset_weights=dataset_weights,
         dataset_weights_test=dataset_weights_test,
+        molecule_weights=molecule_weights,
+        molecule_weights_test=molecule_weights_test,
         initial_parameters=initial_parameters,
         regularisation_target=settings.regularisation_target,
         metrics_file=output_paths[OutputType.TRAINING_METRICS],
@@ -189,6 +202,8 @@ def train_adam(
     settings: TrainingSettings,
     output_paths: dict[OutputType, PathLike],
     device: torch.device,
+    molecule_weights: list[list[float] | None] | None = None,
+    molecule_weights_test: list[list[float] | None] | None = None,
 ) -> tuple[torch.Tensor, descent.train.Trainable]:
     """Iterate the training process using the Adam optimizer.
 
@@ -217,6 +232,12 @@ def train_adam(
         expected: ``OutputType.TENSORBOARD`` and ``OutputType.TRAINING_METRICS``.
     device : torch.device
         The device to perform training on.
+    molecule_weights : list[list[float] | None] | None, optional
+        For each training dataset, the weight of each molecule. By default None,
+        which weights the molecules equally, as does None for one dataset.
+    molecule_weights_test : list[list[float] | None] | None, optional
+        For each test dataset, the weight of each molecule. By default None,
+        which weights the molecules equally, as does None for one dataset.
 
     Returns:
     -------
@@ -267,6 +288,7 @@ def train_adam(
                             topologies,
                             settings.regularisation_target,
                             device,
+                            molecule_weights=molecule_weights,
                         )
                     )
 
@@ -288,6 +310,7 @@ def train_adam(
                                 settings.regularisation_target,
                                 device,
                                 compute_grad=False,
+                                molecule_weights=molecule_weights_test,
                             )
                         )
 
@@ -324,6 +347,7 @@ def train_adam(
             settings.regularisation_target,
             device,
             compute_grad=False,
+            molecule_weights=molecule_weights,
         )
         losses_test, dataset_losses_test, _ = compute_overall_loss_and_grad(
             datasets_test,
@@ -335,6 +359,7 @@ def train_adam(
             settings.regularisation_target,
             device,
             compute_grad=False,
+            molecule_weights=molecule_weights_test,
         )
 
         write_metrics(

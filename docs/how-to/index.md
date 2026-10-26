@@ -8,8 +8,10 @@ Short, task-oriented recipes. Each page assumes you've finished **[Get started](
 - **[Fit a congeneric series](fit-congeneric-series.md)** — share parameters across related molecules using `max_extend_distance`.
 - **[Use SDF inputs](use-sdf-inputs.md)** — switch from SMILES to one or more `.sdf` files.
 - **[Use your own starting conformers](use-starting-conformers.md)** — seed a sampling stage (or MSM) from an SDF instead of ETKDG.
+- **[Use a pre-computed dataset](use-precomputed-dataset.md)**: train against energies and forces you already have, e.g. from QM.
 - **[Use custom charges](use-custom-charges.md)** — bake your own partial charges into the force field as library charges.
 - **[Wipe output and rerun](clean-rerun.md)**
+- **[Weight conformers and molecules](weight-conformers-and-molecules.md)**: give some molecules, or some conformers (e.g. by Ramachandran region), more influence on the fit.
 - **[Speed up fitting with parallelism](speed-up-with-parallelism.md)** — sample independent ligands concurrently on one node.
 
 ## By component

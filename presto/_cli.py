@@ -112,6 +112,11 @@ class TrainFromCli(WorkflowSettings):
         """Defer to the WorkflowSettings built in cli_cmd."""
         return self
 
+    @model_validator(mode="after")
+    def validate_molecule_weight_counts(self) -> Self:
+        """Defer to the WorkflowSettings built in cli_cmd."""
+        return self
+
     def to_workflow_settings(self) -> WorkflowSettings:
         """Return the equivalent WorkflowSettings, with one-protocol lists."""
         return WorkflowSettings(
