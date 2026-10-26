@@ -1405,14 +1405,25 @@ class TestMoleculeLossWeighting:
             assert torch.allclose(mid, torch.tensor(510.0, dtype=torch.float64))
 
     def test_entries_count_equally_whatever_their_size(self):
-        """Repeating every conformer of an entry leaves the loss unchanged."""
+        """Repeating every conformer of one entry leaves the loss unchanged.
+
+        Each entry's loss is a mean over its own conformers, so repeating all of them
+        leaves it unchanged, and the molecule's loss is a mean over its entries, so
+        the entry keeps its share. (Repeating only some conformers of an entry does
+        change the loss, like a conformer weight above 1: see
+        test_conformer_weights_are_scale_free_and_act_as_counts.)
+        """
         generator = torch.Generator().manual_seed(1)
         e = torch.randn(8, generator=generator, dtype=torch.float64)
+        # Entry 1 is conformers 0-4 and entry 2 is conformers 5-7
+        entry_sizes = [5, 3]
         w = torch.full((8,), 3.0, dtype=torch.float64)
         ones = torch.ones(8, dtype=torch.float64)
-        loss = _molecule_loss_from_errors(e, e, w, w, ones, [5, 3])
+        loss = _molecule_loss_from_errors(e, e, w, w, ones, entry_sizes)
 
+        # Repeat every conformer of entry 1 twenty times, giving it 100 conformers
         repeated = torch.cat([e[:5].repeat(20), e[5:]])
+        repeated_entry_sizes = [100, 3]
         w_repeated = torch.full((103,), 3.0, dtype=torch.float64)
         loss_repeated = _molecule_loss_from_errors(
             repeated,
@@ -1420,7 +1431,7 @@ class TestMoleculeLossWeighting:
             w_repeated,
             w_repeated,
             torch.ones(103, dtype=torch.float64),
-            [100, 3],
+            repeated_entry_sizes,
         )
 
         for a, b in zip(loss, loss_repeated, strict=True):
@@ -1429,6 +1440,11 @@ class TestMoleculeLossWeighting:
         entry_means = torch.stack([(e[:5] ** 2).mean(), (e[5:] ** 2).mean()])
         expected = 3.0 * entry_means.mean()
         assert torch.allclose(loss[0], expected)
+        # Contrast: the old ESS loss pooled the conformers, so entry 1's share of the
+        # loss rose from 5/8 to 100/103
+        assert not torch.allclose(
+            _ess_loss(e**2, w), _ess_loss(repeated**2, w_repeated)
+        )
 
     def test_conformer_weights_are_scale_free_and_act_as_counts(self):
         """Scaling r within an entry does nothing; r = 2 duplicates and r = 0 removes."""
