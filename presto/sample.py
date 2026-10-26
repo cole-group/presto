@@ -20,6 +20,7 @@ import torch
 from openff.units import unit as off_unit
 from openmm import LangevinMiddleIntegrator
 from openmm.app import PDBFile, PDBReporter, Simulation
+from openmm.app.internal.customgbforces import GBSAGBn2Force, GBSAOBC2Force
 from openmm.unit import Quantity, angstrom
 from rich.progress import track
 
@@ -38,6 +39,7 @@ from .metadynamics import Metadynamics
 from .outputs import OutputType, get_mol_path
 from .utils.gpu import cleanup_simulation
 from .utils.register import get_registry_decorator
+from .utils.typing import ImplicitSolventModel
 
 logger = loguru.logger
 
@@ -50,6 +52,22 @@ _OMM_KCAL_PER_MOL = openmm.unit.kilocalorie_per_mole
 _OMM_KCAL_PER_MOL_ANGS = openmm.unit.kilocalorie_per_mole / openmm.unit.angstrom
 _OMM_KJ_PER_MOL = openmm.unit.kilojoules_per_mole
 _OMM_RADIAN = openmm.unit.radian
+
+_GB_FORCES: dict[ImplicitSolventModel, type[openmm.CustomGBForce]] = {
+    "obc2": GBSAOBC2Force,
+    "gbn2": GBSAGBn2Force,
+}
+"""Implicit solvent models available for MM sampling."""
+
+_GB_SOLVENT_DIELECTRIC = 78.5
+"""Solvent dielectric constant for implicit solvent sampling. This is approximately the
+static dielectric constant of water at 25 C (about 78.4), and is the default in both
+OpenMM's GB forces and Amber (``extdiel``). It is not adjusted for the sampling
+temperature."""
+
+_GB_SOLUTE_DIELECTRIC = 1.0
+"""Solute dielectric constant for implicit solvent sampling. This is the default in both
+OpenMM's GB forces and Amber (``intdiel``)."""
 
 
 class SampleFnArgs(TypedDict):
@@ -173,14 +191,65 @@ def _build_ml_simulation(
     )
 
 
+def _add_implicit_solvent(
+    system: openmm.System,
+    topology: openmm.app.Topology,
+    model: ImplicitSolventModel,
+) -> None:
+    """Add a generalised Born implicit solvent force to an MM system.
+
+    The force uses the charges of the system's NonbondedForce and the standard radii
+    for the model, with the ACE surface area term.
+    """
+    (nonbonded_force,) = [
+        f for f in system.getForces() if isinstance(f, openmm.NonbondedForce)
+    ]
+    if any(system.isVirtualSite(i) for i in range(system.getNumParticles())):
+        raise ValueError("Implicit solvent sampling does not support virtual sites.")
+
+    charges = [
+        nonbonded_force.getParticleParameters(i)[0].value_in_unit(
+            openmm.unit.elementary_charge
+        )
+        for i in range(system.getNumParticles())
+    ]
+    gb_force_cls = _GB_FORCES[model]
+    gb_force = gb_force_cls(
+        solventDielectric=_GB_SOLVENT_DIELECTRIC,
+        soluteDielectric=_GB_SOLUTE_DIELECTRIC,
+        SA="ACE",
+        cutoff=None,
+        kappa=0.0,
+    )
+    gb_force.addParticles(
+        np.column_stack([charges, gb_force_cls.getStandardParameters(topology)])
+    )
+    gb_force.finalize()
+    system.addForce(gb_force)
+
+
+def _build_mm_system(
+    interchange: openff.interchange.Interchange,
+    implicit_solvent: ImplicitSolventModel | None = None,
+) -> openmm.System:
+    """Create an MM system from an Interchange object, optionally in implicit solvent."""
+    mm_system = interchange.to_openmm_system()
+    if implicit_solvent is not None:
+        _add_implicit_solvent(
+            mm_system, interchange.topology.to_openmm(), implicit_solvent
+        )
+    return mm_system
+
+
 def _build_mm_simulation(
     interchange: openff.interchange.Interchange,
     temperature: openmm.unit.Quantity,
     timestep: openmm.unit.Quantity,
     device: torch.device,
+    implicit_solvent: ImplicitSolventModel | None = None,
 ) -> tuple[Simulation, LangevinMiddleIntegrator]:
     """Create a simulation that uses an MM system from an Interchange object."""
-    mm_system = interchange.to_openmm_system()
+    mm_system = _build_mm_system(interchange, implicit_solvent)
     mm_topology = interchange.topology.to_openmm()
     return _create_simulation(mm_topology, mm_system, temperature, timestep, device)
 
@@ -389,7 +458,11 @@ def sample_mmmd(
         )
 
         simulation, integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            settings.implicit_solvent,
         )
 
         # Create molecule-specific PDB path
@@ -625,7 +698,11 @@ def sample_mmmd_metadynamics(
             )
             # Fall back to regular MD for this molecule
             simulation, integrator = _build_mm_simulation(
-                interchange, settings.temperature, settings.timestep, device
+                interchange,
+                settings.temperature,
+                settings.timestep,
+                device,
+                settings.implicit_solvent,
             )
 
             pdb_path = None
@@ -654,7 +731,7 @@ def sample_mmmd_metadynamics(
                 bias_width=metad_settings.bias_width,
             )
 
-            system = interchange.to_openmm_system()
+            system = _build_mm_system(interchange, settings.implicit_solvent)
 
             # Create molecule-specific bias directory
             base_bias_dir = output_paths[OutputType.METADYNAMICS_BIAS]
@@ -1331,7 +1408,11 @@ def _torsion_minimise_and_merge(
     # Create a fresh MM simulation for minimisation (without metadynamics biases
     # or sampling restraints)
     mm_min_simulation, mm_min_integrator = _build_mm_simulation(
-        interchange, settings.temperature, settings.timestep, device
+        interchange,
+        settings.temperature,
+        settings.timestep,
+        device,
+        settings.implicit_solvent,
     )
 
     # Create a fresh ML simulation for minimisation
@@ -1437,7 +1518,7 @@ def sample_mmmd_metadynamics_with_torsion_minimisation(
             include_smarts=metad_settings.torsion_selection_settings.torsions_to_include_smarts,
             exclude_smarts=metad_settings.torsion_selection_settings.torsions_to_exclude_smarts,
         )
-        system = interchange.to_openmm_system()
+        system = _build_mm_system(interchange, settings.implicit_solvent)
 
         if metad_torsions:
             # Setup metadynamics
@@ -1587,7 +1668,11 @@ def sample_mmmd_torsion_restrained_with_torsion_minimisation(
         )
 
         simulation, integrator = _build_mm_simulation(
-            interchange, settings.temperature, settings.timestep, device
+            interchange,
+            settings.temperature,
+            settings.timestep,
+            device,
+            settings.implicit_solvent,
         )
 
         pdb_path = None

@@ -21,6 +21,7 @@
 - Allow lists of training and testing sampling protocols. Datasets are generated one protocol after another and fitted jointly, with each dataset's loss weighted by the new `dataset_weight` setting (normalised over all datasets). Combined and per-dataset losses are written to `metrics.txt` and TensorBoard, and `presto analyse` writes combined plots plus per-dataset plots under `plots/train_dataset_<k>/` and `plots/test_dataset_<k>/`. See [Multiple datasets](concepts/sampling-protocols.md#multiple-datasets). The `presto train` CLI still takes one training and one testing protocol; use `presto train-from-yaml` or the Python API for more.
 - Check that each `pre_computed` protocol supplies one dataset path per molecule when the settings are validated, rather than during sampling.
 - Add `molecule_weights` to every sampling protocol, to weight the molecules of a dataset, and `conformer_weights_fn`, to weight the conformers of each molecule with your own function (e.g. by Ramachandran region). Conformer weights are stored in a new `conformer_weights` dataset column. See [Weight conformers and molecules](how-to/weight-conformers-and-molecules.md).
+- Add an `implicit_solvent` option (`obc2` or `gbn2`, default `null` for vacuum) to the MM sampling protocols to sample with the MM force field in generalised Born implicit solvent. This only affects which structures are sampled: the fitted energies and forces are still from the gas-phase MLP. See [Sampling protocols](concepts/sampling-protocols.md#implicit-solvent-sampling).
 
 ### Fixes
 

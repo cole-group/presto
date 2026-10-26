@@ -558,6 +558,44 @@ class TestMMMDTorsionRestrainedTorsionMinimisationSamplingSettings:
         assert loaded == settings
 
 
+_MM_SAMPLING_SETTINGS = [
+    MMMDSamplingSettings,
+    MMMDMetadynamicsSamplingSettings,
+    MMMDMetadynamicsTorsionMinimisationSamplingSettings,
+    MMMDTorsionRestrainedTorsionMinimisationSamplingSettings,
+]
+
+
+class TestImplicitSolventSetting:
+    """Tests for the MM sampling implicit_solvent field."""
+
+    @pytest.mark.parametrize("settings_cls", _MM_SAMPLING_SETTINGS)
+    def test_defaults_to_vacuum(self, settings_cls):
+        """Sampling is in vacuum unless implicit solvent is requested."""
+        assert settings_cls().implicit_solvent is None
+
+    @pytest.mark.parametrize("settings_cls", _MM_SAMPLING_SETTINGS)
+    @pytest.mark.parametrize("model", ["obc2", "gbn2"])
+    def test_accepts_supported_models_and_round_trips(
+        self, settings_cls, model, tmp_path
+    ):
+        """Supported models are accepted and kept through a YAML round trip."""
+        settings = settings_cls(implicit_solvent=model)
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+        assert settings_cls.from_yaml(yaml_path).implicit_solvent == model
+
+    def test_rejects_unknown_model(self):
+        """Only the supported models can be selected."""
+        with pytest.raises(ValidationError):
+            MMMDSamplingSettings(implicit_solvent="gbn")
+
+    def test_not_available_for_ml_sampling(self):
+        """Implicit solvent only applies to MM sampling."""
+        with pytest.raises(ValidationError):
+            MLMDSamplingSettings(implicit_solvent="obc2")
+
+
 class TestMSMSettings:
     """Tests for MSMSettings class."""
 
