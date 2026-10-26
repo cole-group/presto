@@ -200,6 +200,23 @@ class TestTrainFromCli:
         with pytest.raises((ValidationError, InvalidSettingsError), match="memory"):
             cmd.to_workflow_settings()
 
+    def test_molecule_weight_count_checked(self):
+        """The molecule weight count is checked on the WorkflowSettings."""
+        from presto._exceptions import InvalidSettingsError
+
+        # One molecule, but two molecule weights
+        cmd = TrainFromCli(
+            param_settings=ParamSettings(molecules="CCO"),
+            device_type="cpu",
+            training_sampling_settings=MMMDSamplingSettings(
+                molecule_weights=[1.0, 1.0]
+            ),
+        )
+        with pytest.raises(
+            (ValidationError, InvalidSettingsError), match="2 molecule weights"
+        ):
+            cmd.to_workflow_settings()
+
 
 class TestClean:
     """Tests for Clean command."""

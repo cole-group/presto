@@ -1625,9 +1625,9 @@ def _ethanol_dataset(setup):
 
 
 class TestConformerWeightsInLoss:
-    """Tests for conformer weights and NaN masking on real datasets."""
+    """Tests for conformer weights, NaN masking and molecule weights on real datasets."""
 
-    def _loss(self, setup, datasets_list):
+    def _loss(self, setup, datasets_list, molecule_weights=None):
         """Return the loss and gradient of one dataset.
 
         ``datasets_list`` holds the data for the first ``len(datasets_list)``
@@ -1641,6 +1641,7 @@ class TestConformerWeightsInLoss:
             x,
             topologies[: len(datasets_list)],
             torch.device("cpu"),
+            molecule_weights=molecule_weights,
         )
 
     def test_weighted_offset(self, two_molecule_setup):
@@ -1755,6 +1756,101 @@ class TestConformerWeightsInLoss:
         else:
             removed, _ = self._loss(two_molecule_setup, [_rebuild(dataset, keep=keep)])
             assert torch.allclose(getattr(loss, term), getattr(removed, term))
+
+    def test_molecule_weights(self, two_molecule_setup):
+        """Molecule weights give a normalised weighted mean, and 0 drops a molecule."""
+        # Dataset 0's data for ethanol and propylamine
+        datasets_list = two_molecule_setup.datasets[0]
+
+        equal, equal_gradient = self._loss(two_molecule_setup, datasets_list)
+        ones, ones_gradient = self._loss(
+            two_molecule_setup, datasets_list, molecule_weights=[1.0, 1.0]
+        )
+        assert torch.allclose(equal.energy, ones.energy)
+        assert torch.allclose(equal_gradient, ones_gradient)
+
+        weighted, weighted_gradient = self._loss(
+            two_molecule_setup, datasets_list, molecule_weights=[3.0, 1.0]
+        )
+        scaled, scaled_gradient = self._loss(
+            two_molecule_setup, datasets_list, molecule_weights=[6.0, 2.0]
+        )
+        only_0, only_0_gradient = self._loss(
+            two_molecule_setup, datasets_list, molecule_weights=[1.0, 0.0]
+        )
+        only_1, only_1_gradient = self._loss(
+            two_molecule_setup, datasets_list, molecule_weights=[0.0, 1.0]
+        )
+        # Ethanol only, as if propylamine were not in the fit
+        alone, alone_gradient = self._loss(two_molecule_setup, datasets_list[:1])
+
+        assert torch.allclose(weighted.energy, scaled.energy)
+        assert torch.allclose(weighted_gradient, scaled_gradient)
+        assert torch.allclose(only_0.energy, alone.energy)
+        assert torch.allclose(only_0_gradient, alone_gradient)
+        # Weights 3 and 1 normalise to 0.75 and 0.25
+        for field in ("energy", "forces"):
+            assert torch.allclose(
+                getattr(weighted, field),
+                0.75 * getattr(only_0, field) + 0.25 * getattr(only_1, field),
+            )
+        assert torch.allclose(
+            weighted_gradient, 0.75 * only_0_gradient + 0.25 * only_1_gradient
+        )
+
+    def test_molecule_weights_in_hessian(self, two_molecule_setup):
+        """The Hessian combines the molecules with the same weights as the loss."""
+        from presto.loss import compute_overall_loss_hessian
+
+        trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+
+        def hessian(molecule_weights):
+            return compute_overall_loss_hessian(
+                all_datasets[:1],  # Dataset 0 only
+                [1.0],
+                trainable,
+                params,
+                initial,
+                topologies,
+                "initial",
+                torch.device("cpu"),
+                molecule_weights=[molecule_weights],
+            )
+
+        # The regularisation Hessian is the same in each, so it cancels. Weights 3 and
+        # 1 normalise to 0.75 and 0.25.
+        weighted = hessian([3.0, 1.0])
+        only_0 = hessian([1.0, 0.0])
+        only_1 = hessian([0.0, 1.0])
+        tolerance = {"rtol": 1e-5, "atol": 1e-6 * weighted.abs().max().item()}
+        torch.testing.assert_close(weighted, 0.75 * only_0 + 0.25 * only_1, **tolerance)
+
+    @pytest.mark.parametrize(
+        ("molecule_weights", "match"),
+        [
+            ([[1.0]], "1 molecule weights for 2 molecules"),
+            ([[0.0, 0.0]], "at least one positive"),
+            ([[1.0, -1.0]], "non-negative"),
+            ([[1.0, 1.0], [1.0, 1.0]], "2 lists of molecule weights for 1 datasets"),
+        ],
+    )
+    def test_invalid_molecule_weights_raise(
+        self, two_molecule_setup, molecule_weights, match
+    ):
+        """Molecule weights are checked against the datasets and molecules."""
+        trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        with pytest.raises(ValueError, match=match):
+            compute_overall_loss_and_grad(
+                all_datasets[:1],  # Dataset 0 only, for both molecules
+                [1.0],
+                trainable,
+                params.clone().requires_grad_(True),
+                initial,
+                topologies,
+                "initial",
+                torch.device("cpu"),
+                molecule_weights=molecule_weights,
+            )
 
 
 class TestRegularisationNormalisation:

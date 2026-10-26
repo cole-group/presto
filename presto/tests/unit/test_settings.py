@@ -1258,6 +1258,32 @@ class TestMultipleDatasets:
         )
         assert len(settings.training_sampling_settings) == 2
 
+    @pytest.mark.parametrize("weights", [[-1.0, 1.0], [0.0, 0.0]])
+    def test_negative_or_all_zero_molecule_weights_rejected(self, weights):
+        """Molecule weights must be non-negative, with at least one positive."""
+        with pytest.raises(ValidationError, match="molecule_weights"):
+            MMMDSamplingSettings(molecule_weights=weights)
+
+    def test_zero_molecule_weight_allowed(self):
+        """A molecule weight of 0 leaves that molecule out of the loss."""
+        protocol = MMMDSamplingSettings(molecule_weights=[0.0, 2.0])
+        assert protocol.molecule_weights == [0.0, 2.0]
+
+    def test_molecule_weight_count_checked_per_protocol(self):
+        """A protocol must have one molecule weight per molecule."""
+        # self._settings fits one molecule, so the second protocol has one too many
+        with pytest.raises(ValidationError, match=r"testing_sampling_settings\[1\]"):
+            self._settings(
+                testing_sampling_settings=[
+                    MLMDSamplingSettings(molecule_weights=[2.0]),
+                    MLMDSamplingSettings(molecule_weights=[1.0, 1.0]),
+                ]
+            )
+        settings = self._settings(
+            training_sampling_settings=MMMDSamplingSettings(molecule_weights=[3.0])
+        )
+        assert settings.training_sampling_settings[0].molecule_weights == [3.0]
+
     def test_memory_with_pre_computed_training_rejected(self, tmp_path):
         """Memory would append the same pre-computed data every iteration."""
         pre_computed = PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"])

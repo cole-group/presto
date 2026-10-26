@@ -227,6 +227,7 @@ def compute_dataset_loss_and_grad(
     topologies: list[smee.TensorTopology],
     device: torch.device,
     compute_grad: bool = True,
+    molecule_weights: list[float] | None = None,
 ) -> tuple[DatasetLoss, torch.Tensor | None]:
     """Compute the loss of one dataset and optionally its gradient, without regularisation.
 
@@ -235,6 +236,9 @@ def compute_dataset_loss_and_grad(
     than computing the full loss and calling .backward(), especially when
     training with multiple molecules.
 
+    The molecules are combined as ``sum_j m_j L_j / sum_j m_j``, and molecules with
+    a weight of 0 are skipped.
+
     Args:
         datasets_list: The dataset for each molecule, in the order of ``topologies``.
         trainable: The trainable object containing the force field.
@@ -242,9 +246,11 @@ def compute_dataset_loss_and_grad(
         topologies: List of topologies of the molecules in the datasets.
         device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
+        molecule_weights: The weight of each molecule. None (the default) weights
+            the molecules equally.
 
     Returns:
-        Tuple of (DatasetLoss averaged over molecules, averaged gradient or None)
+        Tuple of (DatasetLoss weighted over molecules, weighted gradient or None)
     """
     # Create force field once and reuse for all molecules
     force_field = trainable.to_force_field(trainable_parameters)
@@ -255,8 +261,16 @@ def compute_dataset_loss_and_grad(
     if compute_grad:
         accumulated_gradient = torch.zeros_like(trainable_parameters)
 
+    normalised_weights = _normalise_molecule_weights(
+        molecule_weights, len(datasets_list)
+    )
+
     # Process each molecule separately to minimize memory usage
-    for dataset, topology in zip(datasets_list, topologies, strict=True):
+    for dataset, topology, weight in zip(
+        datasets_list, topologies, normalised_weights, strict=True
+    ):
+        if weight == 0.0:
+            continue
         energy_loss, force_loss, gradient = _compute_molecule_total_loss_and_grad(
             force_field,
             dataset,
@@ -268,22 +282,18 @@ def compute_dataset_loss_and_grad(
 
         if compute_grad and gradient is not None and accumulated_gradient is not None:
             # Accumulate gradients from each molecule
-            accumulated_gradient += gradient
+            accumulated_gradient += weight * gradient
 
-        energy_losses.append(energy_loss)
-        force_losses.append(force_loss)
+        energy_losses.append(weight * energy_loss)
+        force_losses.append(weight * force_loss)
 
         # Free GPU memory after each molecule
         if device.type == "cuda":
             free_gpu_memory()
 
-    # Average losses across molecules
-    avg_energy_loss = torch.stack(energy_losses).mean()
-    avg_force_loss = torch.stack(force_losses).mean()
-
-    # Average accumulated gradients
-    if compute_grad and accumulated_gradient is not None:
-        accumulated_gradient /= len(datasets_list)
+    # The weights are normalised, so the sums are weighted means over molecules
+    avg_energy_loss = torch.stack(energy_losses).sum()
+    avg_force_loss = torch.stack(force_losses).sum()
 
     return DatasetLoss(energy=avg_energy_loss, forces=avg_force_loss), (
         accumulated_gradient
@@ -307,6 +317,42 @@ def _normalise_dataset_weights(
     return [weight / total_weight for weight in dataset_weights]
 
 
+def _normalise_molecule_weights(
+    molecule_weights: list[float] | None, n_molecules: int
+) -> list[float]:
+    """Check there is one weight per molecule and normalise them to sum to one.
+
+    None weights the molecules equally.
+    """
+    if molecule_weights is None:
+        return [1.0 / n_molecules] * n_molecules
+    if len(molecule_weights) != n_molecules:
+        raise ValueError(
+            f"Got {len(molecule_weights)} molecule weights for {n_molecules} molecules"
+        )
+    total_weight = sum(molecule_weights)
+    if any(weight < 0 for weight in molecule_weights) or total_weight <= 0:
+        raise ValueError(
+            "Molecule weights must be non-negative with at least one positive, "
+            f"got {molecule_weights}"
+        )
+    return [weight / total_weight for weight in molecule_weights]
+
+
+def _molecule_weights_for_dataset(
+    molecule_weights: list[list[float]] | None, n_datasets: int, dataset_idx: int
+) -> list[float] | None:
+    """Return the molecule weights of one dataset, checking there is a list per dataset."""
+    if molecule_weights is None:
+        return None
+    if len(molecule_weights) != n_datasets:
+        raise ValueError(
+            f"Got {len(molecule_weights)} lists of molecule weights for "
+            f"{n_datasets} datasets"
+        )
+    return molecule_weights[dataset_idx]
+
+
 def compute_overall_loss_and_grad(
     per_molecule_datasets_by_dataset: list[list[datasets.Dataset]],
     dataset_weights: list[float],
@@ -317,6 +363,7 @@ def compute_overall_loss_and_grad(
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
     compute_grad: bool = True,
+    molecule_weights: list[list[float]] | None = None,
 ) -> tuple[LossRecord, list[DatasetLoss], torch.Tensor | None]:
     """Compute the weighted loss over several datasets, plus regularisation.
 
@@ -336,6 +383,8 @@ def compute_overall_loss_and_grad(
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
+        molecule_weights: For each dataset, the weight of each molecule. None (the
+            default) weights the molecules of every dataset equally.
 
     Returns:
         Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
@@ -348,8 +397,8 @@ def compute_overall_loss_and_grad(
     accumulated_gradient = (
         torch.zeros_like(trainable_parameters) if compute_grad else None
     )
-    for datasets_list, weight in zip(
-        per_molecule_datasets_by_dataset, normalised_weights, strict=True
+    for k, (datasets_list, weight) in enumerate(
+        zip(per_molecule_datasets_by_dataset, normalised_weights, strict=True)
     ):
         dataset_loss, gradient = compute_dataset_loss_and_grad(
             datasets_list,
@@ -358,6 +407,9 @@ def compute_overall_loss_and_grad(
             topologies,
             device,
             compute_grad=compute_grad,
+            molecule_weights=_molecule_weights_for_dataset(
+                molecule_weights, len(per_molecule_datasets_by_dataset), k
+            ),
         )
         dataset_losses.append(dataset_loss)
         if gradient is not None and accumulated_gradient is not None:
@@ -464,6 +516,7 @@ def compute_overall_loss_hessian(
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
+    molecule_weights: list[list[float]] | None = None,
 ) -> torch.Tensor:
     """Compute the Hessian of the loss from `compute_overall_loss_and_grad`.
 
@@ -480,6 +533,8 @@ def compute_overall_loss_hessian(
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
+        molecule_weights: For each dataset, the weight of each molecule. None (the
+            default) weights the molecules of every dataset equally.
 
     Returns:
         The Hessian with ``shape=(n_parameters, n_parameters)``.
@@ -490,10 +545,20 @@ def compute_overall_loss_hessian(
     x = trainable_parameters.detach()
     hessian = torch.zeros(len(x), len(x), dtype=x.dtype, device=x.device)
 
-    for datasets_list, weight in zip(
-        per_molecule_datasets_by_dataset, normalised_weights, strict=True
+    for k, (datasets_list, weight) in enumerate(
+        zip(per_molecule_datasets_by_dataset, normalised_weights, strict=True)
     ):
-        for dataset, topology in zip(datasets_list, topologies, strict=True):
+        normalised_molecule_weights = _normalise_molecule_weights(
+            _molecule_weights_for_dataset(
+                molecule_weights, len(per_molecule_datasets_by_dataset), k
+            ),
+            len(datasets_list),
+        )
+        for dataset, topology, molecule_weight in zip(
+            datasets_list, topologies, normalised_molecule_weights, strict=True
+        ):
+            if molecule_weight == 0.0:
+                continue
 
             def molecule_loss(
                 _x: torch.Tensor,
@@ -513,7 +578,7 @@ def compute_overall_loss_hessian(
             molecule_hessian = torch.autograd.functional.hessian(  # type: ignore[no-untyped-call]
                 molecule_loss, x
             )
-            hessian += weight / len(datasets_list) * molecule_hessian.detach()
+            hessian += weight * molecule_weight * molecule_hessian.detach()
 
             if device.type == "cuda":
                 free_gpu_memory()
@@ -537,6 +602,7 @@ def get_loss_closure_fn(
     initial_parameters: torch.Tensor,
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
+    molecule_weights: list[list[float]] | None = None,
 ) -> descent.optim.ClosureFn:
     """Return a closure function for use with Levenberg-Marquardt optimizer.
 
@@ -553,6 +619,8 @@ def get_loss_closure_fn(
         initial_parameters: The initial parameters before training.
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: Type of regularisation ('initial' or 'zero').
+        molecule_weights: For each dataset, the weight of each molecule. None (the
+            default) weights the molecules of every dataset equally.
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient
@@ -577,6 +645,7 @@ def get_loss_closure_fn(
                 topologies,
                 regularisation_target,
                 x.device,
+                molecule_weights=molecule_weights,
             )
 
         # Compute loss and gradient
@@ -590,6 +659,7 @@ def get_loss_closure_fn(
             regularisation_target,
             x.device,
             compute_grad=compute_gradient,
+            molecule_weights=molecule_weights,
         )
 
         total_loss = (

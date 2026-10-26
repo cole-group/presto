@@ -214,8 +214,31 @@ class _DatasetSettingsBase(_DefaultSettings, ABC):
         "training or testing datasets are given. Each dataset's loss is computed "
         "separately, so its influence does not depend on how many conformers it "
         "contains, and the weights are normalised by their sum. Has no effect when "
-        "only one dataset is given.",
+        "only one dataset is given. Within a dataset, molecules are combined "
+        "according to `molecule_weights`.",
     )
+
+    molecule_weights: list[float] | None = Field(
+        None,
+        description="Relative weight of each molecule in this dataset's loss, one per "
+        "molecule in the order they are loaded from `param_settings.molecules`. The "
+        "weights are normalised by their sum, and a molecule with weight 0 is left out "
+        "of the loss (it is still sampled). This, not its number of conformers, sets "
+        "a molecule's influence. None (the default) weights all molecules equally.",
+    )
+
+    @field_validator("molecule_weights")
+    @classmethod
+    def validate_molecule_weights(cls, value: list[float] | None) -> list[float] | None:
+        """Check the molecule weights are non-negative with at least one positive."""
+        if value is None:
+            return value
+        if any(weight < 0 for weight in value) or not any(w > 0 for w in value):
+            raise InvalidSettingsError(
+                "molecule_weights must be non-negative with at least one positive, "
+                f"got {value}"
+            )
+        return value
 
     @property
     @abstractmethod
@@ -1276,6 +1299,26 @@ class WorkflowSettings(_DefaultSettings):
                         f"{name}[{k}] has {len(protocol.dataset_paths)} dataset paths, "
                         f"but there are {n_mols} molecules. Provide one dataset path "
                         "per molecule."
+                    )
+        return self
+
+    @model_validator(mode="after")
+    def validate_molecule_weight_counts(self) -> Self:
+        """Fail before any sampling if a protocol has the wrong number of molecule weights."""
+        n_mols = len(self.param_settings.openff_molecules)
+        for name, protocols in (
+            ("training_sampling_settings", self.training_sampling_settings),
+            ("testing_sampling_settings", self.testing_sampling_settings),
+        ):
+            for k, protocol in enumerate(protocols):
+                if (
+                    protocol.molecule_weights is not None
+                    and len(protocol.molecule_weights) != n_mols
+                ):
+                    raise InvalidSettingsError(
+                        f"{name}[{k}] has {len(protocol.molecule_weights)} molecule "
+                        f"weights, but there are {n_mols} molecules. Provide one "
+                        "weight per molecule."
                     )
         return self
 

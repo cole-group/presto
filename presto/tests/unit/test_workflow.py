@@ -213,6 +213,8 @@ def test_datasets_sampled_in_turn_and_trained_together(
         assert kwargs["datasets_test"] == test_datasets
         assert kwargs["dataset_weights"] == [1.0, 3.0]
         assert kwargs["dataset_weights_test"] == [1.0, 2.0]
+        assert kwargs["molecule_weights"] == [[1.0, 1.0], [1.0, 1.0]]
+        assert kwargs["molecule_weights_test"] == [[1.0, 1.0], [1.0, 1.0]]
         assert kwargs["topologies"] == tensor_tops
 
     # Scatter for each test dataset and molecule, initially and after each iteration
@@ -233,3 +235,89 @@ def test_datasets_sampled_in_turn_and_trained_together(
     assert [call.args[0] for call in scatter.call_args_list[:4]] == [
         d for datasets_for_mols in test_datasets for d in datasets_for_mols
     ]
+
+
+def _run_workflow(settings):
+    """Run the workflow with sampling and training faked.
+
+    Each molecule's dataset is a string naming where it would be saved, e.g.
+    ``"training_iteration_1/train_dataset_0/mol0"``, and memory concatenation joins
+    two of them as ``"[a + b]"``.
+
+    Returns:
+        The keyword arguments of each call to the training function, one per
+        iteration.
+    """
+    import torch
+
+    def fake_sample_ligands(**kwargs):
+        raw = [
+            f"{path.parent.parent.name}/{path.parent.name}/mol{i}"
+            for i, path in enumerate(kwargs["dataset_output_paths"])
+        ]
+        process = kwargs["process_dataset"]
+        return [d if process is None else process(i, d) for i, d in enumerate(raw)]
+
+    trainable = MagicMock()
+    trainable.to_values.return_value = torch.zeros(3)
+    trainable._param_types = []
+    train_fn = MagicMock(
+        side_effect=lambda **kwargs: (kwargs["trainable_parameters"], trainable)
+    )
+
+    with (
+        patch(
+            "presto.workflow.parameterise",
+            return_value=(["mol0", "mol1"], MagicMock(), ["top0", "top1"], MagicMock()),
+        ),
+        patch("presto.workflow.Trainable", return_value=trainable),
+        patch("presto.workflow.sample_ligands", side_effect=fake_sample_ligands),
+        patch("presto.workflow.write_scatter", return_value=(0, 0, 0, 0)),
+        patch("presto.workflow.convert_to_smirnoff"),
+        patch("presto.workflow.analyse_workflow"),
+        patch(
+            "presto.workflow.datasets.combine.concatenate_datasets",
+            side_effect=lambda parts: f"[{' + '.join(parts)}]",
+        ),
+        patch.dict("presto.workflow._TRAINING_FNS_REGISTRY", {"adam": train_fn}),
+    ):
+        get_bespoke_force_field(settings, write_settings=False)
+
+    return [call.kwargs for call in train_fn.call_args_list]
+
+
+def _two_molecule_settings(tmp_path, train_protocols, test_protocols, **kwargs):
+    """Settings for ethanol and propane, without outlier filtering."""
+    from presto.settings import ParamSettings, WorkflowSettings
+
+    return WorkflowSettings(
+        output_dir=tmp_path,
+        device_type="cpu",
+        param_settings=ParamSettings(molecules=["CCO", "CCC"]),
+        training_sampling_settings=train_protocols,
+        testing_sampling_settings=test_protocols,
+        outlier_filter_settings=None,
+        **kwargs,
+    )
+
+
+def test_molecule_weights_reach_training(tmp_path):
+    """Each protocol's molecule weights are passed to training, with 1s where unset."""
+    settings = _two_molecule_settings(
+        tmp_path,
+        train_protocols=[
+            MMMDSamplingSettings(molecule_weights=[2.0, 1.0]),
+            MMMDSamplingSettings(),
+        ],
+        test_protocols=[
+            MLMDSamplingSettings(),
+            MLMDSamplingSettings(molecule_weights=[0.0, 1.0]),
+        ],
+        n_iterations=1,
+    )
+
+    (training_call,) = _run_workflow(settings)
+
+    # One list per dataset, with one weight per molecule
+    assert training_call["molecule_weights"] == [[2.0, 1.0], [1.0, 1.0]]
+    assert training_call["molecule_weights_test"] == [[1.0, 1.0], [0.0, 1.0]]
