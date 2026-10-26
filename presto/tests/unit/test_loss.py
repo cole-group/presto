@@ -19,6 +19,7 @@ from presto.loss import (
     DatasetLoss,
     compute_dataset_loss_and_grad,
     compute_overall_loss_and_grad,
+    Prediction,
     compute_regularisation_loss,
     predict_with_weights,
 )
@@ -227,22 +228,22 @@ def weighted_ethanol_dataset(ethanol_ff_and_topology):
 class TestPredictWithWeights:
     """Tests for predict_with_weights function."""
 
-    def test_returns_correct_number_of_outputs(self, weighted_ethanol_dataset):
-        """Test that function returns 6 outputs."""
+    def test_returns_prediction(self, weighted_ethanol_dataset):
+        """Test that function returns a Prediction."""
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
         result = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
-        assert len(result) == 6
+        assert isinstance(result, Prediction)
 
     def test_returns_energy_weights(self, weighted_ethanol_dataset):
         """Test that energy weights are returned."""
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
-        _, _, _, _, energy_weights, _ = predict_with_weights(
+        energy_weights = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
-        )
+        ).energy_weights
         assert energy_weights is not None
         assert len(energy_weights) == 3  # n_confs
 
@@ -250,9 +251,9 @@ class TestPredictWithWeights:
         """Test that forces weights are returned."""
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
-        _, _, _, _, _, forces_weights = predict_with_weights(
+        forces_weights = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
-        )
+        ).forces_weights
         assert forces_weights is not None
         assert len(forces_weights) == 3  # n_confs
 
@@ -260,9 +261,11 @@ class TestPredictWithWeights:
         """Test that returned weights match dataset."""
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
 
-        _, _, _, _, energy_weights, forces_weights = predict_with_weights(
+        prediction = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
+        energy_weights = prediction.energy_weights
+        forces_weights = prediction.forces_weights
 
         # Energy weight was set to 1000.0
         assert torch.allclose(
@@ -627,21 +630,10 @@ class TestPredictWithWeightsMultipleEntries:
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
         )
 
-        # Should return 6 tensors
-        assert len(result) == 6
-
-        (
-            energy_ref,
-            _energy_pred,
-            _forces_ref,
-            _forces_pred,
-            energy_weights,
-            _forces_weights,
-        ) = result
-
         # Total conformations: 2 from first entry + 1 from second = 3
-        assert len(energy_ref) == 3
-        assert len(energy_weights) == 3
+        assert len(result.energy_ref) == 3
+        assert len(result.energy_weights) == 3
+        assert result.entry_sizes == [2, 1]
 
     def test_predict_with_weights_preserves_different_weights(
         self, multi_entry_dataset
@@ -649,9 +641,9 @@ class TestPredictWithWeightsMultipleEntries:
         """Test that different weights per entry are preserved."""
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
-        _, _, _, _, energy_weights, _forces_weights = predict_with_weights(
+        energy_weights = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, device=torch.device("cpu")
-        )
+        ).energy_weights
 
         # First 2 conformations should have weight 1000.0
         assert torch.allclose(
@@ -666,13 +658,13 @@ class TestPredictWithWeightsMultipleEntries:
         """Test that each entry has its own reference energy (minimum is 0)."""
         dataset, tensor_ff, tensor_top, smiles = multi_entry_dataset
 
-        energy_ref, _, _, _, _, _ = predict_with_weights(
+        energy_ref = predict_with_weights(
             dataset,
             tensor_ff,
             {smiles: tensor_top},
             device=torch.device("cpu"),
             normalize=False,
-        )
+        ).energy_ref
 
         # Due to how predict_with_weights works, each entry's energies are
         # relative to their own mean/min, so we can't easily verify entry-level
@@ -759,23 +751,19 @@ class TestGetLossClosure:
 
     def test_predict_with_weights_reference_min(self, weighted_ethanol_dataset):
         """Predict with weights reference min."""
-        from presto.loss import predict_with_weights
-
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
         res = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, reference="min"
         )
-        assert len(res) == 6
+        assert isinstance(res, Prediction)
 
     def test_predict_with_weights_reference_median(self, weighted_ethanol_dataset):
         """Predict with weights reference median."""
-        from presto.loss import predict_with_weights
-
         dataset, tensor_ff, tensor_top, smiles = weighted_ethanol_dataset
         res = predict_with_weights(
             dataset, tensor_ff, {smiles: tensor_top}, reference="median"
         )
-        assert len(res) == 6
+        assert isinstance(res, Prediction)
 
 
 def _explicit_weighted_objective(
@@ -786,7 +774,7 @@ def _explicit_weighted_objective(
     This is independent of the loss module's gradient accumulation.
     Returns (energy, forces, regularisation), each still attached to ``x``.
     """
-    from presto.loss import _compute_molecule_energy_force_loss, _predict
+    from presto.loss import _compute_molecule_energy_force_loss
 
     force_field = trainable.to_force_field(x)
     total_weight = sum(weights)
@@ -796,7 +784,7 @@ def _explicit_weighted_objective(
     ):
         mol_energies, mol_forces = [], []
         for dataset, topology in zip(datasets_list, topologies, strict=True):
-            prediction = _predict(
+            prediction = predict_with_weights(
                 dataset,
                 force_field,
                 {dataset[0]["smiles"]: topology},
@@ -1356,11 +1344,11 @@ def _molecule_loss_from_errors(
     Uses one atom, so the energy term's squared error is ``energy_errors**2`` and the
     force term's is ``force_errors**2`` (the same error on each component).
     """
-    from presto.loss import _compute_molecule_energy_force_loss, _Prediction
+    from presto.loss import _compute_molecule_energy_force_loss
 
     n_confs = len(energy_errors)
     forces_ref = force_errors.reshape(n_confs, 1).expand(n_confs, 3).reshape(-1, 3)
-    prediction = _Prediction(
+    prediction = Prediction(
         energy_ref=energy_errors,
         energy_pred=torch.zeros(n_confs, dtype=torch.float64),
         forces_ref=forces_ref,
@@ -1551,12 +1539,12 @@ class TestConformerWeightsInLoss:
         r = torch.tensor([0.0, 1.0, 3.0, 1.0, 1.0], dtype=torch.float64)
         weighted = _rebuild(dataset, conformer_weights=r)
 
-        energy_ref, *_ = predict_with_weights(
+        energy_ref = predict_with_weights(
             weighted,
             trainable.to_force_field(params),
             {dataset[0]["smiles"]: topologies[0]},
             normalize=False,
-        )
+        ).energy_ref
 
         raw = dataset[0]["energy"]
         assert torch.allclose(

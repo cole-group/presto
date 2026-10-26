@@ -13,6 +13,7 @@
 - Datasets without `energy_weights` or `forces_weights` columns, such as most pre-computed datasets, now default to the same weights as sampled data (1000 for energies and 0.1 for forces, from `loss_energy_weight` and `loss_force_weight`) instead of 1 and 1, so fits to them change.
 - The regularisation loss is divided by the number of regularised parameters instead of their effective sample size, so a `regularize` config with unequal weights (including 0) gives a different loss.
 - `compute_overall_loss_and_grad`, `compute_overall_loss_hessian`, `get_loss_closure_fn`, `compute_dataset_loss_and_grad` and the training functions take new optional `molecule_weights` arguments.
+- `predict_with_weights` returns a `Prediction` named tuple, which also holds the relative conformer weights and entry sizes, instead of a 6-tuple.
 
 ### Features
 

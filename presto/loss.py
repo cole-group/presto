@@ -27,7 +27,7 @@ class LossRecord(typing.NamedTuple):
     regularisation: torch.Tensor
 
 
-class _Prediction(typing.NamedTuple):
+class Prediction(typing.NamedTuple):
     """Predicted and reference energies and forces of one molecule, with weights.
 
     Each tensor covers the conformations of every entry of the molecule, in order.
@@ -85,7 +85,7 @@ def _mean_over_active_entries(
 
 
 def _compute_molecule_energy_force_loss(
-    prediction: _Prediction,
+    prediction: Prediction,
     n_atoms: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -150,7 +150,7 @@ def _compute_molecule_loss(
     The losses stay attached to the force field parameters when ``create_graph``
     is True, so they can be differentiated.
     """
-    prediction = _predict(
+    prediction = predict_with_weights(
         dataset,
         force_field,
         {dataset[0]["smiles"]: topology},
@@ -606,7 +606,7 @@ def get_loss_closure_fn(
     return closure_fn
 
 
-def _predict(
+def predict_with_weights(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
     topologies: dict[str, smee.TensorTopology],
@@ -614,11 +614,25 @@ def _predict(
     normalize: bool = True,
     device: torch.device = _CPU_DEVICE,
     create_graph: bool = False,
-) -> _Prediction:
-    """Predict the relative energies and forces, with weights. See `predict_with_weights`.
+) -> Prediction:
+    """Predict the relative energies and forces of a dataset, with their weights.
 
-    Non-finite reference energies and forces are replaced with 0, so no NaN enters
-    the graph, and their conformations get a conformer weight of 0 for that term.
+    With ``reference="mean"``, each entry's energies are offset by their mean weighted
+    by the relative conformer weights. Non-finite reference energies and forces are
+    replaced with 0, so no NaN enters the graph, and their conformations get a
+    conformer weight of 0 for that term.
+
+    Args:
+        dataset: The dataset to predict the energies and forces of.
+        force_field: The force field to use to predict the energies and forces.
+        topologies: The topologies of the molecules in the dataset.
+        reference: The reference energy to compute the relative energies with respect to.
+        normalize: Whether to scale the relative energies and forces.
+        device: Device for computations.
+        create_graph: Whether to create a computation graph for gradients.
+
+    Returns:
+        The predicted and reference energies and forces, with their weights.
     """
     energy_ref_all, energy_pred_all = [], []
     forces_ref_all, forces_pred_all = [], []
@@ -719,7 +733,7 @@ def _predict(
         forces_ref_all_tensor, forces_pred_all_tensor
     )
 
-    return _Prediction(
+    return Prediction(
         energy_ref=energy_ref_all_tensor,
         energy_pred=energy_pred_all_tensor,
         forces_ref=forces_ref_all_tensor,
@@ -729,55 +743,4 @@ def _predict(
         energy_conformer_weights=torch.cat(energy_conformer_weights_all),
         forces_conformer_weights=torch.cat(forces_conformer_weights_all),
         entry_sizes=entry_sizes,
-    )
-
-
-def predict_with_weights(
-    dataset: datasets.Dataset,
-    force_field: smee.TensorForceField,
-    topologies: dict[str, smee.TensorTopology],
-    reference: typing.Literal["mean", "min", "median"] = "mean",
-    normalize: bool = True,
-    device: torch.device = _CPU_DEVICE,
-    create_graph: bool = False,
-) -> tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
-    """Predict the relative energies and forces with associated weights from the dataset.
-
-    This function is similar to `predict` but also returns the energy and force weights
-    from the dataset entries. With ``reference="mean"``, each entry's energies are
-    offset by their mean weighted by the relative conformer weights, ignoring
-    conformations whose reference energy is not finite. Non-finite reference energies
-    and forces are returned as 0.
-
-    Args:
-        dataset: The dataset to predict the energies and forces of.
-        force_field: The force field to use to predict the energies and forces.
-        topologies: The topologies of the molecules in the dataset.
-        reference: The reference energy to compute the relative energies with respect to.
-        normalize: Whether to scale the relative energies and forces.
-        device: Device for computations.
-
-        create_graph: Whether to create a computation graph for gradients.
-
-    Returns:
-        Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
-    """
-    prediction = _predict(
-        dataset,
-        force_field,
-        topologies,
-        reference=reference,
-        normalize=normalize,
-        device=device,
-        create_graph=create_graph,
-    )
-    return (
-        prediction.energy_ref,
-        prediction.energy_pred,
-        prediction.forces_ref,
-        prediction.forces_pred,
-        prediction.energy_weights,
-        prediction.forces_weights,
     )

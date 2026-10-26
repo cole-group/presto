@@ -12,7 +12,7 @@ from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 
 from presto.data_utils import create_dataset_with_uniform_weights
-from presto.loss import DatasetLoss, LossRecord
+from presto.loss import DatasetLoss, LossRecord, Prediction
 from presto.writers import (
     get_potential_comparison,
     get_potential_summary,
@@ -45,12 +45,16 @@ def test_write_scatter(tmp_path):
 
     # Mock predict function from presto.loss
     with patch("presto.writers.predict_with_weights") as mock_predict:
-        # Returns: energy_ref, energy_pred, forces_ref, forces_pred
-        mock_predict.return_value = (
-            torch.zeros(n_conf),
-            torch.ones(n_conf),
-            torch.zeros(n_conf * n_atoms * 3),
-            torch.ones(n_conf * n_atoms * 3),
+        mock_predict.return_value = Prediction(
+            energy_ref=torch.zeros(n_conf),
+            energy_pred=torch.ones(n_conf),
+            forces_ref=torch.zeros(n_conf * n_atoms * 3),
+            forces_pred=torch.ones(n_conf * n_atoms * 3),
+            energy_weights=torch.ones(n_conf),
+            forces_weights=torch.ones(n_conf),
+            energy_conformer_weights=torch.ones(n_conf),
+            forces_conformer_weights=torch.ones(n_conf),
+            entry_sizes=[n_conf],
         )
 
         energy_mean, energy_std, forces_mean, forces_std = write_scatter(

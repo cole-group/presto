@@ -53,15 +53,15 @@ def write_scatter(
     filename: PathLike,
 ) -> tuple[float, float, float, float]:
     """Predict and save energies/forces to HDF5."""
-    energy_ref_all, energy_pred_all, forces_ref_all, forces_pred_all, *_ = (
-        predict_with_weights(
-            dataset,
-            force_field,
-            {dataset[0]["smiles"]: topology_in},
-            device=device,
-            normalize=False,
-        )
+    prediction = predict_with_weights(
+        dataset,
+        force_field,
+        {dataset[0]["smiles"]: topology_in},
+        device=device,
+        normalize=False,
     )
+    energy_ref_all, energy_pred_all = prediction.energy_ref, prediction.energy_pred
+    forces_ref_all, forces_pred_all = prediction.forces_ref, prediction.forces_pred
 
     with torch.no_grad():
         energy_diffs = energy_pred_all - energy_ref_all

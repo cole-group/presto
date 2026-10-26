@@ -387,13 +387,13 @@ def filter_dataset_outliers(
         logger.info("No outlier filtering enabled, returning original dataset")
         return dataset
 
-    # Build topologies dict and track entry sizes for un-flattening
+    # Build topologies dict
     smiles = dataset[0]["smiles"]
     topologies = {smiles: topology}
     n_atoms = topology.n_atoms
 
-    # Get predictions using predict_with_weights (no graph needed, no normalization)
-    energy_ref, energy_pred, forces_ref, forces_pred, _, _ = predict_with_weights(
+    # Get predictions (no graph needed, no normalization)
+    prediction = predict_with_weights(
         dataset,
         force_field,
         topologies,
@@ -403,16 +403,14 @@ def filter_dataset_outliers(
         create_graph=False,
     )
 
-    # Track entry sizes for un-flattening
-    entry_sizes = [len(entry["energy"]) for entry in dataset]
-
     # Un-flatten results back to per-entry lists
-    energy_ref_list = torch.split(energy_ref, entry_sizes)
-    energy_pred_list = torch.split(energy_pred, entry_sizes)
+    entry_sizes = prediction.entry_sizes
+    energy_ref_list = torch.split(prediction.energy_ref, entry_sizes)
+    energy_pred_list = torch.split(prediction.energy_pred, entry_sizes)
     # Forces are (n_total_confs * n_atoms, 3), need to split by n_confs * n_atoms
     forces_split_sizes = [n * n_atoms for n in entry_sizes]
-    forces_ref_list = torch.split(forces_ref, forces_split_sizes)
-    forces_pred_list = torch.split(forces_pred, forces_split_sizes)
+    forces_ref_list = torch.split(prediction.forces_ref, forces_split_sizes)
+    forces_pred_list = torch.split(prediction.forces_pred, forces_split_sizes)
 
     filtered_entries = []
 
