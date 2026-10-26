@@ -443,15 +443,12 @@ def compute_regularisation_loss(
             f"regularisation value {regularisation_target} not implemented"
         )
 
-    effective_sample_size = torch.sum(regularisation_weights) ** 2 / torch.sum(
-        regularisation_weights**2
-    )
-
-    # L2 regularisation on all parameters
+    # Weighted mean of the squared deviations, so the loss rises linearly with
+    # each regularisation weight
     reg_loss += (
         ((trainable_parameters[regularised_idxs] - target) ** 2)
         * regularisation_weights
-    ).sum() / effective_sample_size
+    ).sum() / len(regularised_idxs)
 
     return reg_loss
 

@@ -1755,3 +1755,58 @@ class TestConformerWeightsInLoss:
         else:
             removed, _ = self._loss(two_molecule_setup, [_rebuild(dataset, keep=keep)])
             assert torch.allclose(getattr(loss, term), getattr(removed, term))
+
+
+class TestRegularisationNormalisation:
+    """Tests for the regularisation loss, a mean of the weighted squared deviations."""
+
+    @staticmethod
+    def _loss_and_terms(trainable):
+        """Return the regularisation loss and its per-parameter terms.
+
+        The parameters are moved 2% from their initial values. Returns the loss and,
+        for each regularised parameter, its weight and squared deviation.
+        """
+        initial = trainable.to_values().detach().clone()
+        params = initial * 1.02
+        idxs = trainable.regularized_idxs
+        weights = trainable.regularization_weights.to(params.dtype)
+        squared = (params[idxs] - initial[idxs]) ** 2
+        # The penalty accumulates in single precision
+        loss = compute_regularisation_loss(
+            trainable, params, initial, "initial"
+        ).double()
+        return loss, weights, squared
+
+    def test_equal_weights_match_ess_form(self, two_molecule_setup):
+        """With equal weights the loss is unchanged from the ESS form."""
+        # The fixture regularises every parameter with weight 1
+        loss, weights, squared = self._loss_and_terms(two_molecule_setup.trainable)
+
+        assert torch.allclose(loss, (weights * squared).sum() / len(squared), rtol=1e-6)
+        assert torch.allclose(loss, _ess_loss(squared, weights), rtol=1e-6)
+
+    def test_unequal_weights_divide_by_number_of_parameters(self, two_molecule_setup):
+        """With unequal weights the loss is sum(w (p - p0)^2) / N, not the ESS form.
+
+        Parameters with weight 0 still count in N.
+        """
+        trainable = Trainable(
+            two_molecule_setup.tensor_ff,
+            {
+                "Bonds": ParameterConfig(
+                    cols=["k", "length"],
+                    scales={"k": 1.0 / 500.0, "length": 1.0},
+                    regularize={"k": 1.0, "length": 0.0},
+                ),
+                "Angles": ParameterConfig(
+                    cols=["k"], scales={"k": 1.0 / 100.0}, regularize={"k": 3.0}
+                ),
+            },
+            {},
+        )
+        loss, weights, squared = self._loss_and_terms(trainable)
+        assert (weights == 0).any()
+
+        assert torch.allclose(loss, (weights * squared).sum() / len(squared), rtol=1e-6)
+        assert not torch.allclose(loss, _ess_loss(squared, weights), rtol=1e-3)
