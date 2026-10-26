@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 logger = loguru.logger
 _CPU_DEVICE = torch.device("cpu")
 
+# Default absolute scales of the energy and force losses, used by the sampling
+# settings and for datasets without weight columns
+DEFAULT_ENERGY_WEIGHT = 1000.0
+DEFAULT_FORCES_WEIGHT = 0.1
+
 # Schema with weights for energy and forces
 WEIGHTED_DATA_SCHEMA = pyarrow.schema(
     [
@@ -239,8 +244,8 @@ def has_weights(dataset: datasets.Dataset) -> bool:
 
 def get_weights_from_entry(
     entry: WeightedEntry,
-    default_energy_weight: float = 1.0,
-    default_forces_weight: float = 1.0,
+    default_energy_weight: float = DEFAULT_ENERGY_WEIGHT,
+    default_forces_weight: float = DEFAULT_FORCES_WEIGHT,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Get energy and forces weights from a dataset entry.
 

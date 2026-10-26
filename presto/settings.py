@@ -25,6 +25,7 @@ from pydantic_units import OpenMMQuantity
 
 from . import __version__
 from ._exceptions import InvalidSettingsError
+from .data_utils import DEFAULT_ENERGY_WEIGHT, DEFAULT_FORCES_WEIGHT
 from .find_torsions import (
     DEFAULT_TORSIONS_TO_EXCLUDE_SMARTS,
     DEFAULT_TORSIONS_TO_INCLUDE_SMARTS,
@@ -283,7 +284,7 @@ class _SamplingSettingsBase(_DatasetSettingsBase, ABC):
     )
 
     loss_energy_weight: float = Field(
-        1000.0,
+        DEFAULT_ENERGY_WEIGHT,
         description="Absolute scale of the energy loss term (energies are in "
         "kcal/mol); the loss rises linearly with it. The default (1000) is much "
         "larger than `loss_force_weight` (0.1) to balance the different units of "
@@ -291,7 +292,7 @@ class _SamplingSettingsBase(_DatasetSettingsBase, ABC):
     )
 
     loss_force_weight: float = Field(
-        0.1,
+        DEFAULT_FORCES_WEIGHT,
         description="Absolute scale of the force loss term (forces are in "
         "kcal/mol/Å); the loss rises linearly with it. See `loss_energy_weight` for "
         "context on the default ratio.",

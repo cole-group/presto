@@ -374,9 +374,9 @@ class TestGetWeightsFromEntry:
 
         energy_weights, forces_weights = get_weights_from_entry(entry)
 
-        expected = torch.full((3,), 1.0, dtype=torch.float64)
-        assert torch.allclose(energy_weights, expected)
-        assert torch.allclose(forces_weights, expected)
+        # The same defaults as loss_energy_weight and loss_force_weight
+        assert torch.allclose(energy_weights, torch.full((3,), 1000.0).double())
+        assert torch.allclose(forces_weights, torch.full((3,), 0.1).double())
 
     def test_custom_default_weights(self):
         """Test that custom default weights can be specified."""
@@ -387,11 +387,11 @@ class TestGetWeightsFromEntry:
         }
 
         energy_weights, forces_weights = get_weights_from_entry(
-            entry, default_energy_weight=1000.0, default_forces_weight=0.1
+            entry, default_energy_weight=2.0, default_forces_weight=0.5
         )
 
-        expected_energy = torch.full((3,), 1000.0, dtype=torch.float64)
-        expected_forces = torch.full((3,), 0.1, dtype=torch.float64)
+        expected_energy = torch.full((3,), 2.0, dtype=torch.float64)
+        expected_forces = torch.full((3,), 0.5, dtype=torch.float64)
         assert torch.allclose(energy_weights, expected_energy)
         assert torch.allclose(forces_weights, expected_forces)
 
@@ -408,7 +408,7 @@ class TestGetWeightsFromEntry:
         energy_weights, forces_weights = get_weights_from_entry(entry)
 
         assert torch.allclose(energy_weights, torch.tensor([5.0, 5.0, 5.0]))
-        expected_forces = torch.full((3,), 1.0, dtype=torch.float64)
+        expected_forces = torch.full((3,), 0.1, dtype=torch.float64)
         assert torch.allclose(forces_weights, expected_forces)
 
 
@@ -649,7 +649,7 @@ class TestFilterDatasetOutliers:
         )
 
         assert len(filtered[0]["energy"]) == 4
-        assert filtered[0]["energy_weights"].tolist() == [1.0] * 4
+        assert filtered[0]["energy_weights"].tolist() == [1000.0] * 4
         assert filtered[0]["conformer_weights"].tolist() == [1.0] * 4
 
     def test_raises_on_empty_dataset(self, ethanol_ff_and_topology):

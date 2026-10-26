@@ -20,8 +20,8 @@ Each row has these columns, where `n_confs` is the number of conformers in the r
 | `coords` | Å | `n_confs * n_atoms * 3`, flattened from `(n_confs, n_atoms, 3)` | Coordinates of each conformer. |
 | `energy` | kcal/mol | `n_confs` | Reference energy of each conformer. Only differences within the row matter. |
 | `forces` | kcal/mol/Å | `n_confs * n_atoms * 3`, flattened like `coords` | Reference forces on each atom. |
-| `energy_weights` | | `n_confs` | Optional. The absolute scale of each conformer's energy error (1 if absent). |
-| `forces_weights` | | `n_confs` | Optional. The absolute scale of each conformer's force error (1 if absent). |
+| `energy_weights` | | `n_confs` | Optional. The absolute scale of each conformer's energy error (1000 if absent, the default `loss_energy_weight`). |
+| `forces_weights` | | `n_confs` | Optional. The absolute scale of each conformer's force error (0.1 if absent, the default `loss_force_weight`). |
 | `conformer_weights` | | `n_confs` | Optional. Relative weights within the row (1 if absent). Use a weight of 0, not an absolute weight of 0, to exclude a conformer. |
 
 The datasets do not record their units, so convert your data to these before saving. NaN energies or forces are masked out of the loss automatically. Datasets that `presto` loads, including the one passed to a [conformer weights function](weight-conformers-and-molecules.md#weight-conformers-with-your-own-function), have the same columns in torch format, with `coords` and `forces` still flattened.
