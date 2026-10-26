@@ -27,6 +27,32 @@ class LossRecord(typing.NamedTuple):
     regularisation: torch.Tensor
 
 
+class _Prediction(typing.NamedTuple):
+    """Predicted and reference energies and forces of one molecule, with weights.
+
+    Each tensor covers the conformations of every entry of the molecule, in order.
+    """
+
+    energy_ref: torch.Tensor
+    """Reference energies relative to each entry's offset, with shape (n_confs,)."""
+    energy_pred: torch.Tensor
+    """Predicted energies relative to each entry's offset, with shape (n_confs,)."""
+    forces_ref: torch.Tensor
+    """Reference forces with shape (n_confs * n_atoms, 3), 0 where not finite."""
+    forces_pred: torch.Tensor
+    """Predicted forces with shape (n_confs * n_atoms, 3)."""
+    energy_weights: torch.Tensor
+    """Absolute energy weights with shape (n_confs,)."""
+    forces_weights: torch.Tensor
+    """Absolute force weights with shape (n_confs,)."""
+    energy_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where the reference energy is not finite."""
+    forces_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where any reference force is not finite."""
+    entry_sizes: list[int]
+    """The number of conformations in each entry, in order."""
+
+
 def _mean_over_active_entries(
     loss_per_conf: torch.Tensor,
     weights: torch.Tensor,
@@ -59,15 +85,7 @@ def _mean_over_active_entries(
 
 
 def _compute_molecule_energy_force_loss(
-    energy_ref: torch.Tensor,
-    energy_pred: torch.Tensor,
-    forces_ref: torch.Tensor,
-    forces_pred: torch.Tensor,
-    energy_weights: torch.Tensor,
-    forces_weights: torch.Tensor,
-    energy_conformer_weights: torch.Tensor,
-    forces_conformer_weights: torch.Tensor,
-    entry_sizes: list[int],
+    prediction: _Prediction,
     n_atoms: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -83,46 +101,37 @@ def _compute_molecule_energy_force_loss(
     makes a single energy carry no information).
 
     Args:
-        energy_ref: Reference energies with shape (n_confs,).
-        energy_pred: Predicted energies with shape (n_confs,).
-        forces_ref: Reference forces with shape (n_confs * n_atoms, 3).
-        forces_pred: Predicted forces with shape (n_confs * n_atoms, 3).
-        energy_weights: Per-conformation absolute energy weights with shape (n_confs,).
-        forces_weights: Per-conformation absolute force weights with shape (n_confs,).
-        energy_conformer_weights: Relative conformer weights for the energy term,
-            with shape (n_confs,).
-        forces_conformer_weights: Relative conformer weights for the force term, with
-            shape (n_confs,).
-        entry_sizes: The number of conformations in each entry, in order.
+        prediction: The molecule's predicted and reference energies and forces, with
+            their weights.
         n_atoms: Number of atoms in the molecule.
         device: Device for tensor creation.
 
     Returns:
         Tuple of (energy_loss, force_loss) for this molecule.
     """
-    n_confs = energy_ref.shape[0]
+    n_confs = prediction.energy_ref.shape[0]
 
-    energy_diff_sq = ((energy_ref - energy_pred) / n_atoms) ** 2
+    energy_diff_sq = ((prediction.energy_ref - prediction.energy_pred) / n_atoms) ** 2
 
-    forces_ref_reshaped = forces_ref.reshape(n_confs, n_atoms, 3)
-    forces_pred_reshaped = forces_pred.reshape(n_confs, n_atoms, 3)
+    forces_ref_reshaped = prediction.forces_ref.reshape(n_confs, n_atoms, 3)
+    forces_pred_reshaped = prediction.forces_pred.reshape(n_confs, n_atoms, 3)
     forces_diff_sq = (forces_ref_reshaped - forces_pred_reshaped) ** 2
     # Average over atoms and dimensions for each conformation
     forces_loss_per_conf = forces_diff_sq.sum(dim=[1, 2]) / (3 * n_atoms)
 
     energy_loss = _mean_over_active_entries(
         energy_diff_sq,
-        energy_weights,
-        energy_conformer_weights,
-        entry_sizes,
+        prediction.energy_weights,
+        prediction.energy_conformer_weights,
+        prediction.entry_sizes,
         min_n_confs=2,
         device=device,
     )
     force_loss = _mean_over_active_entries(
         forces_loss_per_conf,
-        forces_weights,
-        forces_conformer_weights,
-        entry_sizes,
+        prediction.forces_weights,
+        prediction.forces_conformer_weights,
+        prediction.entry_sizes,
         min_n_confs=1,
         device=device,
     )
@@ -149,19 +158,7 @@ def _compute_molecule_loss(
         normalize=False,
         create_graph=create_graph,
     )
-    return _compute_molecule_energy_force_loss(
-        prediction.energy_ref,
-        prediction.energy_pred,
-        prediction.forces_ref,
-        prediction.forces_pred,
-        prediction.energy_weights,
-        prediction.forces_weights,
-        prediction.energy_conformer_weights,
-        prediction.forces_conformer_weights,
-        prediction.entry_sizes,
-        topology.n_atoms,
-        device,
-    )
+    return _compute_molecule_energy_force_loss(prediction, topology.n_atoms, device)
 
 
 def _compute_molecule_total_loss_and_grad(
@@ -607,22 +604,6 @@ def get_loss_closure_fn(
         return total_loss, gradient, hessian
 
     return closure_fn
-
-
-class _Prediction(typing.NamedTuple):
-    """Predicted and reference energies and forces of one molecule, with weights."""
-
-    energy_ref: torch.Tensor
-    energy_pred: torch.Tensor
-    forces_ref: torch.Tensor
-    forces_pred: torch.Tensor
-    energy_weights: torch.Tensor
-    forces_weights: torch.Tensor
-    energy_conformer_weights: torch.Tensor
-    """Relative conformer weights, 0 where the reference energy is not finite."""
-    forces_conformer_weights: torch.Tensor
-    """Relative conformer weights, 0 where any reference force is not finite."""
-    entry_sizes: list[int]
 
 
 def _predict(

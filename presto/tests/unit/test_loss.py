@@ -804,7 +804,7 @@ def _explicit_weighted_objective(
                 create_graph=True,
             )
             e, f = _compute_molecule_energy_force_loss(
-                *prediction, topology.n_atoms, x.device
+                prediction, topology.n_atoms, x.device
             )
             mol_energies.append(e)
             mol_forces.append(f)
@@ -1356,23 +1356,22 @@ def _molecule_loss_from_errors(
     Uses one atom, so the energy term's squared error is ``energy_errors**2`` and the
     force term's is ``force_errors**2`` (the same error on each component).
     """
-    from presto.loss import _compute_molecule_energy_force_loss
+    from presto.loss import _compute_molecule_energy_force_loss, _Prediction
 
     n_confs = len(energy_errors)
     forces_ref = force_errors.reshape(n_confs, 1).expand(n_confs, 3).reshape(-1, 3)
-    return _compute_molecule_energy_force_loss(
-        energy_errors,
-        torch.zeros(n_confs, dtype=torch.float64),
-        forces_ref,
-        torch.zeros_like(forces_ref),
-        energy_weights,
-        forces_weights,
-        r,
-        r,
-        entry_sizes,
-        1,
-        torch.device("cpu"),
+    prediction = _Prediction(
+        energy_ref=energy_errors,
+        energy_pred=torch.zeros(n_confs, dtype=torch.float64),
+        forces_ref=forces_ref,
+        forces_pred=torch.zeros_like(forces_ref),
+        energy_weights=energy_weights,
+        forces_weights=forces_weights,
+        energy_conformer_weights=r,
+        forces_conformer_weights=r,
+        entry_sizes=entry_sizes,
     )
+    return _compute_molecule_energy_force_loss(prediction, 1, torch.device("cpu"))
 
 
 class TestMoleculeLossWeighting:
