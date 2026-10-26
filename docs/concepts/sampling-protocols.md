@@ -124,7 +124,7 @@ training_sampling_settings:
     implicit_solvent: obc2
 ```
 
-This only changes which structures are sampled. The energies and forces that are fitted to are always recalculated with the (gas-phase) MLP, and the MM model in the fit stays gas-phase. To fit in implicit solvent as well, the reference and MM energies would both need solvation terms, which `presto` does not currently add. Setting `implicit_solvent` on `testing_sampling_settings` changes the test-set structures in the same way.
+This only changes which structures are sampled. The energies and forces that are fitted to are always recalculated with the (gas-phase) MLP, and the MM model in the fit stays gas-phase. To fit in implicit solvent as well, the reference and MM energies would both need solvation terms, which `presto` does not currently add. `implicit_solvent` is set separately on each protocol, so with [multiple datasets](#multiple-datasets) you can sample some in implicit solvent and others in vacuum. Setting it on a testing protocol changes that test set's structures in the same way.
 
 The options are:
 
