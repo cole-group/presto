@@ -1,5 +1,7 @@
 """Unit tests for loss_functions module."""
 
+import typing
+
 import datasets
 import datasets.table
 import openff.interchange
@@ -17,9 +19,9 @@ from presto.data_utils import (
 )
 from presto.loss import (
     DatasetLoss,
+    Prediction,
     compute_dataset_loss_and_grad,
     compute_overall_loss_and_grad,
-    Prediction,
     compute_regularisation_loss,
     predict_with_weights,
 )
@@ -845,8 +847,25 @@ def _synthetic_dataset(
     )
 
 
+class TwoMoleculeSetup(typing.NamedTuple):
+    """Two molecules sharing one trainable force field, with three datasets."""
+
+    trainable: Trainable
+    params: torch.Tensor
+    """The trainable parameters, moved 2% from their initial values."""
+    initial: torch.Tensor
+    """The initial trainable parameters."""
+    topologies: list[smee.TensorTopology]
+    """The topologies of ethanol (molecule 0) and propylamine (molecule 1)."""
+    datasets: list[list[datasets.Dataset]]
+    """``datasets[k][m]`` is dataset k's data for molecule m, as one entry. Datasets
+    0, 1 and 2 have 3, 5 and 4 conformers per molecule."""
+    mols: list[Molecule]
+    tensor_ff: smee.TensorForceField
+
+
 @pytest.fixture(scope="module")
-def two_molecule_setup():
+def two_molecule_setup() -> TwoMoleculeSetup:
     """Two molecules sharing one trainable force field, with three datasets each.
 
     The datasets are distinct and the parameters are moved away from their initial
@@ -883,14 +902,14 @@ def two_molecule_setup():
         ]
         for k, n_confs in enumerate((3, 5, 4))
     ]
-    return (
-        trainable,
-        params,
-        initial,
-        topologies,
-        per_molecule_datasets_by_dataset,
-        mols,
-        tensor_ff,
+    return TwoMoleculeSetup(
+        trainable=trainable,
+        params=params,
+        initial=initial,
+        topologies=topologies,
+        datasets=per_molecule_datasets_by_dataset,
+        mols=mols,
+        tensor_ff=tensor_ff,
     )
 
 
@@ -955,10 +974,10 @@ class TestComputeDatasetLossAndGrad:
 
     def test_molecule_count_mismatch_raises(self, two_molecule_setup):
         """Each dataset must have one entry per molecule."""
+        # Dataset 0's data for ethanol only, with no data for propylamine
+        ethanol_only = two_molecule_setup.datasets[0][:1]
         with pytest.raises(ValueError):
-            _run_compute_dataset_loss_and_grad(
-                two_molecule_setup, two_molecule_setup[4][0][:1]
-            )
+            _run_compute_dataset_loss_and_grad(two_molecule_setup, ethanol_only)
 
 
 class TestComputeOverallLossAndGrad:
@@ -1006,7 +1025,8 @@ class TestComputeOverallLossAndGrad:
 
     def test_weighted_combination_of_dataset_losses(self, two_molecule_setup):
         """The combined loss is the normalised weighted sum of each dataset's loss."""
-        per_molecule_datasets_by_dataset = two_molecule_setup[4][:2]
+        # Datasets 0 and 1
+        per_molecule_datasets_by_dataset = two_molecule_setup.datasets[:2]
         loss_0, grad_0 = _run_compute_dataset_loss_and_grad(
             two_molecule_setup, per_molecule_datasets_by_dataset[0]
         )
@@ -1046,6 +1066,7 @@ class TestComputeOverallLossAndGrad:
     ):
         """Losses and the accumulated gradient match autograd of the explicit sum."""
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        # The first dataset for each weight
         per_molecule_datasets_by_dataset = all_datasets[: len(weights)]
         x = params.clone().requires_grad_(True)
         energy, forces, reg = _explicit_weighted_objective(
@@ -1104,8 +1125,7 @@ class TestComputeOverallLossAndGrad:
         Each dataset's loss is computed separately, and within a molecule each
         entry's loss is a mean over its conformers.
         """
-        all_datasets = two_molecule_setup[4]
-        datasets_a, datasets_b = all_datasets[0], all_datasets[1]
+        datasets_a, datasets_b = two_molecule_setup.datasets[:2]
 
         def repeat_conformers(dataset):
             entry = dataset[0]
@@ -1162,7 +1182,7 @@ class TestComputeOverallLossAndGrad:
 
     def test_no_grad(self, two_molecule_setup):
         """Without gradients the losses are unchanged and no gradient is returned."""
-        per_molecule_datasets_by_dataset = two_molecule_setup[4]
+        per_molecule_datasets_by_dataset = two_molecule_setup.datasets
         weights = [1.0, 3.0, 0.5]
         record, losses, gradient = _run_compute_overall_loss_and_grad(
             two_molecule_setup, per_molecule_datasets_by_dataset, weights
@@ -1187,7 +1207,7 @@ class TestComputeOverallLossAndGrad:
     def test_losses_are_detached(self, two_molecule_setup):
         """Returned losses hold no graph, so they can be logged freely."""
         record, losses, _ = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, two_molecule_setup[4], [1, 2, 3]
+            two_molecule_setup, two_molecule_setup.datasets, [1, 2, 3]
         )
         for value in (*record, *(v for loss in losses for v in loss)):
             assert not value.requires_grad
@@ -1197,7 +1217,7 @@ class TestComputeOverallLossAndGrad:
         """There must be one weight per dataset."""
         with pytest.raises(ValueError, match=match):
             _run_compute_overall_loss_and_grad(
-                two_molecule_setup, two_molecule_setup[4], [1.0] * n_weights
+                two_molecule_setup, two_molecule_setup.datasets, [1.0] * n_weights
             )
 
     def test_no_datasets_raises(self, two_molecule_setup):
@@ -1207,10 +1227,11 @@ class TestComputeOverallLossAndGrad:
 
     def test_molecule_count_mismatch_raises(self, two_molecule_setup):
         """Every dataset needs one entry per molecule."""
-        all_datasets = two_molecule_setup[4]
+        dataset_0, dataset_1 = two_molecule_setup.datasets[:2]
+        # Dataset 1 has data for ethanol only
         with pytest.raises(ValueError):
             _run_compute_overall_loss_and_grad(
-                two_molecule_setup, [all_datasets[0], all_datasets[1][:1]], [1, 1]
+                two_molecule_setup, [dataset_0, dataset_1[:1]], [1, 1]
             )
 
 
@@ -1222,9 +1243,11 @@ class TestWeightedLossClosure:
         from presto.loss import get_loss_closure_fn
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        # Datasets 0 and 1, weighted 1 and 3
+        per_molecule_datasets_by_dataset = all_datasets[:2]
         weights = [1.0, 3.0]
         closure = get_loss_closure_fn(
-            per_molecule_datasets_by_dataset=all_datasets[:2],
+            per_molecule_datasets_by_dataset=per_molecule_datasets_by_dataset,
             dataset_weights=weights,
             trainable=trainable,
             trainable_parameters=params,
@@ -1233,7 +1256,7 @@ class TestWeightedLossClosure:
             regularisation_target="initial",
         )
         record, _, gradient = _run_compute_overall_loss_and_grad(
-            two_molecule_setup, all_datasets[:2], weights
+            two_molecule_setup, per_molecule_datasets_by_dataset, weights
         )
 
         x = params.clone().requires_grad_(True)
@@ -1252,6 +1275,7 @@ class TestWeightedLossClosure:
         from presto.loss import compute_overall_loss_hessian, get_loss_closure_fn
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        # Datasets 0 and 1, weighted 1 and 3
         args = (all_datasets[:2], [1.0, 3.0], trainable)
         closure = get_loss_closure_fn(*args, params, initial, topologies, "initial")
         x = params.clone().requires_grad_(True)
@@ -1276,6 +1300,7 @@ class TestComputeOverallLossHessian:
         from presto.loss import compute_overall_loss_hessian
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        # The first dataset for each weight
         per_molecule_datasets_by_dataset = all_datasets[: len(weights)]
 
         def total_loss(x):
@@ -1317,6 +1342,7 @@ class TestComputeOverallLossHessian:
         from presto.loss import compute_overall_loss_hessian
 
         trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+        # Three datasets but one weight
         with pytest.raises(ValueError, match="3 datasets"):
             compute_overall_loss_hessian(
                 all_datasets,
@@ -1336,61 +1362,88 @@ def _ess_loss(loss_per_conf, weights):
     return (loss_per_conf * weights).sum() / ess
 
 
-def _molecule_loss_from_errors(
-    energy_errors, force_errors, energy_weights, forces_weights, r, entry_sizes
-):
-    """Call _compute_molecule_energy_force_loss with per-conformer errors.
+def _float64(values):
+    return torch.tensor(values, dtype=torch.float64)
 
-    Uses one atom, so the energy term's squared error is ``energy_errors**2`` and the
-    force term's is ``force_errors**2`` (the same error on each component).
+
+def _molecule_loss_from_errors(
+    errors,
+    entry_sizes,
+    *,
+    energy_weights=None,
+    forces_weights=None,
+    conformer_weights=None,
+    force_errors=None,
+):
+    """Return the (energy, forces) loss of one molecule with the given errors.
+
+    Uses one atom, so a conformer's squared energy error is ``errors**2`` and its
+    squared force error is ``force_errors**2`` (the same error on each component).
+    The force errors default to the energy errors, and every weight defaults to 1.
     """
     from presto.loss import _compute_molecule_energy_force_loss
 
-    n_confs = len(energy_errors)
+    n_confs = len(errors)
+    ones = torch.ones(n_confs, dtype=torch.float64)
+    if force_errors is None:
+        force_errors = errors
     forces_ref = force_errors.reshape(n_confs, 1).expand(n_confs, 3).reshape(-1, 3)
     prediction = Prediction(
-        energy_ref=energy_errors,
+        energy_ref=errors,
         energy_pred=torch.zeros(n_confs, dtype=torch.float64),
         forces_ref=forces_ref,
         forces_pred=torch.zeros_like(forces_ref),
-        energy_weights=energy_weights,
-        forces_weights=forces_weights,
-        energy_conformer_weights=r,
-        forces_conformer_weights=r,
+        energy_weights=ones if energy_weights is None else energy_weights,
+        forces_weights=ones if forces_weights is None else forces_weights,
+        energy_conformer_weights=(
+            ones if conformer_weights is None else conformer_weights
+        ),
+        forces_conformer_weights=(
+            ones if conformer_weights is None else conformer_weights
+        ),
         entry_sizes=entry_sizes,
     )
     return _compute_molecule_energy_force_loss(prediction, 1, torch.device("cpu"))
 
 
 class TestMoleculeLossWeighting:
-    """Tests for the per-molecule loss: a mean over active entries of weighted means."""
+    """Tests for the per-molecule loss: a mean over active entries of weighted means.
+
+    These use synthetic per-conformer errors ``e`` with absolute weights ``w`` and
+    relative conformer weights ``r``.
+    """
 
     @pytest.mark.parametrize("entry_sizes", [[6], [2, 2, 2], [3, 3]])
     def test_reduces_to_ess_for_uniform_weights(self, entry_sizes):
         """With r = 1, uniform w and equal-size entries the loss equals the old ESS loss."""
         generator = torch.Generator().manual_seed(0)
-        e, f = (
-            torch.randn(6, generator=generator, dtype=torch.float64),
-            torch.randn(6, generator=generator, dtype=torch.float64),
+        energy_errors = torch.randn(6, generator=generator, dtype=torch.float64)
+        force_errors = torch.randn(6, generator=generator, dtype=torch.float64)
+        w_energy = torch.full((6,), 1000.0, dtype=torch.float64)
+        w_forces = torch.full((6,), 0.1, dtype=torch.float64)
+
+        energy, forces = _molecule_loss_from_errors(
+            energy_errors,
+            entry_sizes,
+            energy_weights=w_energy,
+            forces_weights=w_forces,
+            force_errors=force_errors,
         )
-        w_e = torch.full((6,), 1000.0, dtype=torch.float64)
-        w_f = torch.full((6,), 0.1, dtype=torch.float64)
-        ones = torch.ones(6, dtype=torch.float64)
 
-        energy, forces = _molecule_loss_from_errors(e, f, w_e, w_f, ones, entry_sizes)
-
-        assert torch.allclose(energy, _ess_loss(e**2, w_e))
-        assert torch.allclose(forces, _ess_loss(f**2, w_f))
+        assert torch.allclose(energy, _ess_loss(energy_errors**2, w_energy))
+        assert torch.allclose(forces, _ess_loss(force_errors**2, w_forces))
 
     def test_linear_and_monotonic_in_each_weight(self):
         """The loss is exactly linear in each absolute weight, unlike the ESS loss."""
-        errors = torch.ones(2, dtype=torch.float64)
-        ones = torch.ones(2, dtype=torch.float64)
+        # Two conformers in one entry, both with an error of 1
+        e = torch.ones(2, dtype=torch.float64)
 
-        def losses(w1):
-            w = torch.tensor([1000.0, w1], dtype=torch.float64)
-            energy, forces = _molecule_loss_from_errors(errors, errors, w, w, ones, [2])
-            return energy, forces, _ess_loss(errors, w)
+        def losses(second_weight):
+            w = _float64([1000.0, second_weight])
+            energy, forces = _molecule_loss_from_errors(
+                e, [2], energy_weights=w, forces_weights=w
+            )
+            return energy, forces, _ess_loss(e, w)
 
         e10, f10, ess10 = losses(10.0)
         e20, f20, ess20 = losses(20.0)
@@ -1399,10 +1452,11 @@ class TestMoleculeLossWeighting:
         # The ESS loss falls as the weight rises
         assert ess20 < ess10
         for low, mid, high in ((e10, e20, e30), (f10, f20, f30)):
+            # The new loss rises, in equal steps
             assert mid > low
             assert torch.allclose(high - mid, mid - low)
-            # With a constant error the loss is the mean weight
-            assert torch.allclose(mid, torch.tensor(510.0, dtype=torch.float64))
+            # With an error of 1 the loss is the mean weight, (1000 + 20) / 2
+            assert torch.allclose(mid, _float64(510.0))
 
     def test_entries_count_equally_whatever_their_size(self):
         """Repeating every conformer of one entry leaves the loss unchanged.
@@ -1418,20 +1472,19 @@ class TestMoleculeLossWeighting:
         # Entry 1 is conformers 0-4 and entry 2 is conformers 5-7
         entry_sizes = [5, 3]
         w = torch.full((8,), 3.0, dtype=torch.float64)
-        ones = torch.ones(8, dtype=torch.float64)
-        loss = _molecule_loss_from_errors(e, e, w, w, ones, entry_sizes)
+        loss = _molecule_loss_from_errors(
+            e, entry_sizes, energy_weights=w, forces_weights=w
+        )
 
         # Repeat every conformer of entry 1 twenty times, giving it 100 conformers
-        repeated = torch.cat([e[:5].repeat(20), e[5:]])
+        e_repeated = torch.cat([e[:5].repeat(20), e[5:]])
         repeated_entry_sizes = [100, 3]
         w_repeated = torch.full((103,), 3.0, dtype=torch.float64)
         loss_repeated = _molecule_loss_from_errors(
-            repeated,
-            repeated,
-            w_repeated,
-            w_repeated,
-            torch.ones(103, dtype=torch.float64),
+            e_repeated,
             repeated_entry_sizes,
+            energy_weights=w_repeated,
+            forces_weights=w_repeated,
         )
 
         for a, b in zip(loss, loss_repeated, strict=True):
@@ -1443,7 +1496,7 @@ class TestMoleculeLossWeighting:
         # Contrast: the old ESS loss pooled the conformers, so entry 1's share of the
         # loss rose from 5/8 to 100/103
         assert not torch.allclose(
-            _ess_loss(e**2, w), _ess_loss(repeated**2, w_repeated)
+            _ess_loss(e**2, w), _ess_loss(e_repeated**2, w_repeated)
         )
 
     def test_conformer_weights_are_scale_free_and_act_as_counts(self):
@@ -1452,24 +1505,31 @@ class TestMoleculeLossWeighting:
         Scaling r within an entry does nothing, r = 2 matches duplicating a conformer
         and r = 0 matches removing it.
         """
-        e = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
-        w = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
-        ones = torch.ones(5, dtype=torch.float64)
-        unweighted = _molecule_loss_from_errors(e, e, w, w, ones, [3, 2])
-
+        e = _float64([1.0, 2.0, 3.0, 4.0, 5.0])
+        w = _float64([1.0, 2.0, 3.0, 4.0, 5.0])
         # Entry 1 is conformers 0-2 and entry 2 is conformers 3-4
-        r = torch.tensor([2.0, 1.0, 0.0, 1.0, 1.0], dtype=torch.float64)
-        loss = _molecule_loss_from_errors(e, e, w, w, r, [3, 2])
+        entry_sizes = [3, 2]
 
-        r_scaled = torch.cat([7.0 * r[:3], 0.5 * r[3:]])
-        loss_scaled = _molecule_loss_from_errors(e, e, w, w, r_scaled, [3, 2])
+        def loss_with(errors, weights, r=None):
+            return _molecule_loss_from_errors(
+                errors,
+                entry_sizes,
+                energy_weights=weights,
+                forces_weights=weights,
+                conformer_weights=r,
+            )
+
+        unweighted = loss_with(e, w)
+
+        r = _float64([2.0, 1.0, 0.0, 1.0, 1.0])
+        loss = loss_with(e, w, r)
+        # A different constant for each entry
+        loss_scaled = loss_with(e, w, torch.cat([7.0 * r[:3], 0.5 * r[3:]]))
 
         # The data r describes, with r = 1: conformer 0 twice and conformer 2 removed.
         # Entry 1 happens to still hold 3 conformers.
         keep = [0, 0, 1, 3, 4]
-        loss_explicit = _molecule_loss_from_errors(
-            e[keep], e[keep], w[keep], w[keep], ones, [3, 2]
-        )
+        loss_explicit = loss_with(e[keep], w[keep])
 
         for weighted, base, scaled, explicit in zip(
             loss, unweighted, loss_scaled, loss_explicit, strict=True
@@ -1482,43 +1542,58 @@ class TestMoleculeLossWeighting:
 
     def test_inactive_entries_drop_out(self):
         """Empty, excluded, zero-weight and single-energy entries drop out of a term."""
-        e = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=torch.float64)
-        w = torch.ones(6, dtype=torch.float64)
-        # Entries: [0, 1], empty, [2] (one conformer), [3, 4] (r = 0), [5]
-        sizes = [2, 0, 1, 2, 1]
-        r = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0, 1.0], dtype=torch.float64)
-        w_f = torch.tensor([1.0, 1.0, 1.0, 1.0, 1.0, 0.0], dtype=torch.float64)
+        e = _float64([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+        # Entries: conformers [0, 1], empty, [2], [3, 4] and [5]
+        entry_sizes = [2, 0, 1, 2, 1]
+        # Exclude both conformers of entry [3, 4]
+        r = _float64([1.0, 1.0, 1.0, 0.0, 0.0, 1.0])
+        # Give entry [5] no force weight
+        w_forces = _float64([1.0, 1.0, 1.0, 1.0, 1.0, 0.0])
 
-        energy, forces = _molecule_loss_from_errors(e, e, w, w_f, r, sizes)
+        energy, forces = _molecule_loss_from_errors(
+            e, entry_sizes, forces_weights=w_forces, conformer_weights=r
+        )
 
-        # Energy: only the first entry has two conformers with r > 0
+        # Energy: only entry [0, 1] has two included conformers, so only it is active
         assert torch.allclose(energy, (e[:2] ** 2).mean())
-        # Forces: single conformers count, but the last entry has zero total weight
+        # Forces: single conformers count, so entries [0, 1] and [2] are active
         assert torch.allclose(forces, ((e[:2] ** 2).mean() + e[2] ** 2) / 2)
 
     def test_zero_weight_entry_matches_removing_it(self):
         """A force weight of 0 for an entry gives the force loss without that entry."""
-        e = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
-        r = torch.ones(5, dtype=torch.float64)
-        w_f = torch.tensor([0.1, 0.1, 0.1, 0.0, 0.0], dtype=torch.float64)
-        _, forces = _molecule_loss_from_errors(e, e, r, w_f, r, [3, 2])
-        _, forces_removed = _molecule_loss_from_errors(
-            e[:3], e[:3], r[:3], w_f[:3], r[:3], [3]
+        e = _float64([1.0, 2.0, 3.0, 4.0, 5.0])
+        # Entry 1 (conformers 0-2) has force weight 0.1 and entry 2 (3-4) has 0
+        w_forces = _float64([0.1, 0.1, 0.1, 0.0, 0.0])
+
+        _, forces = _molecule_loss_from_errors(e, [3, 2], forces_weights=w_forces)
+        _, forces_without_entry_2 = _molecule_loss_from_errors(
+            e[:3], [3], forces_weights=w_forces[:3]
         )
-        assert torch.allclose(forces, forces_removed)
+
+        assert torch.allclose(forces, forces_without_entry_2)
 
     def test_no_active_entries_gives_zero(self):
         """A term with no active entry is 0."""
         e = torch.ones(2, dtype=torch.float64)
+        # Two entries of one conformer, so no entry has energy information, and no
+        # force weight, so no entry is active for forces
         energy, forces = _molecule_loss_from_errors(
-            e, e, e, torch.zeros(2, dtype=torch.float64), e, [1, 1]
+            e, [1, 1], forces_weights=torch.zeros(2, dtype=torch.float64)
         )
+
         assert energy.item() == 0.0
         assert forces.item() == 0.0
 
 
 def _rebuild(dataset, keep=None, **overrides):
-    """Rebuild a one-entry weighted dataset, optionally keeping some conformers."""
+    """Rebuild a one-entry weighted dataset, optionally keeping some conformers.
+
+    Args:
+        dataset: A dataset with one entry.
+        keep: The indices of the conformers to keep, in order and possibly repeated.
+            None keeps them all.
+        overrides: Replacement columns, e.g. ``conformer_weights=...``.
+    """
     from presto.data_utils import (
         create_weighted_dataset,
         get_conformer_weights_from_entry,
@@ -1544,10 +1619,20 @@ def _rebuild(dataset, keep=None, **overrides):
     return create_weighted_dataset([fields])
 
 
+def _ethanol_dataset(setup):
+    """Ethanol's data from dataset 1: one entry of 5 conformers."""
+    return setup.datasets[1][0]
+
+
 class TestConformerWeightsInLoss:
     """Tests for conformer weights and NaN masking on real datasets."""
 
     def _loss(self, setup, datasets_list):
+        """Return the loss and gradient of one dataset.
+
+        ``datasets_list`` holds the data for the first ``len(datasets_list)``
+        molecules.
+        """
         trainable, params, _, topologies, *_ = setup
         x = params.clone().requires_grad_(True)
         return compute_dataset_loss_and_grad(
@@ -1560,9 +1645,9 @@ class TestConformerWeightsInLoss:
 
     def test_weighted_offset(self, two_molecule_setup):
         """The energy offset is the conformer-weighted mean of each entry."""
-        trainable, params, _, topologies, all_datasets, *_ = two_molecule_setup
-        dataset = all_datasets[1][0]
-        r = torch.tensor([0.0, 1.0, 3.0, 1.0, 1.0], dtype=torch.float64)
+        trainable, params, _, topologies, *_ = two_molecule_setup
+        dataset = _ethanol_dataset(two_molecule_setup)
+        r = _float64([0.0, 1.0, 3.0, 1.0, 1.0])
         weighted = _rebuild(dataset, conformer_weights=r)
 
         energy_ref = predict_with_weights(
@@ -1572,9 +1657,10 @@ class TestConformerWeightsInLoss:
             normalize=False,
         ).energy_ref
 
-        raw = dataset[0]["energy"]
+        raw_energy = dataset[0]["energy"]
+        weighted_mean = (r * raw_energy).sum() / r.sum()
         assert torch.allclose(
-            energy_ref, (raw - (r * raw).sum() / r.sum()).to(energy_ref.dtype)
+            energy_ref, (raw_energy - weighted_mean).to(energy_ref.dtype)
         )
 
     def test_scale_free_and_zero_removes(self, two_molecule_setup):
@@ -1583,10 +1669,10 @@ class TestConformerWeightsInLoss:
         Scaling r does nothing, r = 0 matches removing a conformer and r = 2 matches
         duplicating it.
         """
-        dataset = two_molecule_setup[4][1][0]
+        dataset = _ethanol_dataset(two_molecule_setup)
         unweighted, unweighted_gradient = self._loss(two_molecule_setup, [dataset])
 
-        r = torch.tensor([1.0, 0.0, 2.0, 1.0, 1.0], dtype=torch.float64)
+        r = _float64([1.0, 0.0, 2.0, 1.0, 1.0])
         loss, gradient = self._loss(
             two_molecule_setup, [_rebuild(dataset, conformer_weights=r)]
         )
@@ -1628,24 +1714,21 @@ class TestConformerWeightsInLoss:
         from presto.loss import compute_overall_loss_hessian
 
         trainable, params, initial, topologies, *_ = two_molecule_setup
-        dataset = two_molecule_setup[4][1][0]
+        dataset = _ethanol_dataset(two_molecule_setup)
         entry = dataset[0]
-        nan_idxs = [0, 1, 2, 3, 4] if all_nan else [1, 3]
-        keep = [i for i in range(5) if i not in nan_idxs]
+        n_confs = len(entry["energy"])
+        nan_idxs = list(range(n_confs)) if all_nan else [1, 3]
+        keep = [i for i in range(n_confs) if i not in nan_idxs]
 
-        values = entry[term].reshape(5, -1).clone()
+        # Set the reference energies (or every force) of the chosen conformers to NaN
+        values = entry[term].reshape(n_confs, -1).clone()
         values[nan_idxs] = float("nan")
         weights = entry[f"{term}_weights"].clone()
         if zero_weight:
             weights[nan_idxs] = 0.0
+        shape = (n_confs,) if term == "energy" else (n_confs, -1, 3)
         nan_dataset = _rebuild(
-            dataset,
-            **{
-                term: values.reshape(5)
-                if term == "energy"
-                else values.reshape(5, -1, 3),
-                f"{term}_weights": weights,
-            },
+            dataset, **{term: values.reshape(shape), f"{term}_weights": weights}
         )
 
         loss, gradient = self._loss(two_molecule_setup, [nan_dataset])
@@ -1662,6 +1745,8 @@ class TestConformerWeightsInLoss:
         )
         assert torch.isfinite(hessian).all()
 
+        # The other term is unaffected, and this term matches removing the NaN
+        # conformers (or is 0 if they all are)
         full, _ = self._loss(two_molecule_setup, [dataset])
         other_term = "forces" if term == "energy" else "energy"
         assert torch.allclose(getattr(loss, other_term), getattr(full, other_term))
