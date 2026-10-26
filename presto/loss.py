@@ -12,7 +12,7 @@ import smee
 import smee.utils
 import torch
 
-from .data_utils import get_weights_from_entry
+from .data_utils import get_conformer_weights_from_entry, get_weights_from_entry
 from .utils.gpu import free_gpu_memory
 
 logger = loguru.logger
@@ -27,6 +27,37 @@ class LossRecord(typing.NamedTuple):
     regularisation: torch.Tensor
 
 
+def _mean_over_active_entries(
+    loss_per_conf: torch.Tensor,
+    weights: torch.Tensor,
+    conformer_weights: torch.Tensor,
+    entry_sizes: list[int],
+    min_n_confs: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Average the weighted mean losses of the active entries of one molecule.
+
+    Each entry's loss is ``sum(w r d) / sum(r)``. An entry is active when
+    ``sum(w r) > 0`` and it has at least ``min_n_confs`` conformations with ``r > 0``.
+    Activity depends only on the weights, so inactive entries are skipped without
+    forming ``0 / 0``. Returns 0 if no entry is active.
+    """
+    entry_losses = []
+    for entry_loss, entry_w, entry_r in zip(
+        torch.split(loss_per_conf, entry_sizes),
+        torch.split(weights, entry_sizes),
+        torch.split(conformer_weights, entry_sizes),
+        strict=True,
+    ):
+        if (entry_r > 0).sum() < min_n_confs or (entry_w * entry_r).sum() <= 0:
+            continue
+        entry_losses.append((entry_w * entry_r * entry_loss).sum() / entry_r.sum())
+
+    if not entry_losses:
+        return torch.tensor(0.0, dtype=loss_per_conf.dtype, device=device)
+    return torch.stack(entry_losses).mean()
+
+
 def _compute_molecule_energy_force_loss(
     energy_ref: torch.Tensor,
     energy_pred: torch.Tensor,
@@ -34,18 +65,35 @@ def _compute_molecule_energy_force_loss(
     forces_pred: torch.Tensor,
     energy_weights: torch.Tensor,
     forces_weights: torch.Tensor,
+    energy_conformer_weights: torch.Tensor,
+    forces_conformer_weights: torch.Tensor,
+    entry_sizes: list[int],
     n_atoms: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute weighted energy and force loss for a single molecule.
+
+    For each entry ``e`` and term (energy or forces), the loss is the weighted mean
+    ``L_e = sum_i(w_i r_i d_i) / sum_i(r_i)``, where ``w`` are the absolute weights,
+    ``r`` the relative conformer weights (0 for conformations with missing reference
+    data) and ``d`` the squared errors. The molecule's loss is the mean of ``L_e``
+    over the active entries, so each entry gets one share regardless of its number
+    of conformations. An entry is inactive for a term when ``sum(w r) == 0``, or, for
+    energies, when fewer than two conformations have ``r > 0`` (the energy offset
+    makes a single energy carry no information).
 
     Args:
         energy_ref: Reference energies with shape (n_confs,).
         energy_pred: Predicted energies with shape (n_confs,).
         forces_ref: Reference forces with shape (n_confs * n_atoms, 3).
         forces_pred: Predicted forces with shape (n_confs * n_atoms, 3).
-        energy_weights: Per-conformation energy weights with shape (n_confs,).
-        forces_weights: Per-conformation force weights with shape (n_confs,).
+        energy_weights: Per-conformation absolute energy weights with shape (n_confs,).
+        forces_weights: Per-conformation absolute force weights with shape (n_confs,).
+        energy_conformer_weights: Relative conformer weights for the energy term,
+            with shape (n_confs,).
+        forces_conformer_weights: Relative conformer weights for the force term, with
+            shape (n_confs,).
+        entry_sizes: The number of conformations in each entry, in order.
         n_atoms: Number of atoms in the molecule.
         device: Device for tensor creation.
 
@@ -54,36 +102,30 @@ def _compute_molecule_energy_force_loss(
     """
     n_confs = energy_ref.shape[0]
 
-    # Energy loss (weighted per conformation, then averaged)
     energy_diff_sq = ((energy_ref - energy_pred) / n_atoms) ** 2
-    weighted_energy_loss = (energy_diff_sq * energy_weights).sum()
 
-    # Effective sample size for weighted average
-    effective_energy_sample_size = torch.sum(energy_weights) ** 2 / torch.sum(
-        energy_weights**2
-    )
-    if effective_energy_sample_size > 0:
-        energy_loss = weighted_energy_loss / effective_energy_sample_size
-    else:
-        energy_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
-
-    # Force loss (weighted per conformation, then averaged)
     forces_ref_reshaped = forces_ref.reshape(n_confs, n_atoms, 3)
     forces_pred_reshaped = forces_pred.reshape(n_confs, n_atoms, 3)
     forces_diff_sq = (forces_ref_reshaped - forces_pred_reshaped) ** 2
-
-    # Sum over atoms and dimensions for each conformation
+    # Average over atoms and dimensions for each conformation
     forces_loss_per_conf = forces_diff_sq.sum(dim=[1, 2]) / (3 * n_atoms)
-    weighted_force_loss = (forces_loss_per_conf * forces_weights).sum()
 
-    effective_force_sample_size = torch.sum(forces_weights) ** 2 / torch.sum(
-        forces_weights**2
+    energy_loss = _mean_over_active_entries(
+        energy_diff_sq,
+        energy_weights,
+        energy_conformer_weights,
+        entry_sizes,
+        min_n_confs=2,
+        device=device,
     )
-    if effective_force_sample_size > 0:
-        force_loss = weighted_force_loss / effective_force_sample_size
-    else:
-        force_loss = torch.tensor(0.0, dtype=torch.float64, device=device)
-
+    force_loss = _mean_over_active_entries(
+        forces_loss_per_conf,
+        forces_weights,
+        forces_conformer_weights,
+        entry_sizes,
+        min_n_confs=1,
+        device=device,
+    )
     return energy_loss, force_loss
 
 
@@ -99,14 +141,7 @@ def _compute_molecule_loss(
     The losses stay attached to the force field parameters when ``create_graph``
     is True, so they can be differentiated.
     """
-    (
-        energy_ref,
-        energy_pred,
-        forces_ref,
-        forces_pred,
-        energy_weights,
-        forces_weights,
-    ) = predict_with_weights(
+    prediction = _predict(
         dataset,
         force_field,
         {dataset[0]["smiles"]: topology},
@@ -115,12 +150,15 @@ def _compute_molecule_loss(
         create_graph=create_graph,
     )
     return _compute_molecule_energy_force_loss(
-        energy_ref,
-        energy_pred,
-        forces_ref,
-        forces_pred,
-        energy_weights,
-        forces_weights,
+        prediction.energy_ref,
+        prediction.energy_pred,
+        prediction.forces_ref,
+        prediction.forces_pred,
+        prediction.energy_weights,
+        prediction.forces_weights,
+        prediction.energy_conformer_weights,
+        prediction.forces_conformer_weights,
+        prediction.entry_sizes,
         topology.n_atoms,
         device,
     )
@@ -571,7 +609,23 @@ def get_loss_closure_fn(
     return closure_fn
 
 
-def predict_with_weights(
+class _Prediction(typing.NamedTuple):
+    """Predicted and reference energies and forces of one molecule, with weights."""
+
+    energy_ref: torch.Tensor
+    energy_pred: torch.Tensor
+    forces_ref: torch.Tensor
+    forces_pred: torch.Tensor
+    energy_weights: torch.Tensor
+    forces_weights: torch.Tensor
+    energy_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where the reference energy is not finite."""
+    forces_conformer_weights: torch.Tensor
+    """Relative conformer weights, 0 where any reference force is not finite."""
+    entry_sizes: list[int]
+
+
+def _predict(
     dataset: datasets.Dataset,
     force_field: smee.TensorForceField,
     topologies: dict[str, smee.TensorTopology],
@@ -579,30 +633,17 @@ def predict_with_weights(
     normalize: bool = True,
     device: torch.device = _CPU_DEVICE,
     create_graph: bool = False,
-) -> tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
-    """Predict the relative energies and forces with associated weights from the dataset.
+) -> _Prediction:
+    """Predict the relative energies and forces, with weights. See `predict_with_weights`.
 
-    This function is similar to `predict` but also returns the energy and force weights
-    from the dataset entries.
-
-    Args:
-        dataset: The dataset to predict the energies and forces of.
-        force_field: The force field to use to predict the energies and forces.
-        topologies: The topologies of the molecules in the dataset.
-        reference: The reference energy to compute the relative energies with respect to.
-        normalize: Whether to scale the relative energies and forces.
-        device: Device for computations.
-
-        create_graph: Whether to create a computation graph for gradients.
-
-    Returns:
-        Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
+    Non-finite reference energies and forces are replaced with 0, so no NaN enters
+    the graph, and their conformations get a conformer weight of 0 for that term.
     """
     energy_ref_all, energy_pred_all = [], []
     forces_ref_all, forces_pred_all = [], []
     energy_weights_all, forces_weights_all = [], []
+    energy_conformer_weights_all, forces_conformer_weights_all = [], []
+    entry_sizes = []
 
     for entry in dataset:
         smiles = entry["smiles"]
@@ -614,6 +655,15 @@ def predict_with_weights(
         energy_weights, forces_weights = get_weights_from_entry(entry)
         energy_weights = energy_weights.to(device)
         forces_weights = forces_weights.to(device)
+        conformer_weights = get_conformer_weights_from_entry(entry).to(device)
+
+        # Mask missing reference data before it is used anywhere
+        energy_valid = torch.isfinite(energy_ref)
+        forces_valid = torch.isfinite(forces_ref).all(dim=(1, 2))
+        energy_ref = torch.where(energy_valid, energy_ref, 0.0)
+        forces_ref = torch.where(torch.isfinite(forces_ref), forces_ref, 0.0)
+        energy_conformer_weights = conformer_weights * energy_valid
+        forces_conformer_weights = conformer_weights * forces_valid
 
         coords_flat = smee.utils.tensor_like(
             entry["coords"], force_field.potentials[0].parameters
@@ -637,8 +687,16 @@ def predict_with_weights(
         )[0]
 
         if reference.lower() == "mean":
-            energy_ref_0 = energy_ref.mean()
-            energy_pred_0 = energy_pred.mean()
+            # Weighted by the relative weights only, so the loss stays linear in the
+            # absolute weights
+            offset_weights = energy_conformer_weights
+            total_offset_weight = offset_weights.sum()
+            if total_offset_weight > 0:
+                offset_weights = offset_weights / total_offset_weight
+            energy_ref_0 = (offset_weights * energy_ref).sum()
+            energy_pred_0 = (
+                smee.utils.tensor_like(offset_weights, energy_pred) * energy_pred
+            ).sum()
         elif reference.lower() == "min":
             min_idx = energy_ref.argmin()
             energy_ref_0 = energy_ref[min_idx]
@@ -663,6 +721,9 @@ def predict_with_weights(
 
         energy_weights_all.append(energy_weights)
         forces_weights_all.append(forces_weights)
+        energy_conformer_weights_all.append(energy_conformer_weights)
+        forces_conformer_weights_all.append(forces_conformer_weights)
+        entry_sizes.append(len(energy_ref))
 
     energy_pred_all_tensor = torch.cat(energy_pred_all)
     forces_pred_all_tensor = torch.cat(forces_pred_all)
@@ -677,14 +738,65 @@ def predict_with_weights(
         forces_ref_all_tensor, forces_pred_all_tensor
     )
 
-    energy_weights_tensor = torch.cat(energy_weights_all)
-    forces_weights_tensor = torch.cat(forces_weights_all)
+    return _Prediction(
+        energy_ref=energy_ref_all_tensor,
+        energy_pred=energy_pred_all_tensor,
+        forces_ref=forces_ref_all_tensor,
+        forces_pred=forces_pred_all_tensor,
+        energy_weights=torch.cat(energy_weights_all),
+        forces_weights=torch.cat(forces_weights_all),
+        energy_conformer_weights=torch.cat(energy_conformer_weights_all),
+        forces_conformer_weights=torch.cat(forces_conformer_weights_all),
+        entry_sizes=entry_sizes,
+    )
 
+
+def predict_with_weights(
+    dataset: datasets.Dataset,
+    force_field: smee.TensorForceField,
+    topologies: dict[str, smee.TensorTopology],
+    reference: typing.Literal["mean", "min", "median"] = "mean",
+    normalize: bool = True,
+    device: torch.device = _CPU_DEVICE,
+    create_graph: bool = False,
+) -> tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+    """Predict the relative energies and forces with associated weights from the dataset.
+
+    This function is similar to `predict` but also returns the energy and force weights
+    from the dataset entries. With ``reference="mean"``, each entry's energies are
+    offset by their mean weighted by the relative conformer weights, ignoring
+    conformations whose reference energy is not finite. Non-finite reference energies
+    and forces are returned as 0.
+
+    Args:
+        dataset: The dataset to predict the energies and forces of.
+        force_field: The force field to use to predict the energies and forces.
+        topologies: The topologies of the molecules in the dataset.
+        reference: The reference energy to compute the relative energies with respect to.
+        normalize: Whether to scale the relative energies and forces.
+        device: Device for computations.
+
+        create_graph: Whether to create a computation graph for gradients.
+
+    Returns:
+        Tuple of (energy_ref, energy_pred, forces_ref, forces_pred, energy_weights, forces_weights)
+    """
+    prediction = _predict(
+        dataset,
+        force_field,
+        topologies,
+        reference=reference,
+        normalize=normalize,
+        device=device,
+        create_graph=create_graph,
+    )
     return (
-        energy_ref_all_tensor,
-        energy_pred_all_tensor,
-        forces_ref_all_tensor,
-        forces_pred_all_tensor,
-        energy_weights_tensor,
-        forces_weights_tensor,
+        prediction.energy_ref,
+        prediction.energy_pred,
+        prediction.forces_ref,
+        prediction.forces_pred,
+        prediction.energy_weights,
+        prediction.forces_weights,
     )

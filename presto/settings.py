@@ -284,15 +284,17 @@ class _SamplingSettingsBase(_DatasetSettingsBase, ABC):
 
     loss_energy_weight: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term (energies are in "
-        "kcal/mol). The default (1000) is much larger than `loss_force_weight` (0.1) "
-        "to balance the different units of energy and force contributions to the loss.",
+        description="Absolute scale of the energy loss term (energies are in "
+        "kcal/mol); the loss rises linearly with it. The default (1000) is much "
+        "larger than `loss_force_weight` (0.1) to balance the different units of "
+        "energy and force contributions to the loss.",
     )
 
     loss_force_weight: float = Field(
         0.1,
-        description="Scaling factor for the force loss term (forces are in "
-        "kcal/mol/Å). See `loss_energy_weight` for context on the default ratio.",
+        description="Absolute scale of the force loss term (forces are in "
+        "kcal/mol/Å); the loss rises linearly with it. See `loss_energy_weight` for "
+        "context on the default ratio.",
     )
 
     @property
@@ -424,30 +426,36 @@ class TorsionMinimisationSettings(_DefaultSettings):
 
     loss_energy_weight_mm_torsion_min: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_energy_weight field.",
+        description="Absolute scale of the energy loss term for torsion-minimised samples, "
+        "using MM minimisation. The MD, MLP-minimised and MM-minimised samples each "
+        "count as one entry of equal share, so this sets their balance directly, "
+        "independent of how many conformers each has, and 0 drops these samples from "
+        "the energy term. Note that the weights for the MMMD samples are controlled "
+        "by the loss_energy_weight field.",
     )
 
     loss_force_weight_mm_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples, using "
-        "MM minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_force_weight field.",
+        description="Absolute scale of the force loss term for torsion-minimised samples, "
+        "using MM minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the force term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_force_weight field.",
     )
 
     loss_energy_weight_ml_torsion_min: float = Field(
         1000.0,
-        description="Scaling factor for the energy loss term for torsion-minimised samples, using "
-        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_energy_weight field.",
+        description="Absolute scale of the energy loss term for torsion-minimised samples, "
+        "using MLP minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the energy term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_energy_weight field.",
     )
 
     loss_force_weight_ml_torsion_min: float = Field(
         0.1,
-        description="Scaling factor for the force loss term for torsion-minimised samples, using "
-        "MLP minimisation. Note that the weights for the MMMD samples are controlled by the "
-        "loss_force_weight field.",
+        description="Absolute scale of the force loss term for torsion-minimised samples, "
+        "using MLP minimisation. See `loss_energy_weight_mm_torsion_min`; 0 drops these "
+        "samples from the force term. Note that the weights for the MMMD samples are "
+        "controlled by the loss_force_weight field.",
     )
 
 

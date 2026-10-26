@@ -9,9 +9,11 @@ from openff.toolkit import ForceField, Molecule
 
 from presto.data_utils import (
     WeightedEntry,
+    apply_conformer_weights,
     create_dataset_with_uniform_weights,
     create_weighted_dataset,
     filter_dataset_outliers,
+    get_conformer_weights_from_entry,
     get_weights_from_entry,
     has_weights,
     merge_weighted_datasets,
@@ -140,33 +142,18 @@ class TestCreateDatasetWithUniformWeights:
 
         assert torch.all(entry["forces_weights"] == 0.1)
 
-    def test_nan_forces_get_zero_weight(self, sample_data):
-        """Test that conformations with NaN forces get zero forces weight."""
+    def test_nan_forces_keep_their_weight(self, sample_data):
+        """NaN forces keep their weight, since the loss masks them itself."""
         forces = sample_data["forces"].clone()
-        # Set forces for conformation 1 to NaN
         forces[1] = float("nan")
-        sample_data["forces"] = forces
-
-        dataset = create_dataset_with_uniform_weights(**sample_data)
-        entry = dataset[0]
-
-        # Conformation 1 should have zero weight, others should have 1.0
-        expected_weights = torch.tensor([1.0, 0.0, 1.0, 1.0])
-        assert torch.allclose(entry["forces_weights"], expected_weights)
-
-    def test_nan_forces_with_custom_weight(self, sample_data):
-        """Test that NaN forces get zero weight even with custom weight specified."""
-        forces = sample_data["forces"].clone()
-        forces[2] = float("nan")
         sample_data["forces"] = forces
         sample_data["forces_weight"] = 0.5
 
         dataset = create_dataset_with_uniform_weights(**sample_data)
         entry = dataset[0]
 
-        # Conformation 2 should have zero weight, others should have 0.5
-        expected_weights = torch.tensor([0.5, 0.5, 0.0, 0.5])
-        assert torch.allclose(entry["forces_weights"], expected_weights)
+        assert torch.all(entry["forces_weights"] == 0.5)
+        assert torch.all(entry["conformer_weights"] == 1.0)
 
 
 class TestMergeWeightedDatasets:
@@ -633,6 +620,38 @@ class TestFilterDatasetOutliers:
         # Should keep all conformations
         assert new_n_confs == original_n_confs
 
+    def test_keeps_conformer_weights_of_kept_conformations(self, dataset_with_outlier):
+        """The conformer weights of the kept conformations are carried through."""
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+        weighted = apply_conformer_weights(dataset, doubled_index_weights)
+
+        filtered = filter_dataset_outliers(
+            weighted, tensor_ff, tensor_top, settings=OutlierFilterSettings()
+        )
+
+        # The last conformation is the outlier
+        assert filtered[0]["conformer_weights"].tolist() == [2.0, 4.0, 6.0, 8.0]
+
+    def test_dataset_without_weight_columns(self, dataset_with_outlier):
+        """A pre-computed dataset without weight columns can be filtered."""
+        import datasets as hf_datasets
+
+        dataset, tensor_ff, tensor_top = dataset_with_outlier
+        entry = dataset[0]
+        bare = hf_datasets.Dataset.from_dict(
+            {key: [entry[key].tolist()] for key in ("coords", "energy", "forces")}
+            | {"smiles": [entry["smiles"]]}
+        )
+        bare.set_format("torch")
+
+        filtered = filter_dataset_outliers(
+            bare, tensor_ff, tensor_top, settings=OutlierFilterSettings()
+        )
+
+        assert len(filtered[0]["energy"]) == 4
+        assert filtered[0]["energy_weights"].tolist() == [1.0] * 4
+        assert filtered[0]["conformer_weights"].tolist() == [1.0] * 4
+
     def test_raises_on_empty_dataset(self, ethanol_ff_and_topology):
         """Test that empty dataset raises ValueError."""
         import datasets as hf_datasets
@@ -648,3 +667,97 @@ class TestFilterDatasetOutliers:
             filter_dataset_outliers(
                 empty_dataset, tensor_ff, tensor_top, settings=settings
             )
+
+
+def _two_entry_dataset():
+    """A dataset with two entries of 3 and 2 conformations of a 2-atom molecule."""
+    entries = []
+    for n_confs, energy_weight in ((3, 1000.0), (2, 10.0)):
+        entries.append(
+            WeightedEntry(
+                smiles="[H:1][H:2]",
+                coords=torch.rand(n_confs, 2, 3, dtype=torch.float64),
+                energy=torch.rand(n_confs, dtype=torch.float64),
+                forces=torch.rand(n_confs, 2, 3, dtype=torch.float64),
+                energy_weights=torch.full((n_confs,), energy_weight),
+                forces_weights=torch.full((n_confs,), 0.1),
+            )
+        )
+    return create_weighted_dataset(entries)
+
+
+def doubled_index_weights(dataset):
+    """Weights 2, 4, 6, ... over the conformations, as a NumPy array."""
+    import numpy as np
+
+    n_confs = sum(len(entry["energy"]) for entry in dataset)
+    return 2.0 * np.arange(1, n_confs + 1)
+
+
+class TestConformerWeights:
+    """Tests for the conformer weights column and the user weights function."""
+
+    def test_defaults_to_ones(self):
+        """New datasets get conformer weights of one."""
+        dataset = _two_entry_dataset()
+        assert dataset[0]["conformer_weights"].tolist() == [1.0, 1.0, 1.0]
+        assert dataset[1]["conformer_weights"].tolist() == [1.0, 1.0]
+
+    def test_missing_column_gives_ones(self):
+        """Datasets without the column, e.g. from older versions, get ones."""
+        entry = {"energy": torch.zeros(3)}
+        assert get_conformer_weights_from_entry(entry).tolist() == [1.0, 1.0, 1.0]
+
+    def test_apply_splits_by_entry_and_keeps_other_columns(self):
+        """The weights are set entry by entry and nothing else changes."""
+        dataset = _two_entry_dataset()
+        weighted = apply_conformer_weights(dataset, doubled_index_weights)
+
+        assert weighted[0]["conformer_weights"].tolist() == [2.0, 4.0, 6.0]
+        assert weighted[1]["conformer_weights"].tolist() == [8.0, 10.0]
+        for before, after in zip(dataset, weighted, strict=True):
+            for key in (
+                "coords",
+                "energy",
+                "forces",
+                "energy_weights",
+                "forces_weights",
+            ):
+                assert torch.equal(before[key], after[key])
+        # Re-applying overwrites the column, so gives the same result
+        again = apply_conformer_weights(weighted, doubled_index_weights)
+        assert again[1]["conformer_weights"].tolist() == [8.0, 10.0]
+
+    @pytest.mark.parametrize(
+        ("weights", "match"),
+        [
+            ([1.0] * 4, "4 weights for 5 conformations"),
+            ([1.0, -1.0, 1.0, 1.0, 1.0], "finite and non-negative"),
+            ([1.0, float("nan"), 1.0, 1.0, 1.0], "finite and non-negative"),
+            ([0.0] * 5, "at least one conformer weight must be positive"),
+        ],
+    )
+    def test_apply_rejects_invalid_weights(self, weights, match):
+        """Wrong lengths, negative, non-finite and all-zero weights are rejected."""
+        with pytest.raises(ValueError, match=f"(?i){match}"):
+            apply_conformer_weights(_two_entry_dataset(), lambda _: weights)
+
+    def test_column_survives_merge_filter_concatenate_and_save(self, tmp_path):
+        """Merging, filtering, memory concatenation and saving keep the weights."""
+        import datasets as hf_datasets
+
+        weighted = apply_conformer_weights(_two_entry_dataset(), doubled_index_weights)
+
+        merged = merge_weighted_datasets([weighted, weighted])
+        assert [e["conformer_weights"].tolist() for e in merged] == [
+            [2.0, 4.0, 6.0],
+            [8.0, 10.0],
+        ] * 2
+
+        concatenated = hf_datasets.combine.concatenate_datasets([weighted, weighted])
+        assert concatenated[3]["conformer_weights"].tolist() == [8.0, 10.0]
+
+        weighted.save_to_disk(str(tmp_path / "data"))
+        loaded = hf_datasets.load_from_disk(str(tmp_path / "data"))
+        loaded.set_format("torch")
+        assert loaded[1]["conformer_weights"].tolist() == [8.0, 10.0]

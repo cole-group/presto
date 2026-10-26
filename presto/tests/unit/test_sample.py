@@ -516,34 +516,6 @@ def test_dataset_weights_integration():
     assert torch.all(entry["forces_weights"] == 0.1)
 
 
-def test_nan_forces_get_zero_weight():
-    """Test that NaN forces get zero weight."""
-    n_confs = 3
-    n_atoms = 5
-
-    coords = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-    energy = torch.rand(n_confs, dtype=torch.float64)
-    forces = torch.rand(n_confs, n_atoms, 3, dtype=torch.float64)
-    # Set middle conformation forces to NaN
-    forces[1] = float("nan")
-
-    dataset = create_dataset_with_uniform_weights(
-        smiles="CCO",
-        coords=coords,
-        energy=energy,
-        forces=forces,
-        energy_weight=1000.0,
-        forces_weight=0.1,
-    )
-
-    entry = dataset[0]
-    # Energy weights should all be 1000.0
-    assert torch.all(entry["energy_weights"] == 1000.0)
-    # Forces weights: conformation 1 should be 0, others 0.1
-    expected_forces_weights = torch.tensor([0.1, 0.0, 0.1])
-    assert torch.allclose(entry["forces_weights"], expected_forces_weights)
-
-
 class TestCopyMolAndAddConformers:
     """Tests for _copy_mol_and_add_conformers helper function."""
 
