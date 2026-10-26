@@ -36,7 +36,7 @@ The value is `"package.module:func"`. The module must be importable, so put a sc
 
 ### The contract
 
-The function is called once per molecule with that molecule's dataset (a `datasets.Dataset` in torch format) and must return an array-like of one weight per conformer:
+The function is called once per molecule with that molecule's dataset (a `datasets.Dataset` in torch format, with the columns and units described in **[Dataset format](use-precomputed-dataset.md#dataset-format)**) and must return an array-like of one weight per conformer:
 
 - The weights are ordered entry by entry, so there are `sum(len(entry["energy"]) for entry in dataset)` of them.
 - They must be finite and non-negative, with at least one positive.
@@ -47,7 +47,7 @@ The function is called once per molecule with that molecule's dataset (a `datase
 
 The function runs on training data after outlier filtering and after `memory` has appended earlier iterations, so it sees exactly the conformers the loss will. It also runs on testing data from protocols that set it, and on `pre_computed` data.
 
-The dataset's `"smiles"` column holds a mapped SMILES whose atom order matches the coordinates, so `Molecule.from_mapped_smiles` gives you atom indices to measure geometry with.
+The dataset's `"smiles"` column holds a mapped SMILES whose atom order matches the coordinates, so `Molecule.from_mapped_smiles` gives you atom indices to measure geometry with. The coordinates are in Å and flattened, so reshape each entry's `"coords"` to `(n_confs, n_atoms, 3)` first.
 
 ### Example: Ramachandran weights for capped amino acids
 
