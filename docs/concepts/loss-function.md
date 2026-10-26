@@ -55,10 +55,10 @@ $$
 where \(m_j\) is the molecule's entry in `molecule_weights` (all 1 by default). The datasets are combined with their normalised `dataset_weight`, as described in **[Multiple datasets](sampling-protocols.md#multiple-datasets)**. The energy and force losses are combined in the same way, and the regularisation loss is added once:
 
 $$
-L_\mathrm{reg} = \frac{1}{N} \sum_p \lambda_p (\theta_p - \theta_p^0)^2
+L_\mathrm{reg} = \frac{1}{N_+} \sum_p \lambda_p (\theta_p - \theta_p^0)^2
 $$
 
-where the sum runs over the \(N\) regularised parameters, \(\lambda_p\) is the parameter's `regularize` weight and \(\theta_p^0\) its target. The gradient and, for the Levenberg-Marquardt optimiser, the Hessian use the same weights. The test loss is computed in the same way, with the testing protocols' weights.
+where the sum runs over the regularised parameters, \(\lambda_p\) is the parameter's `regularize` weight, \(\theta_p^0\) its target and \(N_+\) the number of parameters with \(\lambda_p > 0\). The loss rises linearly with each weight, and a weight of 0 is the same as not regularising the parameter. The gradient and, for the Levenberg-Marquardt optimiser, the Hessian use the same weights. The test loss is computed in the same way, with the testing protocols' weights.
 
 ## Comparison with earlier versions
 
@@ -66,7 +66,7 @@ Before this version the per-molecule loss was \(\sum_i w_i d_i / \mathrm{ESS}(w)
 
 - the absolute weights within a molecule differ, e.g. non-default `loss_*_weight_*_torsion_min`, where the old loss could fall as a weight rose;
 - outlier filtering leaves a molecule's entries with different numbers of conformers, or a pre-computed dataset has rows of different sizes, since each entry now keeps one share;
-- a `regularize` config has unequal weights, since the regularisation loss is now divided by the number of regularised parameters.
+- a `regularize` config has unequal non-zero weights, since the regularisation loss is now divided by the number of parameters with a non-zero weight instead of the effective sample size of the weights (the two agree when the non-zero weights are equal).
 
 A per-conformer absolute weight of 0 no longer excludes that conformer from its entry's mean: use a conformer weight of 0 instead.
 

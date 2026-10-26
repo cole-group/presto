@@ -443,12 +443,14 @@ def compute_regularisation_loss(
             f"regularisation value {regularisation_target} not implemented"
         )
 
-    # Weighted mean of the squared deviations, so the loss rises linearly with
-    # each regularisation weight
+    # Mean of the weighted squared deviations over the parameters with a positive
+    # weight, so the loss rises linearly with each weight and a weight of 0 is the
+    # same as not regularising the parameter
+    n_weighted = (regularisation_weights > 0).sum()
     reg_loss += (
         ((trainable_parameters[regularised_idxs] - target) ** 2)
         * regularisation_weights
-    ).sum() / len(regularised_idxs)
+    ).sum() / n_weighted
 
     return reg_loss
 

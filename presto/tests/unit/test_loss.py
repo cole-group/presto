@@ -1778,6 +1778,26 @@ class TestRegularisationNormalisation:
         ).double()
         return loss, weights, squared
 
+    @staticmethod
+    def _trainable(tensor_ff, bonds_regularize, angles_regularize):
+        """A trainable for bond k and length and angle k, regularised as given."""
+        return Trainable(
+            tensor_ff,
+            {
+                "Bonds": ParameterConfig(
+                    cols=["k", "length"],
+                    scales={"k": 1.0 / 500.0, "length": 1.0},
+                    regularize=bonds_regularize,
+                ),
+                "Angles": ParameterConfig(
+                    cols=["k"],
+                    scales={"k": 1.0 / 100.0},
+                    regularize=angles_regularize,
+                ),
+            },
+            {},
+        )
+
     def test_equal_weights_match_ess_form(self, two_molecule_setup):
         """With equal weights the loss is unchanged from the ESS form."""
         # The fixture regularises every parameter with weight 1
@@ -1786,27 +1806,33 @@ class TestRegularisationNormalisation:
         assert torch.allclose(loss, (weights * squared).sum() / len(squared), rtol=1e-6)
         assert torch.allclose(loss, _ess_loss(squared, weights), rtol=1e-6)
 
-    def test_unequal_weights_divide_by_number_of_parameters(self, two_molecule_setup):
-        """With unequal weights the loss is sum(w (p - p0)^2) / N, not the ESS form.
+    def test_unequal_weights_divide_by_number_of_weighted_parameters(
+        self, two_molecule_setup
+    ):
+        """The loss is sum(w (p - p0)^2) / N, where N counts the parameters with w > 0.
 
-        Parameters with weight 0 still count in N.
+        With unequal positive weights this differs from the ESS form.
         """
-        trainable = Trainable(
+        trainable = self._trainable(
             two_molecule_setup.tensor_ff,
-            {
-                "Bonds": ParameterConfig(
-                    cols=["k", "length"],
-                    scales={"k": 1.0 / 500.0, "length": 1.0},
-                    regularize={"k": 1.0, "length": 0.0},
-                ),
-                "Angles": ParameterConfig(
-                    cols=["k"], scales={"k": 1.0 / 100.0}, regularize={"k": 3.0}
-                ),
-            },
-            {},
+            bonds_regularize={"k": 1.0, "length": 0.0},
+            angles_regularize={"k": 3.0},
         )
         loss, weights, squared = self._loss_and_terms(trainable)
+        # Descent lists the bond lengths as regularised, with weight 0
         assert (weights == 0).any()
+        n_weighted = (weights > 0).sum()
 
-        assert torch.allclose(loss, (weights * squared).sum() / len(squared), rtol=1e-6)
+        assert torch.allclose(loss, (weights * squared).sum() / n_weighted, rtol=1e-6)
         assert not torch.allclose(loss, _ess_loss(squared, weights), rtol=1e-3)
+
+    def test_zero_weight_matches_not_regularising(self, two_molecule_setup):
+        """A weight of 0 gives the same loss as leaving the parameter out."""
+        tensor_ff = two_molecule_setup.tensor_ff
+        zero_weight = self._trainable(tensor_ff, {"k": 1.0, "length": 0.0}, {"k": 3.0})
+        left_out = self._trainable(tensor_ff, {"k": 1.0}, {"k": 3.0})
+
+        loss_zero_weight, *_ = self._loss_and_terms(zero_weight)
+        loss_left_out, *_ = self._loss_and_terms(left_out)
+
+        assert torch.allclose(loss_zero_weight, loss_left_out, rtol=1e-6)
