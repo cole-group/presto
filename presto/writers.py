@@ -113,8 +113,8 @@ def report(
     regularisation_target: typing.Literal["initial", "zero"],
     metrics_file: PathLike,
     experiment_dir: pathlib.Path,
-    molecule_weights: list[list[float]] | None = None,
-    molecule_weights_test: list[list[float]] | None = None,
+    molecule_weights: list[list[float] | None] | None = None,
+    molecule_weights_test: list[list[float] | None] | None = None,
 ) -> None:
     """Report training progress for Levenberg-Marquardt optimizer.
 
@@ -142,9 +142,9 @@ def report(
             its header (see `write_metrics_header`).
         experiment_dir: Path to the TensorBoard experiment directory.
         molecule_weights: For each training dataset, the weight of each molecule.
-            None weights the molecules equally.
+            None, for all datasets or one, weights the molecules equally.
         molecule_weights_test: For each test dataset, the weight of each molecule.
-            None weights the molecules equally.
+            None, for all datasets or one, weights the molecules equally.
     """
     with torch.enable_grad():  # type: ignore[no-untyped-call]
         # Compute training loss using the same function as train_adam

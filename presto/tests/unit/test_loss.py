@@ -1852,6 +1852,37 @@ class TestConformerWeightsInLoss:
                 molecule_weights=molecule_weights,
             )
 
+    def test_none_for_one_dataset_weights_its_molecules_equally(
+        self, two_molecule_setup
+    ):
+        """None in place of one dataset's molecule weights is the same as all 1s."""
+        trainable, params, initial, topologies, all_datasets, *_ = two_molecule_setup
+
+        def loss(molecule_weights):
+            total, _, gradient = compute_overall_loss_and_grad(
+                all_datasets[:2],  # Datasets 0 and 1, for both molecules
+                [1.0, 1.0],
+                trainable,
+                params.clone().requires_grad_(True),
+                initial,
+                topologies,
+                "initial",
+                torch.device("cpu"),
+                molecule_weights=molecule_weights,
+            )
+            return total, gradient
+
+        # Dataset 0 unset and dataset 1 weighted, against both given explicitly
+        mixed, mixed_gradient = loss([None, [3.0, 1.0]])
+        explicit, explicit_gradient = loss([[1.0, 1.0], [3.0, 1.0]])
+        # Check dataset 1's weights matter, so the comparison is not trivial
+        unweighted, _ = loss(None)
+        assert not torch.allclose(mixed.energy, unweighted.energy)
+
+        assert torch.allclose(mixed.energy, explicit.energy)
+        assert torch.allclose(mixed.forces, explicit.forces)
+        assert torch.allclose(mixed_gradient, explicit_gradient)
+
 
 class TestRegularisationNormalisation:
     """Tests for the regularisation loss, a mean of the weighted squared deviations."""

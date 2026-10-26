@@ -193,18 +193,6 @@ def write_test_scatter(
             )
 
 
-def _get_molecule_weights(
-    protocols: list[SamplingSettings], n_mols: int
-) -> list[list[float]]:
-    """Return the molecule weights of each protocol, with equal weights if unset."""
-    return [
-        [1.0] * n_mols
-        if protocol.molecule_weights is None
-        else list(protocol.molecule_weights)
-        for protocol in protocols
-    ]
-
-
 def get_bespoke_force_field(
     settings: WorkflowSettings, write_settings: bool = True
 ) -> ForceField:
@@ -295,9 +283,9 @@ def get_bespoke_force_field(
     dataset_weights_test = [
         protocol.dataset_weight for protocol in settings.testing_sampling_settings
     ]
-    molecule_weights_test = _get_molecule_weights(
-        settings.testing_sampling_settings, len(off_mols)
-    )
+    molecule_weights_test = [
+        protocol.molecule_weights for protocol in settings.testing_sampling_settings
+    ]
 
     # Write out statistics on the initial force field
     stage = OutputStage(StageKind.INITIAL_STATISTICS)
@@ -321,9 +309,9 @@ def get_bespoke_force_field(
     dataset_weights = [
         protocol.dataset_weight for protocol in settings.training_sampling_settings
     ]
-    molecule_weights = _get_molecule_weights(
-        settings.training_sampling_settings, len(off_mols)
-    )
+    molecule_weights = [
+        protocol.molecule_weights for protocol in settings.training_sampling_settings
+    ]
 
     # Train the force field
     progress = Progress(

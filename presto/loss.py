@@ -340,7 +340,7 @@ def _normalise_molecule_weights(
 
 
 def _molecule_weights_for_dataset(
-    molecule_weights: list[list[float]] | None, n_datasets: int, dataset_idx: int
+    molecule_weights: list[list[float] | None] | None, n_datasets: int, dataset_idx: int
 ) -> list[float] | None:
     """Return the molecule weights of one dataset, checking there is a list per dataset."""
     if molecule_weights is None:
@@ -363,7 +363,7 @@ def compute_overall_loss_and_grad(
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
     compute_grad: bool = True,
-    molecule_weights: list[list[float]] | None = None,
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> tuple[LossRecord, list[DatasetLoss], torch.Tensor | None]:
     """Compute the weighted loss over several datasets, plus regularisation.
 
@@ -383,8 +383,9 @@ def compute_overall_loss_and_grad(
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
         compute_grad: Whether to compute gradients (default: True).
-        molecule_weights: For each dataset, the weight of each molecule. None (the
-            default) weights the molecules of every dataset equally.
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
@@ -516,7 +517,7 @@ def compute_overall_loss_hessian(
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
-    molecule_weights: list[list[float]] | None = None,
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> torch.Tensor:
     """Compute the Hessian of the loss from `compute_overall_loss_and_grad`.
 
@@ -533,8 +534,9 @@ def compute_overall_loss_hessian(
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: The type of regularisation to apply ('initial' or 'zero').
         device: Device for computations.
-        molecule_weights: For each dataset, the weight of each molecule. None (the
-            default) weights the molecules of every dataset equally.
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         The Hessian with ``shape=(n_parameters, n_parameters)``.
@@ -602,7 +604,7 @@ def get_loss_closure_fn(
     initial_parameters: torch.Tensor,
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
-    molecule_weights: list[list[float]] | None = None,
+    molecule_weights: list[list[float] | None] | None = None,
 ) -> descent.optim.ClosureFn:
     """Return a closure function for use with Levenberg-Marquardt optimizer.
 
@@ -619,8 +621,9 @@ def get_loss_closure_fn(
         initial_parameters: The initial parameters before training.
         topologies: List of topologies of the molecules in the datasets.
         regularisation_target: Type of regularisation ('initial' or 'zero').
-        molecule_weights: For each dataset, the weight of each molecule. None (the
-            default) weights the molecules of every dataset equally.
+        molecule_weights: For each dataset, the weight of each molecule, or None to
+            weight that dataset's molecules equally. None (the default) weights the
+            molecules of every dataset equally.
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient

@@ -213,8 +213,9 @@ def test_datasets_sampled_in_turn_and_trained_together(
         assert kwargs["datasets_test"] == test_datasets
         assert kwargs["dataset_weights"] == [1.0, 3.0]
         assert kwargs["dataset_weights_test"] == [1.0, 2.0]
-        assert kwargs["molecule_weights"] == [[1.0, 1.0], [1.0, 1.0]]
-        assert kwargs["molecule_weights_test"] == [[1.0, 1.0], [1.0, 1.0]]
+        # None for each dataset, which the loss treats as equal weights
+        assert kwargs["molecule_weights"] == [None, None]
+        assert kwargs["molecule_weights_test"] == [None, None]
         assert kwargs["topologies"] == tensor_tops
 
     # Scatter for each test dataset and molecule, initially and after each iteration
@@ -302,7 +303,7 @@ def _two_molecule_settings(tmp_path, train_protocols, test_protocols, **kwargs):
 
 
 def test_molecule_weights_reach_training(tmp_path):
-    """Each protocol's molecule weights are passed to training, with 1s where unset."""
+    """Each protocol's molecule weights are passed to training, with None where unset."""
     settings = _two_molecule_settings(
         tmp_path,
         train_protocols=[
@@ -319,5 +320,5 @@ def test_molecule_weights_reach_training(tmp_path):
     (training_call,) = _run_workflow(settings)
 
     # One list per dataset, with one weight per molecule
-    assert training_call["molecule_weights"] == [[2.0, 1.0], [1.0, 1.0]]
-    assert training_call["molecule_weights_test"] == [[1.0, 1.0], [0.0, 1.0]]
+    assert training_call["molecule_weights"] == [[2.0, 1.0], None]
+    assert training_call["molecule_weights_test"] == [None, [0.0, 1.0]]
