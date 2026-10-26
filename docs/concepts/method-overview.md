@@ -34,11 +34,11 @@ The molecule is sampled using high-temperature molecular dynamics. By default, t
 
 ## Energy and force evaluation
 
-Snapshots are saved from the molecular dynamics and the energies and forces of each are computed using a machine-learning potential (AceFF-2.0 is the historical default, though AIMNet2 is currently used while [an AceFF 2.0 upstream issue](https://github.com/openmm/openmm-ml/issues/137) is resolved). Energies are offset by their mean before training. See **[MLPs in presto](mlps.md)** for guidance on choosing between supported potentials.
+Snapshots are saved from the molecular dynamics and the energies and forces of each are computed using a machine-learning potential (AceFF-2.0 is the historical default, though AIMNet2 is currently used while [an AceFF 2.0 upstream issue](https://github.com/openmm/openmm-ml/issues/137) is resolved). Energies are offset by the weighted mean of each entry before training. See **[MLPs in presto](mlps.md)** for guidance on choosing between supported potentials.
 
 ## Training
 
-The molecular mechanics force field parameters are optimised to reproduce the energies and forces from the machine learning potential. A regularisation penalty is also applied for deviations of the improper and proper torsion parameters from their starting point. By default, the Adam optimiser is used. A technicality of training is that we linearise the harmonic potentials (bonds and angles) to stabilise fitting — see the footnote.
+The molecular mechanics force field parameters are optimised to reproduce the energies and forces from the machine learning potential. A regularisation penalty is also applied for deviations of the improper and proper torsion parameters from their starting point. By default, the Adam optimiser is used. See **[The loss function](loss-function.md)** for how the energies, forces and weights are combined. A technicality of training is that we linearise the harmonic potentials (bonds and angles) to stabilise fitting — see the footnote.
 
 ## Iterations
 

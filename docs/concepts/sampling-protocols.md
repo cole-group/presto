@@ -55,7 +55,7 @@ Additional options (alongside `metadynamics_settings`), all nested under `torsio
 - `ml_minimisation_steps`, `mm_minimisation_steps` — how many minimisation iterations.
 - `torsion_restraint_force_constant` — strength of the torsion restraint during minimisation.
 - `torsion_selection_settings` — which torsions are restrained during minimisation. This is set separately from the torsions biased during MD.
-- `loss_*_weight_*_torsion_min` — separate loss weights for the minimised snapshots, in case you want them weighted differently from the MD snapshots.
+- `loss_*_weight_*_torsion_min` — separate loss weights for the minimised snapshots, in case you want them weighted differently from the MD snapshots. The MD, MLP-minimised and MM-minimised snapshots are separate entries that count equally, so by default each carries a third of each molecule's loss. These weights set the balance between them directly (the loss is linear in them, whatever number of conformers outlier filtering leaves in each), and 0 drops those snapshots from that term. See **[The loss function](loss-function.md)**.
 
 ## `mm_md_torsion_restrained_torsion_minimisation`
 
@@ -104,7 +104,7 @@ $$
 L = \sum_k w_k L_k, \qquad w_k = \frac{\lambda_k}{\sum_j \lambda_j}
 $$
 
-where `λ_k` is `dataset_weight` and `L_k` is the energy (or force) loss of dataset `k` averaged over molecules, as for a single dataset. The regularisation loss is added once. Because each dataset is scored separately, its influence is set by its weight, not by how many conformers it contains, and the weights are relative: a single dataset gives exactly the same loss whatever its weight. The test loss combines the test datasets in the same way. Within a dataset, `loss_energy_weight` and `loss_force_weight` still balance the energy and force terms.
+where `λ_k` is `dataset_weight` and `L_k` is the energy (or force) loss of dataset `k`: the mean over molecules weighted by `molecule_weights`, as for a single dataset (see **[The loss function](loss-function.md)**). The regularisation loss is added once. Because each dataset is scored separately, its influence is set by its weight, not by how many conformers it contains, and the weights are relative: a single dataset gives exactly the same loss whatever its weight. The test loss combines the test datasets in the same way. Within a dataset, `loss_energy_weight` and `loss_force_weight` still balance the energy and force terms.
 
 Each dataset gets its own `train_dataset_<k>/` or `test_dataset_<k>/` subdirectory, and the metrics and plots report both the combined loss and each dataset's loss (see **[Output layout](output-layout.md#dataset-subdirectories)**). With `memory: true`, each training dataset is appended to the same dataset from earlier iterations, and outlier filtering is applied to each training dataset separately. `memory` cannot be combined with a `pre_computed` training protocol, since the same data would be appended every iteration.
 

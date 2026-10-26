@@ -10,7 +10,14 @@ Instead of running MD sampling inside `presto`, you can supply a dataset of ener
 
 ## Dataset format
 
-The dataset must be in `descent.train`-compatible format, which is HuggingFace `datasets.save_to_disk` output. Each row holds energies, forces, and coordinates for one snapshot.
+The dataset must be in `descent.train`-compatible format, which is HuggingFace `datasets.save_to_disk` output. Each row is an entry: a set of conformers (with their coordinates, energies and forces) that share an energy offset. A row with a single conformer therefore carries no energy information, and each row gets an equal share of the molecule's loss (see **[The loss function](../concepts/loss-function.md)**).
+
+A row may also hold weight columns, all optional:
+
+- `energy_weights` and `forces_weights`: the absolute scale of each conformer's energy and force errors (1 if absent).
+- `conformer_weights`: relative weights within the row (1 if absent). Use a weight of 0, not an absolute weight of 0, to exclude a conformer.
+
+NaN energies or forces are masked out of the loss automatically.
 
 The simplest way to produce one is to run `presto` once with a sampling protocol of your choice, then re-use the saved dataset directory from a previous run, for example `training_iteration_1/train_dataset_0/energy_and_force_data_mol0`.
 
