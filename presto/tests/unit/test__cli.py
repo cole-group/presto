@@ -264,6 +264,24 @@ class TestClean:
         # Output should be cleaned
         assert not output_file.exists()
 
+    def test_clean_does_not_import_conformer_weights_fn(self, tmp_path, monkeypatch):
+        """Cleaning never imports the user's conformer weights function."""
+        monkeypatch.chdir(tmp_path)
+        settings = WorkflowSettings(
+            param_settings=ParamSettings(molecule_input_type="smiles", molecules="CCO"),
+            output_dir=tmp_path,
+            device_type="cpu",
+            training_sampling_settings=MMMDSamplingSettings(
+                conformer_weights_fn="not_a_real_module:weights"
+            ),
+        )
+        yaml_path = tmp_path / "settings.yaml"
+        settings.to_yaml(yaml_path)
+
+        with patch("presto.data_utils.importlib.import_module") as import_module:
+            Clean(settings_yaml=yaml_path).cli_cmd()
+        import_module.assert_not_called()
+
 
 class TestAnalyse:
     """Tests for Analyse command."""

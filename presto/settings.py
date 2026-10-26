@@ -227,6 +227,17 @@ class _DatasetSettingsBase(_DefaultSettings, ABC):
         "a molecule's influence. None (the default) weights all molecules equally.",
     )
 
+    conformer_weights_fn: str | None = Field(
+        None,
+        description="Optional function giving relative weights to the conformers of "
+        "each molecule, as 'package.module:func' (the module must be importable, "
+        "e.g. on PYTHONPATH). It is called with each molecule's dataset after outlier "
+        "filtering and `memory`, and must return one finite, non-negative weight per "
+        "conformer, ordered entry by entry, with at least one positive. Only ratios "
+        "within an entry matter, and 0 excludes a conformer. See the 'Weight "
+        "conformers and molecules' how-to guide.",
+    )
+
     @field_validator("molecule_weights")
     @classmethod
     def validate_molecule_weights(cls, value: list[float] | None) -> list[float] | None:
@@ -237,6 +248,28 @@ class _DatasetSettingsBase(_DefaultSettings, ABC):
             raise InvalidSettingsError(
                 "molecule_weights must be non-negative with at least one positive, "
                 f"got {value}"
+            )
+        return value
+
+    @field_validator("conformer_weights_fn")
+    @classmethod
+    def validate_conformer_weights_fn(cls, value: str | None) -> str | None:
+        """Check the spec has the form 'package.module:func'.
+
+        The function is only imported when a fit starts, so that commands such as
+        ``presto clean`` never import user code.
+        """
+        if value is None:
+            return value
+        module_name, sep, attr_name = value.partition(":")
+        if (
+            not sep
+            or not all(part.isidentifier() for part in module_name.split("."))
+            or not attr_name.isidentifier()
+        ):
+            raise InvalidSettingsError(
+                "conformer_weights_fn must have the form 'package.module:func', "
+                f"got {value!r}"
             )
         return value
 

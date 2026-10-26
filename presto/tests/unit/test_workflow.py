@@ -212,15 +212,9 @@ def test_datasets_sampled_in_turn_and_trained_together(
             "energy_and_force_data_mol0",
             "energy_and_force_data_mol1",
         ]
-    # Test data is neither filtered nor remembered
-    assert [call["process_dataset"] is None for call in run.sample_calls] == [
-        True,
-        True,
-        False,
-        False,
-        False,
-        False,
-    ]
+    # Every dataset is processed, but test data is neither filtered nor remembered
+    # (see the unchanged test datasets below)
+    assert all(call["process_dataset"] is not None for call in run.sample_calls)
 
     # Every training dataset is filtered, per dataset and molecule
     assert run.filtered == [
@@ -300,3 +294,84 @@ def test_molecule_weights_reach_training(tmp_path):
     # One list per dataset, with one weight per molecule
     assert training_call["molecule_weights"] == [[2.0, 1.0], None]
     assert training_call["molecule_weights_test"] == [None, [0.0, 1.0]]
+
+
+def fake_conformer_weights(dataset):
+    """A conformer weights function the workflow tests import by name."""
+    raise AssertionError("apply_conformer_weights is patched, so this is never called")
+
+
+_FAKE_WEIGHTS_SPEC = "presto.tests.unit.test_workflow:fake_conformer_weights"
+
+
+@pytest.mark.parametrize("memory", [True, False], ids=["memory", "no-memory"])
+def test_conformer_weights_applied_after_memory(tmp_path, memory):
+    """Conformer weights are applied to the datasets of the protocols that set them.
+
+    Training datasets are weighted after memory adds the earlier iterations, so the
+    weights are recomputed over all of them. Testing datasets are weighted too.
+    """
+    # Training dataset 0 and testing dataset 1 have conformer weights
+    settings = _two_molecule_settings(
+        tmp_path,
+        train_protocols=[
+            MMMDSamplingSettings(conformer_weights_fn=_FAKE_WEIGHTS_SPEC),
+            MMMDSamplingSettings(),
+        ],
+        test_protocols=[
+            MLMDSamplingSettings(),
+            MLMDSamplingSettings(conformer_weights_fn=_FAKE_WEIGHTS_SPEC),
+        ],
+        n_iterations=2,
+        memory=memory,
+    )
+
+    def fake_apply(dataset, fn):
+        """Mark a dataset as weighted, e.g. "weighted(name)"."""
+        assert fn is fake_conformer_weights
+        return f"weighted({dataset})"
+
+    with patch("presto.workflow.apply_conformer_weights", side_effect=fake_apply):
+        iteration_1, iteration_2 = _run_workflow(settings).training_calls
+
+    for training_call in (iteration_1, iteration_2):
+        assert training_call["datasets_test"] == [
+            [f"test_data/test_dataset_0/mol{m}" for m in (0, 1)],
+            [f"weighted(test_data/test_dataset_1/mol{m})" for m in (0, 1)],
+        ]
+    assert iteration_1["datasets"] == [
+        [f"weighted(training_iteration_1/train_dataset_0/mol{m})" for m in (0, 1)],
+        [f"training_iteration_1/train_dataset_1/mol{m}" for m in (0, 1)],
+    ]
+    # With memory, the weights are recomputed over the remembered and new data
+    assert iteration_2["datasets"][0] == [
+        f"weighted([weighted(training_iteration_1/train_dataset_0/mol{m}) + "
+        f"training_iteration_2/train_dataset_0/mol{m}])"
+        if memory
+        else f"weighted(training_iteration_2/train_dataset_0/mol{m})"
+        for m in (0, 1)
+    ]
+
+
+def test_bad_conformer_weights_fn_fails_before_any_output(tmp_path):
+    """A conformer weights function that cannot be imported fails before output is written."""
+    from presto.settings import ParamSettings, WorkflowSettings
+
+    output_dir = tmp_path / "out"
+    settings = WorkflowSettings(
+        output_dir=output_dir,
+        device_type="cpu",
+        param_settings=ParamSettings(molecules=["CCO"]),
+        training_sampling_settings=[
+            MMMDSamplingSettings(conformer_weights_fn="not_a_real_module:weights")
+        ],
+    )
+
+    with (
+        patch("presto.workflow.parameterise") as parameterise,
+        pytest.raises(ModuleNotFoundError, match="not_a_real_module"),
+    ):
+        get_bespoke_force_field(settings)
+
+    parameterise.assert_not_called()
+    assert not output_dir.exists() or not any(output_dir.iterdir())

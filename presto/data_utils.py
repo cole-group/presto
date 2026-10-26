@@ -10,6 +10,7 @@ function concept page in the docs for how these are combined.
 
 from __future__ import annotations
 
+import importlib
 import typing
 from collections.abc import Callable
 from typing import TYPE_CHECKING, NotRequired
@@ -293,6 +294,31 @@ def get_conformer_weights_from_entry(
     if entry.get("conformer_weights") is not None:
         return torch.as_tensor(entry["conformer_weights"], dtype=torch.float64)
     return torch.ones(len(entry["energy"]), dtype=torch.float64)
+
+
+def load_conformer_weights_fn(spec: str) -> ConformerWeightsFn:
+    """Import a conformer weights function from a ``"package.module:func"`` spec.
+
+    Args:
+        spec: The module path and attribute name, separated by a colon.
+
+    Returns:
+        The function.
+
+    Raises:
+        ValueError: If the spec is malformed or does not name a callable.
+        ImportError: If the module cannot be imported.
+    """
+    module_name, _, attr_name = spec.partition(":")
+    if not module_name or not attr_name:
+        raise ValueError(
+            f"Conformer weights function must be given as 'package.module:func', "
+            f"got {spec!r}"
+        )
+    fn = getattr(importlib.import_module(module_name), attr_name, None)
+    if not callable(fn):
+        raise ValueError(f"{spec!r} does not name a callable")
+    return typing.cast(ConformerWeightsFn, fn)
 
 
 def apply_conformer_weights(

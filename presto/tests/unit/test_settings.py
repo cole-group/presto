@@ -1284,6 +1284,29 @@ class TestMultipleDatasets:
         )
         assert settings.training_sampling_settings[0].molecule_weights == [3.0]
 
+    @pytest.mark.parametrize(
+        "spec", ["my_weights", "my_weights:", ":fn", "my-weights:fn", "a.b:fn.c"]
+    )
+    def test_malformed_conformer_weights_fn_rejected(self, spec):
+        """The conformer weights function must be given as 'package.module:func'."""
+        with pytest.raises(ValidationError, match=r"package\.module:func"):
+            MMMDSamplingSettings(conformer_weights_fn=spec)
+
+    def test_conformer_weights_fn_not_imported_on_load(self, tmp_path):
+        """Settings naming a missing module still load and round-trip through YAML."""
+        settings = self._settings(
+            training_sampling_settings=MMMDSamplingSettings(
+                conformer_weights_fn="not_a_real_module.sub:weights"
+            )
+        )
+        path = tmp_path / "settings.yaml"
+        settings.to_yaml(path)
+        loaded = WorkflowSettings.from_yaml(path)
+        assert (
+            loaded.training_sampling_settings[0].conformer_weights_fn
+            == "not_a_real_module.sub:weights"
+        )
+
     def test_memory_with_pre_computed_training_rejected(self, tmp_path):
         """Memory would append the same pre-computed data every iteration."""
         pre_computed = PreComputedDatasetSettings(dataset_paths=[tmp_path / "a"])

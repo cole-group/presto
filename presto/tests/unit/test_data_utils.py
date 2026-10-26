@@ -16,6 +16,7 @@ from presto.data_utils import (
     get_conformer_weights_from_entry,
     get_weights_from_entry,
     has_weights,
+    load_conformer_weights_fn,
     merge_weighted_datasets,
 )
 from presto.settings import OutlierFilterSettings
@@ -764,3 +765,14 @@ class TestConformerWeights:
         loaded = hf_datasets.load_from_disk(str(tmp_path / "data"))
         loaded.set_format("torch")
         assert loaded[1]["conformer_weights"].tolist() == [8.0, 10.0]
+
+    def test_load_conformer_weights_fn(self):
+        """A 'module:func' spec imports the function, and bad specs are rejected."""
+        spec = "presto.tests.unit.test_data_utils:doubled_index_weights"
+        assert load_conformer_weights_fn(spec) is doubled_index_weights
+        with pytest.raises(ValueError, match=r"package\.module:func"):
+            load_conformer_weights_fn("presto.data_utils")
+        with pytest.raises(ValueError, match="does not name a callable"):
+            load_conformer_weights_fn("presto.data_utils:logger_does_not_exist")
+        with pytest.raises(ModuleNotFoundError):
+            load_conformer_weights_fn("not_a_real_module:weights")
