@@ -1447,29 +1447,38 @@ class TestMoleculeLossWeighting:
         )
 
     def test_conformer_weights_are_scale_free_and_act_as_counts(self):
-        """Scaling r within an entry does nothing; r = 2 duplicates and r = 0 removes."""
+        """Conformer weights act as counts, and only their ratios matter.
+
+        Scaling r within an entry does nothing, r = 2 matches duplicating a conformer
+        and r = 0 matches removing it.
+        """
         e = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
         w = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float64)
+        ones = torch.ones(5, dtype=torch.float64)
+        unweighted = _molecule_loss_from_errors(e, e, w, w, ones, [3, 2])
+
+        # Entry 1 is conformers 0-2 and entry 2 is conformers 3-4
         r = torch.tensor([2.0, 1.0, 0.0, 1.0, 1.0], dtype=torch.float64)
         loss = _molecule_loss_from_errors(e, e, w, w, r, [3, 2])
 
         r_scaled = torch.cat([7.0 * r[:3], 0.5 * r[3:]])
         loss_scaled = _molecule_loss_from_errors(e, e, w, w, r_scaled, [3, 2])
 
-        # Conformer 0 duplicated, conformer 2 removed, all with r = 1
+        # The data r describes, with r = 1: conformer 0 twice and conformer 2 removed.
+        # Entry 1 happens to still hold 3 conformers.
         keep = [0, 0, 1, 3, 4]
         loss_explicit = _molecule_loss_from_errors(
-            e[keep],
-            e[keep],
-            w[keep],
-            w[keep],
-            torch.ones(5, dtype=torch.float64),
-            [3, 2],
+            e[keep], e[keep], w[keep], w[keep], ones, [3, 2]
         )
 
-        for a, b, c in zip(loss, loss_scaled, loss_explicit, strict=True):
-            assert torch.allclose(a, b)
-            assert torch.allclose(a, c)
+        for weighted, base, scaled, explicit in zip(
+            loss, unweighted, loss_scaled, loss_explicit, strict=True
+        ):
+            # The weights change the loss...
+            assert not torch.allclose(weighted, base)
+            # ...in the same way as editing the data, and only their ratios matter
+            assert torch.allclose(weighted, scaled)
+            assert torch.allclose(weighted, explicit)
 
     def test_inactive_entries_drop_out(self):
         """Empty, excluded, zero-weight and single-energy entries drop out of a term."""
@@ -1569,20 +1578,32 @@ class TestConformerWeightsInLoss:
         )
 
     def test_scale_free_and_zero_removes(self, two_molecule_setup):
-        """Scaling r changes nothing, and r = 0 equals removing the conformer."""
-        dataset = two_molecule_setup[4][1][0]
-        r = torch.tensor([1.0, 0.0, 2.0, 1.0, 1.0], dtype=torch.float64)
+        """Conformer weights act as counts in the loss, gradient and energy offset.
 
+        Scaling r does nothing, r = 0 matches removing a conformer and r = 2 matches
+        duplicating it.
+        """
+        dataset = two_molecule_setup[4][1][0]
+        unweighted, unweighted_gradient = self._loss(two_molecule_setup, [dataset])
+
+        r = torch.tensor([1.0, 0.0, 2.0, 1.0, 1.0], dtype=torch.float64)
         loss, gradient = self._loss(
             two_molecule_setup, [_rebuild(dataset, conformer_weights=r)]
         )
         scaled, scaled_gradient = self._loss(
             two_molecule_setup, [_rebuild(dataset, conformer_weights=5.0 * r)]
         )
+        # The data r describes, with r = 1: conformer 1 removed and conformer 2
+        # twice. The entry happens to still hold 5 conformers.
         explicit, explicit_gradient = self._loss(
             two_molecule_setup, [_rebuild(dataset, keep=[0, 2, 2, 3, 4])]
         )
 
+        # The weights change the loss and gradient...
+        assert not torch.allclose(loss.energy, unweighted.energy)
+        assert not torch.allclose(loss.forces, unweighted.forces)
+        assert not torch.allclose(gradient, unweighted_gradient)
+        # ...in the same way as editing the data, and only their ratios matter
         for other, other_gradient in (
             (scaled, scaled_gradient),
             (explicit, explicit_gradient),
