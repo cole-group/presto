@@ -51,11 +51,12 @@ The dataset's `"smiles"` column holds a mapped SMILES whose atom order matches t
 
 ### Example: Ramachandran weights for capped amino acids
 
-This function weights torsion scans of capped amino acids (`ACE-X-NME`) by a per-residue grid over the backbone \(\phi\) and \(\psi\) angles. Each grid is a NumPy array of shape `(n_phi, n_psi)` whose bins evenly span \(-180°\) to \(180°\) in each angle.
+This function weights torsion scans of capped amino acids (`ACE-X-NME`) by a per-residue grid over the backbone \(\phi\) and \(\psi\) angles. Each grid is a NumPy array of shape `(n_phi, n_psi)` whose bins evenly span \(-180°\) to \(180°\) in each angle. It measures the angles with MDTraj, which `presto` already depends on.
 
 ```python
 """Ramachandran weights for capped amino acids, saved as ramachandran_weights.py."""
 
+import mdtraj
 import numpy as np
 from openff.toolkit import Molecule
 
@@ -72,18 +73,6 @@ GRIDS = {
 }
 
 
-def _dihedrals(coords: np.ndarray, idxs: tuple[int, ...]) -> np.ndarray:
-    """Dihedral angles in degrees, for coords of shape (n_confs, n_atoms, 3)."""
-    p0, p1, p2, p3 = (coords[:, i] for i in idxs)
-    b0, b1, b2 = p0 - p1, p2 - p1, p3 - p2
-    b1 = b1 / np.linalg.norm(b1, axis=-1, keepdims=True)
-    v = b0 - (b0 * b1).sum(-1, keepdims=True) * b1
-    w = b2 - (b2 * b1).sum(-1, keepdims=True) * b1
-    x = (v * w).sum(-1)
-    y = (np.cross(b1, v) * w).sum(-1)
-    return np.degrees(np.arctan2(y, x))
-
-
 def _bin(angles: np.ndarray, n_bins: int) -> np.ndarray:
     return np.floor((angles + 180.0) / 360.0 * n_bins).astype(int) % n_bins
 
@@ -93,16 +82,22 @@ def ramachandran_weights(dataset) -> np.ndarray:
         dataset[0]["smiles"], allow_undefined_stereo=True
     )
     grid = GRIDS[mol.to_smiles()]
-    phi_idxs = mol.chemical_environment_matches(PHI_SMARTS)[0]
-    psi_idxs = mol.chemical_environment_matches(PSI_SMARTS)[0]
+    topology = mdtraj.Topology.from_openmm(mol.to_topology().to_openmm())
+    torsion_idxs = np.array(
+        [
+            mol.chemical_environment_matches(PHI_SMARTS)[0],
+            mol.chemical_environment_matches(PSI_SMARTS)[0],
+        ]
+    )
 
     weights = []
     for entry in dataset:
         n_confs = len(entry["energy"])
         coords = entry["coords"].reshape(n_confs, -1, 3).cpu().numpy()
-        phi = _bin(_dihedrals(coords, phi_idxs), grid.shape[0])
-        psi = _bin(_dihedrals(coords, psi_idxs), grid.shape[1])
-        weights.append(grid[phi, psi])
+        # MDTraj works in nm, and the dataset in Å
+        trajectory = mdtraj.Trajectory(coords / 10.0, topology)
+        phi, psi = np.degrees(mdtraj.compute_dihedrals(trajectory, torsion_idxs)).T
+        weights.append(grid[_bin(phi, grid.shape[0]), _bin(psi, grid.shape[1])])
     return np.concatenate(weights)
 ```
 
