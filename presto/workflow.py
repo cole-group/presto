@@ -202,6 +202,11 @@ def _load_conformer_weights_fns(
     protocols: list[SamplingSettings],
 ) -> list[ConformerWeightsFn | None]:
     """Import the conformer weights function of each protocol, or None if it has none."""
+    # Import here rather than in the settings validator, which only checks the
+    # syntax. Settings are also loaded by `presto clean` and `presto analyse`, and
+    # the saved copy may be reloaded where the module is not importable, so
+    # importing user code on every load would break those and run its side effects.
+    # The fit calls this before writing any output, so a bad spec still fails early.
     return [
         None
         if protocol.conformer_weights_fn is None
