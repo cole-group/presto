@@ -743,16 +743,19 @@ class TestConformerWeights:
             apply_conformer_weights(_two_entry_dataset(), lambda _: weights)
 
     def test_column_survives_merge_filter_concatenate_and_save(self, tmp_path):
-        """Merging, filtering, memory concatenation and saving keep the weights."""
+        """Merging, memory concatenation and saving keep the weights."""
         import datasets as hf_datasets
 
         weighted = apply_conformer_weights(_two_entry_dataset(), doubled_index_weights)
 
+        # Merging keeps every entry of each input, so both copies' two entries
         merged = merge_weighted_datasets([weighted, weighted])
         assert [e["conformer_weights"].tolist() for e in merged] == [
             [2.0, 4.0, 6.0],
             [8.0, 10.0],
-        ] * 2
+            [2.0, 4.0, 6.0],
+            [8.0, 10.0],
+        ]
 
         concatenated = hf_datasets.combine.concatenate_datasets([weighted, weighted])
         assert concatenated[3]["conformer_weights"].tolist() == [8.0, 10.0]

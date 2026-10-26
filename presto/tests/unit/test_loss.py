@@ -1408,12 +1408,12 @@ class TestMoleculeLossWeighting:
         """Repeating every conformer of an entry leaves the loss unchanged."""
         generator = torch.Generator().manual_seed(1)
         e = torch.randn(8, generator=generator, dtype=torch.float64)
-        w = torch.full((8,), 2.0, dtype=torch.float64)
+        w = torch.full((8,), 3.0, dtype=torch.float64)
         ones = torch.ones(8, dtype=torch.float64)
         loss = _molecule_loss_from_errors(e, e, w, w, ones, [5, 3])
 
         repeated = torch.cat([e[:5].repeat(20), e[5:]])
-        w_repeated = torch.full((103,), 2.0, dtype=torch.float64)
+        w_repeated = torch.full((103,), 3.0, dtype=torch.float64)
         loss_repeated = _molecule_loss_from_errors(
             repeated,
             repeated,
@@ -1425,8 +1425,9 @@ class TestMoleculeLossWeighting:
 
         for a, b in zip(loss, loss_repeated, strict=True):
             assert torch.allclose(a, b)
-        # Each entry's mean counts once
-        expected = 2.0 * ((e[:5] ** 2).mean() + (e[5:] ** 2).mean()) / 2
+        # Each entry's mean counts once, scaled by the absolute weight
+        entry_means = torch.stack([(e[:5] ** 2).mean(), (e[5:] ** 2).mean()])
+        expected = 3.0 * entry_means.mean()
         assert torch.allclose(loss[0], expected)
 
     def test_conformer_weights_are_scale_free_and_act_as_counts(self):
