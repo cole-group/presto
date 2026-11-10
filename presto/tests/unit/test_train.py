@@ -17,11 +17,25 @@ from presto.settings import TrainingSettings
 from presto.train import train_adam, train_levenberg_marquardt
 from presto.writers import metrics_columns
 
+_ETHANOL_BOND_CONFIG = ParameterConfig(
+    cols=["k", "length"],
+    scales={"k": 1.0, "length": 1.0},
+    limits={"k": (1e-8, None), "length": (None, None)},
+    regularize={"k": 1.0, "length": 1.0},
+    include=None,
+    exclude=None,
+)
+
 
 # Shared fixtures for both TestTrainAdam and TestTrainLevenbergMarquardt
 @pytest.fixture
 def ethanol_training_setup():
     """Create a complete training setup for ethanol."""
+    return _make_ethanol_training_setup({"Bonds": _ETHANOL_BOND_CONFIG})
+
+
+def _make_ethanol_training_setup(parameter_configs: dict[str, ParameterConfig]):
+    """Create a complete training setup for ethanol, training the given parameters."""
     # Create molecule and generate conformers
     mol = Molecule.from_smiles("CCO")
     # Use rms_cutoff=0 to ensure we get exactly the requested number of conformers
@@ -52,18 +66,7 @@ def ethanol_training_setup():
         energy_all.sum(), coords_all, create_graph=True, retain_graph=True
     )[0]
 
-    # Create trainable with minimal parameter configuration AFTER computing reference
-    parameter_configs = {
-        "Bonds": ParameterConfig(
-            cols=["k", "length"],
-            scales={"k": 1.0, "length": 1.0},
-            limits={"k": (1e-8, None), "length": (None, None)},
-            regularize={"k": 1.0, "length": 1.0},
-            include=None,
-            exclude=None,
-        ),
-    }
-
+    # Create trainable AFTER computing reference
     trainable = Trainable(tensor_ff, parameter_configs, {})
     trainable_parameters = trainable.to_values()
     initial_parameters = trainable_parameters.clone()
@@ -419,6 +422,36 @@ class TestTrainAdam:
 
         # Should complete without error and return updated parameters
         assert result_params is not None
+
+    def test_train_adam_keeps_parameters_within_limits(
+        self, training_settings, output_paths
+    ):
+        """Test that Adam clamps the parameters to their limits after each step.
+
+        The upper limit on the bond force constants is below their reference values,
+        so the loss pushes every force constant above the limit.
+        """
+        bond_config = _ETHANOL_BOND_CONFIG.model_copy(
+            update={"limits": {"k": (1e-8, 100.0), "length": (None, None)}}
+        )
+        setup = _make_ethanol_training_setup({"Bonds": bond_config})
+        training_settings.learning_rate = 1.0
+
+        result_params, trainable = train_adam(
+            trainable_parameters=setup["trainable_parameters"],
+            initial_parameters=setup["initial_parameters"],
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets=setup["datasets"],
+            datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
+            settings=training_settings,
+            output_paths=output_paths,
+            device=setup["device"],
+        )
+
+        assert torch.equal(result_params.detach(), trainable.clamp(result_params))
 
     def test_train_adam_with_multiple_molecules(self, training_settings, output_paths):
         """Test training with multiple molecules (different conformers of ethanol)."""

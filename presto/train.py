@@ -327,7 +327,11 @@ def train_adam(
                     trainable_parameters.grad = gradient
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
-                    trainable.clamp(trainable_parameters)
+                    # clamp returns the clamped values rather than clamping in place
+                    with torch.no_grad():
+                        trainable_parameters.copy_(
+                            trainable.clamp(trainable_parameters)
+                        )
 
                     if i % settings.learning_rate_decay_step == 0:
                         scheduler.step()
