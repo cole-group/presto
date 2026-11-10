@@ -592,6 +592,17 @@ class TestTrainingSettings:
         assert settings.learning_rate_decay == 1.0
         # loss_energy_weight and loss_force_weight are now in sampling settings
 
+    def test_angle_equilibrium_regularisation(self, tmp_path):
+        """The weight defaults to 0, must not be negative and survives YAML."""
+        assert TrainingSettings().angle_equilibrium_regularisation == 0.0
+        with pytest.raises(ValidationError):
+            TrainingSettings(angle_equilibrium_regularisation=-1.0)
+
+        yaml_path = tmp_path / "training.yaml"
+        TrainingSettings(angle_equilibrium_regularisation=10.0).to_yaml(yaml_path)
+        loaded = TrainingSettings.from_yaml(yaml_path)
+        assert loaded.angle_equilibrium_regularisation == 10.0
+
     def test_optimiser_validation(self):
         """Test that only valid optimisers are accepted."""
         TrainingSettings(optimiser="adam")

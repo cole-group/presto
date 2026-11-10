@@ -11,9 +11,11 @@ import loguru
 import smee
 import smee.utils
 import torch
+from descent.train import ParameterConfig, Trainable
 
 from .data_utils import get_conformer_weights_from_entry, get_weights_from_entry
 from .utils.gpu import free_gpu_memory
+from .utils.typing import ValenceType
 
 logger = loguru.logger
 _CPU_DEVICE = torch.device("cpu")
@@ -353,6 +355,102 @@ def _molecule_weights_for_dataset(
     return molecule_weights[dataset_idx]
 
 
+_ANGLE_POTENTIAL_TYPE: ValenceType = "LinearAngles"
+_MIN_INITIAL_ANGLE_K = 1.0
+"""Floor on the initial angle force constant (kcal/mol/rad**2) that normalises the
+angle equilibrium residual, so a near-zero force constant cannot inflate it."""
+
+
+class AngleEquilibriumRestraint(typing.NamedTuple):
+    """Restraint holding each trained angle's equilibrium value at its initial value."""
+
+    target: torch.Tensor
+    """The initial equilibrium angle of each angle parameter, in radians."""
+    k0: torch.Tensor
+    """The initial force constant of each angle parameter, floored at
+    ``_MIN_INITIAL_ANGLE_K``, in kcal/mol/rad**2."""
+    rows: torch.Tensor
+    """The indices of the trained angle parameters."""
+    weight: float
+    """The weight of the restraint in the loss."""
+
+
+def build_angle_equilibrium_restraint(
+    trainable: Trainable,
+    initial_parameters: torch.Tensor,
+    parameter_configs: dict[ValenceType, ParameterConfig],
+    weight: float,
+) -> AngleEquilibriumRestraint | None:
+    """Build the restraint on the ``LinearAngles`` equilibrium values.
+
+    Returns None if the weight is 0 or no ``LinearAngles`` parameters are trained,
+    so the restraint is a no-op for force fields without linearised angles.
+
+    Args:
+        trainable: The trainable object containing the force field.
+        initial_parameters: The initial parameters, which set the target equilibrium
+            angles and the force constants that normalise the residuals.
+        parameter_configs: The configuration of the trained parameters, used to find
+            which angle parameters are trained.
+        weight: The weight of the restraint in the loss.
+    """
+    config = parameter_configs.get(_ANGLE_POTENTIAL_TYPE)
+    if weight == 0.0 or config is None:
+        return None
+
+    with torch.no_grad():
+        force_field = trainable.to_force_field(initial_parameters.detach())
+        if _ANGLE_POTENTIAL_TYPE not in force_field.potentials_by_type:
+            return None
+        potential = force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE]
+        # Clone, as to_force_field updates the force field in place on later calls
+        k1, k2, a1, a2 = potential.parameters.detach().clone().T
+
+    keys = [
+        descent.train._PotentialKey(**key.model_dump())
+        for key in potential.parameter_keys
+    ]
+    rows = sorted(Trainable._prepare_rows(config, len(keys), keys))
+    if not rows:
+        return None
+
+    k0 = k1 + k2
+    to_parameters = {
+        "dtype": initial_parameters.dtype,
+        "device": initial_parameters.device,
+    }
+    return AngleEquilibriumRestraint(
+        target=((k1 * a1 + k2 * a2) / k0).to(**to_parameters),
+        k0=k0.clamp(min=_MIN_INITIAL_ANGLE_K).to(**to_parameters),
+        rows=torch.tensor(rows, device=initial_parameters.device),
+        weight=weight,
+    )
+
+
+def compute_angle_equilibrium_loss(
+    trainable: Trainable,
+    trainable_parameters: torch.Tensor,
+    restraint: AngleEquilibriumRestraint,
+) -> torch.Tensor:
+    """Compute the ff15ipq-style restraint on the ``LinearAngles`` equilibrium values.
+
+    Following Debiec et al. (J. Chem. Theory Comput. 2016, 12, 3926), the residual
+    of each angle is ``k1 (T - a1) + k2 (T - a2) = k (T - theta0)``, where ``T`` is
+    its initial equilibrium angle and ``theta0 = (k1 a1 + k2 a2) / k``. It is divided
+    by the initial force constant, so the loss is
+    ``weight * mean(((k / k0) (T - theta0)) ** 2)`` over the trained angles, in
+    radians squared.
+    """
+    # Called after any other use of the force field, as it updates it in place
+    force_field = trainable.to_force_field(trainable_parameters)
+    parameters = force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE].parameters
+    k1, k2, a1, a2 = parameters[restraint.rows].T
+    target = restraint.target[restraint.rows]
+    residuals = (k1 * (target - a1) + k2 * (target - a2)) / restraint.k0[restraint.rows]
+    loss: torch.Tensor = restraint.weight * residuals.pow(2).mean()
+    return loss
+
+
 def compute_overall_loss_and_grad(
     per_molecule_datasets_by_dataset: list[list[datasets.Dataset]],
     dataset_weights: list[float],
@@ -364,6 +462,7 @@ def compute_overall_loss_and_grad(
     device: torch.device,
     compute_grad: bool = True,
     molecule_weights: list[list[float] | None] | None = None,
+    angle_equilibrium_restraint: AngleEquilibriumRestraint | None = None,
 ) -> tuple[LossRecord, list[DatasetLoss], torch.Tensor | None]:
     """Compute the weighted loss over several datasets, plus regularisation.
 
@@ -386,6 +485,8 @@ def compute_overall_loss_and_grad(
         molecule_weights: For each dataset, the weight of each molecule, or None to
             weight that dataset's molecules equally. None (the default) weights the
             molecules of every dataset equally.
+        angle_equilibrium_restraint: The restraint on the angle equilibrium values,
+            added to the regularisation loss, or None (the default) for none.
 
     Returns:
         Tuple of (combined LossRecord, DatasetLoss for each dataset, gradient or None)
@@ -435,6 +536,7 @@ def compute_overall_loss_and_grad(
         trainable_parameters,
         initial_parameters,
         regularisation_target,
+        angle_equilibrium_restraint,
     )
 
     # Add regularization gradient if needed
@@ -474,9 +576,18 @@ def compute_regularisation_loss(
     trainable_parameters: torch.Tensor,
     initial_parameters: torch.Tensor,
     regularisation_target: typing.Literal["initial", "zero"],
+    angle_equilibrium_restraint: AngleEquilibriumRestraint | None = None,
 ) -> torch.Tensor:
-    """Compute regularisation penalty."""
+    """Compute regularisation penalty.
+
+    This is the regularisation of the parameters in the trainable's ``regularize``
+    configs, plus the restraint on the angle equilibrium values if one is given.
+    """
     reg_loss = torch.tensor(0.0, device=trainable_parameters.device)
+    if angle_equilibrium_restraint is not None:
+        reg_loss = reg_loss + compute_angle_equilibrium_loss(
+            trainable, trainable_parameters, angle_equilibrium_restraint
+        )
 
     regularised_idxs = trainable.regularized_idxs
     regularisation_weights = trainable.regularization_weights
@@ -518,6 +629,7 @@ def compute_overall_loss_hessian(
     regularisation_target: typing.Literal["initial", "zero"],
     device: torch.device,
     molecule_weights: list[list[float] | None] | None = None,
+    angle_equilibrium_restraint: AngleEquilibriumRestraint | None = None,
 ) -> torch.Tensor:
     """Compute the Hessian of the loss from `compute_overall_loss_and_grad`.
 
@@ -537,6 +649,8 @@ def compute_overall_loss_hessian(
         molecule_weights: For each dataset, the weight of each molecule, or None to
             weight that dataset's molecules equally. None (the default) weights the
             molecules of every dataset equally.
+        angle_equilibrium_restraint: The restraint on the angle equilibrium values,
+            added to the regularisation loss, or None (the default) for none.
 
     Returns:
         The Hessian with ``shape=(n_parameters, n_parameters)``.
@@ -587,7 +701,11 @@ def compute_overall_loss_hessian(
 
     def regularisation_loss(_x: torch.Tensor) -> torch.Tensor:
         return compute_regularisation_loss(
-            trainable, _x, initial_parameters, regularisation_target
+            trainable,
+            _x,
+            initial_parameters,
+            regularisation_target,
+            angle_equilibrium_restraint,
         )
 
     hessian += torch.autograd.functional.hessian(  # type: ignore[no-untyped-call]
@@ -605,6 +723,7 @@ def get_loss_closure_fn(
     topologies: list[smee.TensorTopology],
     regularisation_target: typing.Literal["initial", "zero"],
     molecule_weights: list[list[float] | None] | None = None,
+    angle_equilibrium_restraint: AngleEquilibriumRestraint | None = None,
 ) -> descent.optim.ClosureFn:
     """Return a closure function for use with Levenberg-Marquardt optimizer.
 
@@ -624,6 +743,8 @@ def get_loss_closure_fn(
         molecule_weights: For each dataset, the weight of each molecule, or None to
             weight that dataset's molecules equally. None (the default) weights the
             molecules of every dataset equally.
+        angle_equilibrium_restraint: The restraint on the angle equilibrium values,
+            added to the regularisation loss, or None (the default) for none.
 
     Returns:
         A closure function that takes a tensor and returns the loss, gradient
@@ -649,6 +770,7 @@ def get_loss_closure_fn(
                 regularisation_target,
                 x.device,
                 molecule_weights=molecule_weights,
+                angle_equilibrium_restraint=angle_equilibrium_restraint,
             )
 
         # Compute loss and gradient
@@ -663,6 +785,7 @@ def get_loss_closure_fn(
             x.device,
             compute_grad=compute_gradient,
             molecule_weights=molecule_weights,
+            angle_equilibrium_restraint=angle_equilibrium_restraint,
         )
 
         total_loss = (

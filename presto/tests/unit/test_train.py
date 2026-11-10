@@ -11,6 +11,10 @@ from descent.train import ParameterConfig, Trainable
 from openff.toolkit import ForceField, Molecule
 from openff.units import unit
 
+from presto.convert import (
+    linearise_harmonics_force_field,
+    linearise_harmonics_topology,
+)
 from presto.data_utils import create_dataset_with_uniform_weights
 from presto.outputs import OutputType
 from presto.settings import TrainingSettings
@@ -34,8 +38,13 @@ def ethanol_training_setup():
     return _make_ethanol_training_setup({"Bonds": _ETHANOL_BOND_CONFIG})
 
 
-def _make_ethanol_training_setup(parameter_configs: dict[str, ParameterConfig]):
-    """Create a complete training setup for ethanol, training the given parameters."""
+def _make_ethanol_training_setup(
+    parameter_configs: dict[str, ParameterConfig], linearise: bool = False
+):
+    """Create a complete training setup for ethanol, training the given parameters.
+
+    With ``linearise``, the bonds and angles are linearised.
+    """
     # Create molecule and generate conformers
     mol = Molecule.from_smiles("CCO")
     # Use rms_cutoff=0 to ensure we get exactly the requested number of conformers
@@ -47,6 +56,9 @@ def _make_ethanol_training_setup(parameter_configs: dict[str, ParameterConfig]):
 
     # Convert to tensor representation
     tensor_ff, [tensor_top] = smee.converters.convert_interchange(interchange)
+    if linearise:
+        tensor_ff = linearise_harmonics_force_field(tensor_ff, "cpu")
+        tensor_top = linearise_harmonics_topology(tensor_top, "cpu")
 
     n_confs = mol.n_conformers
 
@@ -974,3 +986,66 @@ class TestExcludedTorsionsNotTrained:
                 assert not torch.allclose(
                     initial_k[idx], modified_k[idx], atol=1e-10
                 ), f"Non-excluded torsion {key.id} did not change as expected."
+
+
+def _angle_equilibria(trainable, parameters):
+    """Return the equilibrium value of each LinearAngles parameter."""
+    k1, k2, a1, a2 = (
+        trainable.to_force_field(parameters.detach())
+        .potentials_by_type["LinearAngles"]
+        .parameters.detach()
+        .clone()
+        .T
+    )
+    return (k1 * a1 + k2 * a2) / (k1 + k2)
+
+
+@pytest.mark.parametrize(
+    "train_fn", [train_adam, train_levenberg_marquardt], ids=["adam", "lm"]
+)
+def test_angle_equilibrium_regularisation_limits_drift(train_fn, tmp_path):
+    """A large angle equilibrium weight keeps the equilibria near their initial values."""
+    angle_config = ParameterConfig(
+        cols=["k1", "k2"],
+        scales={"k1": 0.012, "k2": 0.011},
+        limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+    )
+    drifts = []
+    for weight in (0.0, 100.0):
+        # The same random starting perturbation for both weights
+        torch.manual_seed(0)
+        setup = _make_ethanol_training_setup(
+            {"LinearAngles": angle_config}, linearise=True
+        )
+        initial_equilibria = _angle_equilibria(
+            setup["trainable"], setup["initial_parameters"]
+        )
+        settings = TrainingSettings(
+            optimiser="adam" if train_fn is train_adam else "lm",
+            n_epochs=20,
+            learning_rate=0.01,
+            angle_equilibrium_regularisation=weight,
+        )
+        output_dir = tmp_path / f"weight_{weight}"
+        (output_dir / "tensorboard").mkdir(parents=True)
+        result_params, trainable = train_fn(
+            trainable_parameters=setup["trainable_parameters"],
+            initial_parameters=setup["initial_parameters"],
+            trainable=setup["trainable"],
+            topologies=setup["topologies"],
+            datasets=setup["datasets"],
+            datasets_test=setup["datasets_test"],
+            dataset_weights=setup["dataset_weights"],
+            dataset_weights_test=setup["dataset_weights_test"],
+            settings=settings,
+            output_paths={
+                OutputType.TENSORBOARD: output_dir / "tensorboard",
+                OutputType.TRAINING_METRICS: output_dir / "metrics.txt",
+            },
+            device=setup["device"],
+        )
+        drift = _angle_equilibria(trainable, result_params) - initial_equilibria
+        drifts.append(drift.abs().max())
+
+    assert drifts[0] > 0
+    assert drifts[1] < 0.3 * drifts[0]

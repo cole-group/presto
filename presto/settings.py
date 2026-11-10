@@ -892,6 +892,16 @@ class TrainingSettings(_DefaultSettings):
         description="Target value to regularise parameters towards. 'initial' is the initial parameter value, "
         "'zero' is zero.",
     )
+    angle_equilibrium_regularisation: float = Field(
+        0.0,
+        ge=0.0,
+        description="Weight of the restraint holding the equilibrium value of each trained "
+        "LinearAngles parameter, (k1*angle1 + k2*angle2) / (k1 + k2), at its initial value. "
+        "Following ff15ipq, the residual of each angle is [k1 (T - angle1) + k2 (T - angle2)] / k0, "
+        "where T and k0 are its initial equilibrium angle (radians) and force constant, and the "
+        "loss is this weight times the mean squared residual. It is added to the "
+        "regularisation loss. 0 disables it, and it has no effect without linearised angles.",
+    )
 
     @property
     def output_types(self) -> set[OutputType]:

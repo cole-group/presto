@@ -1963,3 +1963,261 @@ class TestRegularisationNormalisation:
         loss_left_out, *_ = self._loss_and_terms(left_out)
 
         assert torch.allclose(loss_zero_weight, loss_left_out, rtol=1e-6)
+
+
+class LinearAnglesSetup(typing.NamedTuple):
+    """Ethanol with linearised harmonics, training the angle force constants."""
+
+    trainable: Trainable
+    initial: torch.Tensor
+    """The initial trainable parameters."""
+    params: torch.Tensor
+    """The trainable parameters with every k1 raised by 10%, which moves every
+    angle's equilibrium value towards angle1."""
+    topology: smee.TensorTopology
+    dataset: datasets.Dataset
+    config: ParameterConfig
+    """The configuration of the trained LinearAngles parameters."""
+
+
+_LINEAR_ANGLES_CONFIG = ParameterConfig(
+    cols=["k1", "k2"],
+    scales={"k1": 0.012, "k2": 0.011},
+    limits={"k1": (1e-8, None), "k2": (1e-8, None)},
+)
+
+
+def _linear_angles_setup(config: ParameterConfig = _LINEAR_ANGLES_CONFIG):
+    from presto.convert import (
+        linearise_harmonics_force_field,
+        linearise_harmonics_topology,
+    )
+
+    mol = Molecule.from_smiles("CCO")
+    mol.generate_conformers(n_conformers=1)
+    ff = ForceField("openff_unconstrained-2.3.0.offxml")
+    interchange = openff.interchange.Interchange.from_smirnoff(ff, mol.to_topology())
+    tensor_ff, [topology] = smee.converters.convert_interchange(interchange)
+    tensor_ff = linearise_harmonics_force_field(tensor_ff, "cpu")
+    topology = linearise_harmonics_topology(topology, "cpu")
+
+    dataset = _synthetic_dataset(mol, tensor_ff, topology, n_confs=3, seed=0)
+    trainable = Trainable(tensor_ff, {"LinearAngles": config}, {})
+    initial = trainable.to_values().detach().clone()
+    # The values are ordered (k1, k2) for each trained row
+    params = initial.clone()
+    params[0::2] *= 1.1
+    return LinearAnglesSetup(trainable, initial, params, topology, dataset, config)
+
+
+@pytest.fixture
+def linear_angles_setup() -> LinearAnglesSetup:
+    """Ethanol with linearised harmonics, training the angle force constants."""
+    return _linear_angles_setup()
+
+
+def _angle_parameters(trainable, x):
+    """Return (k1, k2, angle1, angle2) of every LinearAngles parameter at ``x``."""
+    force_field = trainable.to_force_field(x)
+    return force_field.potentials_by_type["LinearAngles"].parameters.detach().clone().T
+
+
+class TestAngleEquilibriumRestraint:
+    """Tests for the ff15ipq-style restraint on the LinearAngles equilibrium values."""
+
+    def _build(self, setup, weight=2.0):
+        from presto.loss import build_angle_equilibrium_restraint
+
+        return build_angle_equilibrium_restraint(
+            setup.trainable, setup.initial, {"LinearAngles": setup.config}, weight
+        )
+
+    def _loss(self, setup, x, restraint):
+        from presto.loss import compute_angle_equilibrium_loss
+
+        return compute_angle_equilibrium_loss(setup.trainable, x, restraint)
+
+    def test_targets_are_initial_equilibrium_values(self, linear_angles_setup):
+        """The targets and k0 are the initial equilibrium angles and force constants."""
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+        k1, k2, a1, a2 = _angle_parameters(setup.trainable, setup.initial)
+
+        torch.testing.assert_close(restraint.target, (k1 * a1 + k2 * a2) / (k1 + k2))
+        torch.testing.assert_close(restraint.k0, k1 + k2)
+        assert restraint.rows.tolist() == list(range(len(k1)))
+        assert restraint.weight == 2.0
+
+    def test_zero_at_initial_parameters(self, linear_angles_setup):
+        """The restraint is 0 before the parameters move."""
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+
+        loss = self._loss(setup, setup.initial, restraint)
+
+        torch.testing.assert_close(loss, torch.zeros_like(loss))
+
+    def test_matches_hand_computed_value(self, linear_angles_setup):
+        """The loss is the weight times the mean of ((k / k0) (T - theta0)) ** 2."""
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+        k1_0, k2_0, a1, a2 = _angle_parameters(setup.trainable, setup.initial)
+        k1, k2, *_ = _angle_parameters(setup.trainable, setup.params)
+        target = (k1_0 * a1 + k2_0 * a2) / (k1_0 + k2_0)
+        theta0 = (k1 * a1 + k2 * a2) / (k1 + k2)
+        expected = 2.0 * (((k1 + k2) / (k1_0 + k2_0) * (target - theta0)) ** 2).mean()
+
+        loss = self._loss(setup, setup.params, restraint)
+
+        assert expected > 0
+        torch.testing.assert_close(loss, expected)
+
+    def test_zero_when_only_force_constants_change(self, linear_angles_setup):
+        """Scaling k1 and k2 together changes k but not the equilibrium value."""
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+
+        loss = self._loss(setup, setup.initial * 1.5, restraint)
+
+        torch.testing.assert_close(loss, torch.zeros_like(loss))
+
+    def test_mean_is_over_trained_rows_only(self):
+        """Angles excluded from training are left out of the target rows and mean."""
+        full = _linear_angles_setup()
+        keys = (
+            full.trainable.to_force_field(full.initial)
+            .potentials_by_type["LinearAngles"]
+            .parameter_keys
+        )
+        config = _LINEAR_ANGLES_CONFIG.model_copy(update={"include": list(keys[:2])})
+        setup = _linear_angles_setup(config)
+        restraint = self._build(setup)
+        k1_0, k2_0, a1, a2 = _angle_parameters(setup.trainable, setup.initial)
+        k1, k2, *_ = _angle_parameters(setup.trainable, setup.params)
+        target = (k1_0 * a1 + k2_0 * a2) / (k1_0 + k2_0)
+        theta0 = (k1 * a1 + k2 * a2) / (k1 + k2)
+        residuals = (k1 + k2) / (k1_0 + k2_0) * (target - theta0)
+
+        assert restraint.rows.tolist() == [0, 1]
+        torch.testing.assert_close(
+            self._loss(setup, setup.params, restraint),
+            2.0 * (residuals[:2] ** 2).mean(),
+        )
+
+    def test_initial_force_constant_is_floored(self, linear_angles_setup):
+        """A near-zero initial force constant is raised to the floor."""
+        from presto.loss import _MIN_INITIAL_ANGLE_K
+
+        setup = linear_angles_setup
+        initial = setup.initial.clone()
+        initial[:2] *= 1e-4  # The first angle's k1 and k2
+        restraint = self._build(setup._replace(initial=initial))
+
+        assert restraint.k0[0] == _MIN_INITIAL_ANGLE_K
+        assert (restraint.k0[1:] > _MIN_INITIAL_ANGLE_K).all()
+
+    @pytest.mark.parametrize("weight", [0.0, 1.0])
+    def test_none_without_weight_or_linear_angles(self, linear_angles_setup, weight):
+        """No restraint is built with a weight of 0 or no LinearAngles config."""
+        from presto.loss import build_angle_equilibrium_restraint
+
+        setup = linear_angles_setup
+        configs = {"LinearAngles": setup.config} if weight == 0.0 else {}
+
+        assert (
+            build_angle_equilibrium_restraint(
+                setup.trainable, setup.initial, configs, weight
+            )
+            is None
+        )
+
+    def test_none_when_force_field_has_no_linear_angles(
+        self, simple_trainable_and_params
+    ):
+        """No restraint is built for a force field without LinearAngles."""
+        from presto.loss import build_angle_equilibrium_restraint
+
+        trainable, params, _ = simple_trainable_and_params
+
+        assert (
+            build_angle_equilibrium_restraint(
+                trainable, params, {"LinearAngles": _LINEAR_ANGLES_CONFIG}, 1.0
+            )
+            is None
+        )
+
+    def test_added_to_regularisation_without_regularised_parameters(
+        self, linear_angles_setup
+    ):
+        """The restraint applies even when no parameter has a regularize weight."""
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+        assert len(setup.trainable.regularized_idxs) == 0
+
+        reg = compute_regularisation_loss(
+            setup.trainable, setup.params, setup.initial, "initial", restraint
+        )
+
+        assert reg > 0
+        torch.testing.assert_close(reg, self._loss(setup, setup.params, restraint))
+
+    def test_none_leaves_regularisation_unchanged(self, simple_trainable_and_params):
+        """Passing no restraint gives the same regularisation as before."""
+        trainable, params, _ = simple_trainable_and_params
+        initial = params.detach() * 0.9
+
+        torch.testing.assert_close(
+            compute_regularisation_loss(trainable, params, initial, "initial", None),
+            compute_regularisation_loss(trainable, params, initial, "initial"),
+        )
+
+    def test_gradient_and_hessian_include_restraint(self, linear_angles_setup):
+        """The overall gradient and Hessian gain exactly the restraint's own."""
+        from presto.loss import compute_overall_loss_hessian
+
+        setup = linear_angles_setup
+        restraint = self._build(setup)
+        args = (
+            [[setup.dataset]],
+            [1.0],
+            setup.trainable,
+        )
+
+        def overall(restraint):
+            x = setup.params.clone().requires_grad_(True)
+            loss, _, gradient = compute_overall_loss_and_grad(
+                *args,
+                x,
+                setup.initial,
+                [setup.topology],
+                "initial",
+                torch.device("cpu"),
+                angle_equilibrium_restraint=restraint,
+            )
+            hessian = compute_overall_loss_hessian(
+                *args,
+                setup.params.clone(),
+                setup.initial,
+                [setup.topology],
+                "initial",
+                torch.device("cpu"),
+                angle_equilibrium_restraint=restraint,
+            )
+            return loss, gradient, hessian
+
+        loss, gradient, hessian = overall(restraint)
+        loss_none, gradient_none, hessian_none = overall(None)
+
+        x = setup.params.clone().requires_grad_(True)
+        (expected_gradient,) = torch.autograd.grad(self._loss(setup, x, restraint), x)
+        expected_hessian = torch.autograd.functional.hessian(
+            lambda _x: self._loss(setup, _x, restraint), setup.params.clone()
+        )
+
+        torch.testing.assert_close(
+            loss.regularisation - loss_none.regularisation,
+            self._loss(setup, setup.params, restraint),
+        )
+        assert expected_gradient.abs().max() > 0
+        torch.testing.assert_close(gradient - gradient_none, expected_gradient)
+        torch.testing.assert_close(hessian - hessian_none, expected_hessian)

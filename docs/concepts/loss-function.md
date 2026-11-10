@@ -60,6 +60,25 @@ $$
 
 where the sum runs over the regularised parameters, \(\lambda_p\) is the parameter's `regularize` weight, \(\theta_p^0\) its target and \(N_+\) the number of parameters with \(\lambda_p > 0\). The loss rises linearly with each weight, and a weight of 0 is the same as not regularising the parameter. The gradient and, for the Levenberg-Marquardt optimiser, the Hessian use the same weights. The test loss is computed in the same way, with the testing protocols' weights.
 
+## Angle equilibrium restraint
+
+Linearised angles (`LinearAngles`) are trained through two force constants, \(k_1\) and \(k_2\), on harmonic terms with fixed minima \(a_1\) and \(a_2\). The angle's force constant is \(k = k_1 + k_2\) and its equilibrium value is \(\theta = (k_1 a_1 + k_2 a_2) / k\), so training the force constants also moves the equilibrium value. Left free, the equilibrium values drift, and the angles around a planar centre (a carbonyl carbon or an aromatic C–H, for example) no longer add up to 360°. A bespoke fit can absorb this, but the parameters then transfer badly when combined with others.
+
+`angle_equilibrium_regularisation` (in the training settings) restrains each trained angle's equilibrium value to its initial value \(T\), using the restraint from [AMBER ff15ipq](https://doi.org/10.1021/acs.jctc.6b00567):
+
+$$
+L_\mathrm{angle} = \frac{w}{N} \sum_i \left( \frac{k_{1,i} (T_i - a_{1,i}) + k_{2,i} (T_i - a_{2,i})}{k^0_i} \right)^2
+= \frac{w}{N} \sum_i \left( \frac{k_i}{k^0_i} (T_i - \theta_i) \right)^2
+$$
+
+where the sum runs over the \(N\) trained angle parameters, \(w\) is the weight and \(k^0_i\) is the initial force constant, with a floor of 1 kcal/mol/rad², in radians squared. \(L_\mathrm{angle}\) is added to the regularisation loss, so it is part of the gradient and the Levenberg-Marquardt Hessian. A weight of 0 turns it off, and it does nothing when the harmonics are not linearised.
+
+The initial values come from the modified Seminario method by default, which takes them from the MLP-minimised geometry, so they are consistent with each other. Keep in mind:
+
+- With `msm_settings: null`, the targets are the initial force field's generic values, which need not be consistent (in `openff-2.2.1`, the angles around acetic acid's carboxyl carbon add up to 363.8°).
+- An angle type shared by several molecules starts from the average of their MSM values, which need not add up to 360° at every centre.
+- The residual scales with \(k / k^0\), so an angle that the fit softens is restrained less.
+
 ## Comparison with earlier versions
 
 Before this version the per-molecule loss was \(\sum_i w_i d_i / \mathrm{ESS}(w)\), pooled over all of a molecule's entries, with \(\mathrm{ESS}(w) = (\sum_i w_i)^2 / \sum_i w_i^2\). With equal weights and entries of equal size, the two are identical, so fits with default settings are unchanged. Results change when:
