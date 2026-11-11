@@ -593,8 +593,8 @@ class TestTrainingSettings:
         # loss_energy_weight and loss_force_weight are now in sampling settings
 
     def test_angle_equilibrium_regularisation(self, tmp_path):
-        """The weight defaults to 0, must not be negative and survives YAML."""
-        assert TrainingSettings().angle_equilibrium_regularisation == 0.0
+        """The weight defaults to 1000, must not be negative and survives YAML."""
+        assert TrainingSettings().angle_equilibrium_regularisation == 1000.0
         with pytest.raises(ValidationError):
             TrainingSettings(angle_equilibrium_regularisation=-1.0)
 
