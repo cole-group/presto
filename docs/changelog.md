@@ -29,7 +29,7 @@
 - Outlier filtering and merging work on `pre_computed` datasets without weight columns.
 - Fix the Levenberg-Marquardt optimiser (`optimiser: lm`), whose Hessian had been identically zero since 0.4.0 because it was computed from detached losses, so each step was a scaled gradient-descent step. The Hessian is now accumulated one molecule at a time, as the gradient is.
 - `presto analyse` now labels plots by the real training iteration, so a stage without trajectory or scatter output no longer shifts the labels of later iterations.
-- The Adam optimiser now clamps the parameters to their `limits` after each step. The clamped values had been discarded, so parameters could leave their limits (the force field used the clamped values, but with no gradient to bring the raw values back).
+- The Adam optimiser now clamps the parameters to their `limits` after each step.
 
 ## 0.9.0
 

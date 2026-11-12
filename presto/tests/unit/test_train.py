@@ -78,7 +78,7 @@ def _make_ethanol_training_setup(
         energy_all.sum(), coords_all, create_graph=True, retain_graph=True
     )[0]
 
-    # Create trainable AFTER computing reference
+    # Create trainable after computing reference
     trainable = Trainable(tensor_ff, parameter_configs, {})
     trainable_parameters = trainable.to_values()
     initial_parameters = trainable_parameters.clone()
