@@ -901,8 +901,8 @@ class TrainingSettings(_DefaultSettings):
         "where T and k0 are its initial equilibrium angle (radians) and force constant, and the "
         "loss is this weight times the mean squared residual. It is added to the "
         "regularisation loss. The default of 1000 keeps the angles around planar centres "
-        "consistent for a small cost in fit quality. 0 disables it, and it has no effect "
-        "without linearised angles.",
+        "consistent for a small cost in fit quality. 0 disables it. A positive weight requires "
+        "linearised harmonics (ParamSettings.linearise_harmonics).",
     )
 
     @property
@@ -1283,6 +1283,24 @@ class WorkflowSettings(_DefaultSettings):
             raise InvalidSettingsError(
                 f"ParamSettings.linearise_harmonics is {harmonics_linearised}, but TrainingSettings.parameter_configs "
                 f"contains valence types that are inconsistent with this setting: {excluded_valence_types}. "
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_angle_equilibrium_regularisation(self) -> Self:
+        """Check the angle equilibrium restraint is only used with linearised harmonics.
+
+        The restraint acts on LinearAngles parameters, so it would silently do nothing
+        if the harmonics are not linearised.
+        """
+        weight = self.training_settings.angle_equilibrium_regularisation
+        if weight > 0.0 and not self.param_settings.linearise_harmonics:
+            raise InvalidSettingsError(
+                f"TrainingSettings.angle_equilibrium_regularisation is {weight}, but "
+                "ParamSettings.linearise_harmonics is False. The restraint acts only on "
+                "linearised angles, so set angle_equilibrium_regularisation to 0 or "
+                "linearise the harmonics."
             )
 
         return self

@@ -967,6 +967,31 @@ class TestWorkflowSettings:
                 device_type="cuda",
             )
 
+    def test_angle_restraint_requires_linearised_harmonics(self):
+        """A positive angle restraint weight without linearised harmonics is rejected."""
+        param_settings = ParamSettings(
+            molecule_input_type="smiles", molecules="CCO", linearise_harmonics=False
+        )
+        # Only train torsions, which are valid with and without linearised harmonics
+        parameter_configs = {
+            "ProperTorsions": TrainingSettings().parameter_configs["ProperTorsions"]
+        }
+
+        with pytest.raises(ValidationError, match="angle_equilibrium_regularisation"):
+            WorkflowSettings(
+                param_settings=param_settings,
+                training_settings=TrainingSettings(parameter_configs=parameter_configs),
+            )
+
+        settings = WorkflowSettings(
+            param_settings=param_settings,
+            training_settings=TrainingSettings(
+                parameter_configs=parameter_configs,
+                angle_equilibrium_regularisation=0.0,
+            ),
+        )
+        assert settings.training_settings.angle_equilibrium_regularisation == 0.0
+
     def test_device_property(self, valid_workflow_settings):
         """Test that device property returns torch.device."""
         device = valid_workflow_settings.device

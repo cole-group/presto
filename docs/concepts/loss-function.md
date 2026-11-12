@@ -71,7 +71,7 @@ L_\mathrm{angle} = \frac{w}{N} \sum_i \left( \frac{k_{1,i} (T_i - a_{1,i}) + k_{
 = \frac{w}{N} \sum_i \left( \frac{k_i}{k^0_i} (T_i - \theta_i) \right)^2
 $$
 
-where the sum runs over the \(N\) trained angle parameters, \(w\) is the weight and \(k^0_i\) is the initial force constant, with a floor of 1 kcal/mol/rad². \(L_\mathrm{angle}\) is added to the regularisation loss, so it is part of the gradient and the Levenberg-Marquardt Hessian. A weight of 0 turns it off, and it does nothing when the harmonics are not linearised.
+where the sum runs over the \(N\) trained angle parameters, \(w\) is the weight and \(k^0_i\) is the initial force constant, with a floor of 1 kcal/mol/rad². \(L_\mathrm{angle}\) is added to the regularisation loss, so it is part of the gradient and the Levenberg-Marquardt Hessian. A weight of 0 turns it off. A positive weight requires `linearise_harmonics: true`, and the settings are rejected otherwise.
 
 The default weight is 1000. Without the restraint, fits of acetone, acetic acid and toluene left the angles around the carbonyl carbon, the carboxyl carbon and the ring carbons adding up to as much as 424°, 407° and 370°. A weight of 1000 kept every sum within 2° of 360°. The test errors rose by about 11% for acetic acid and by under 2% for acetone and toluene. Weights around 300 give a looser restraint (sums within about 7°) for under 4% in test error. Much larger weights (10000) made the fits clearly worse.
 
