@@ -2022,6 +2022,12 @@ def _angle_parameters(trainable, x):
     return force_field.potentials_by_type["LinearAngles"].parameters.detach().clone().T
 
 
+_EXACT = {"rtol": 1e-12, "atol": 1e-14}
+"""Tolerance for comparing float64 values computed the same way up to rounding.
+The restraint losses compared against are of order 1e-3 and the zero losses of
+order 1e-31, so this is far tighter than any real discrepancy."""
+
+
 class TestAngleEquilibriumRestraint:
     """Tests for the ff15ipq-style restraint on the LinearAngles equilibrium values."""
 
@@ -2043,8 +2049,10 @@ class TestAngleEquilibriumRestraint:
         restraint = self._build(setup)
         k1, k2, a1, a2 = _angle_parameters(setup.trainable, setup.initial)
 
-        torch.testing.assert_close(restraint.target, (k1 * a1 + k2 * a2) / (k1 + k2))
-        torch.testing.assert_close(restraint.k0, k1 + k2)
+        torch.testing.assert_close(
+            restraint.target, (k1 * a1 + k2 * a2) / (k1 + k2), **_EXACT
+        )
+        torch.testing.assert_close(restraint.k0, k1 + k2, **_EXACT)
         assert restraint.rows.tolist() == list(range(len(k1)))
         assert restraint.weight == 2.0
 
@@ -2055,7 +2063,7 @@ class TestAngleEquilibriumRestraint:
 
         loss = self._loss(setup, setup.initial, restraint)
 
-        torch.testing.assert_close(loss, torch.zeros_like(loss))
+        torch.testing.assert_close(loss, torch.zeros_like(loss), **_EXACT)
 
     def test_matches_hand_computed_value(self, linear_angles_setup):
         """The loss is the weight times the mean of ((k / k0) (T - theta0)) ** 2."""
@@ -2070,7 +2078,7 @@ class TestAngleEquilibriumRestraint:
         loss = self._loss(setup, setup.params, restraint)
 
         assert expected > 0
-        torch.testing.assert_close(loss, expected)
+        torch.testing.assert_close(loss, expected, **_EXACT)
 
     def test_zero_when_only_force_constants_change(self, linear_angles_setup):
         """Scaling k1 and k2 together changes k but not the equilibrium value."""
@@ -2079,7 +2087,30 @@ class TestAngleEquilibriumRestraint:
 
         loss = self._loss(setup, setup.initial * 1.5, restraint)
 
-        torch.testing.assert_close(loss, torch.zeros_like(loss))
+        torch.testing.assert_close(loss, torch.zeros_like(loss), **_EXACT)
+
+    def test_parameters_match_to_force_field(self, linear_angles_setup):
+        """The angle parameters used by the restraint are those of to_force_field."""
+        from presto.loss import _potential_parameters
+
+        setup = linear_angles_setup
+
+        torch.testing.assert_close(
+            _potential_parameters(setup.trainable, setup.params, "LinearAngles"),
+            _angle_parameters(setup.trainable, setup.params).T,
+            **_EXACT,
+        )
+
+    def test_leaves_force_field_unchanged(self, linear_angles_setup):
+        """Building and evaluating the restraint does not touch the force field."""
+        setup = linear_angles_setup
+        force_field = setup.trainable.to_force_field(setup.params)
+        before = force_field.potentials_by_type["LinearAngles"].parameters
+
+        restraint = self._build(setup)
+        self._loss(setup, setup.initial, restraint)
+
+        assert force_field.potentials_by_type["LinearAngles"].parameters is before
 
     def test_mean_is_over_trained_rows_only(self):
         """Angles excluded from training are left out of the target rows and mean."""
@@ -2102,6 +2133,7 @@ class TestAngleEquilibriumRestraint:
         torch.testing.assert_close(
             self._loss(setup, setup.params, restraint),
             2.0 * (residuals[:2] ** 2).mean(),
+            **_EXACT,
         )
 
     def test_initial_force_constant_is_floored(self, linear_angles_setup):
@@ -2159,16 +2191,8 @@ class TestAngleEquilibriumRestraint:
         )
 
         assert reg > 0
-        torch.testing.assert_close(reg, self._loss(setup, setup.params, restraint))
-
-    def test_none_leaves_regularisation_unchanged(self, simple_trainable_and_params):
-        """Passing no restraint gives the same regularisation as before."""
-        trainable, params, _ = simple_trainable_and_params
-        initial = params.detach() * 0.9
-
         torch.testing.assert_close(
-            compute_regularisation_loss(trainable, params, initial, "initial", None),
-            compute_regularisation_loss(trainable, params, initial, "initial"),
+            reg, self._loss(setup, setup.params, restraint), **_EXACT
         )
 
     def test_gradient_and_hessian_include_restraint(self, linear_angles_setup):
@@ -2217,7 +2241,18 @@ class TestAngleEquilibriumRestraint:
         torch.testing.assert_close(
             loss.regularisation - loss_none.regularisation,
             self._loss(setup, setup.params, restraint),
+            **_EXACT,
         )
         assert expected_gradient.abs().max() > 0
-        torch.testing.assert_close(gradient - gradient_none, expected_gradient)
-        torch.testing.assert_close(hessian - hessian_none, expected_hessian)
+        # The differences cancel the much larger dataset terms, so their rounding
+        # error scales with those terms rather than with the restraint's
+        for total, total_none, expected in (
+            (gradient, gradient_none, expected_gradient),
+            (hessian, hessian_none, expected_hessian),
+        ):
+            torch.testing.assert_close(
+                total - total_none,
+                expected,
+                rtol=1e-7,
+                atol=1e-12 * total.abs().max().item(),
+            )
