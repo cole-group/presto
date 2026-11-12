@@ -346,7 +346,10 @@ def train_adam(
                     trainable_parameters.grad = gradient
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
-                    # clamp returns the clamped values rather than clamping in place
+                    # trainable.clamp returns a new, clamped tensor rather than
+                    # clamping in place, so calling it alone does nothing. Copy
+                    # the result back in place rather than reassigning, as the
+                    # optimiser holds (and keeps its state for) this tensor
                     with torch.no_grad():
                         trainable_parameters.copy_(
                             trainable.clamp(trainable_parameters)
