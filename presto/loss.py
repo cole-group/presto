@@ -361,6 +361,35 @@ _MIN_INITIAL_ANGLE_K = 1.0
 angle equilibrium residual, so a near-zero force constant cannot inflate it."""
 
 
+def _potential_parameters(
+    trainable: Trainable, values_flat: torch.Tensor, potential_type: ValenceType
+) -> torch.Tensor:
+    """Return one potential's parameters at ``values_flat``.
+
+    This matches ``trainable.to_force_field(values_flat)`` for that potential, but
+    leaves the trainable's force field untouched (``to_force_field`` overwrites its
+    parameters in place). Gradients flow back to ``values_flat``.
+
+    Args:
+        trainable: The trainable object containing the force field.
+        values_flat: The flat trainable parameters, as given by ``to_values``.
+        potential_type: The potential whose parameters to return, which must be one
+            of the trainable's parameter types.
+    """
+    values = trainable._values.detach().clone()
+    values[trainable._unfrozen_idxs] = (values_flat / trainable._scales).clamp(
+        min=trainable._clamp_lower, max=trainable._clamp_upper
+    )
+    n_parameter_values = sum(shape.numel() for shape in trainable._param_shapes)
+    parameters = descent.train._unflatten_tensors(
+        values[:n_parameter_values], trainable._param_shapes
+    )
+    potential_parameters: torch.Tensor = parameters[
+        trainable._param_types.index(potential_type)
+    ]
+    return potential_parameters
+
+
 class AngleEquilibriumRestraint(typing.NamedTuple):
     """Restraint holding each trained angle's equilibrium value at its initial value."""
 
@@ -395,17 +424,19 @@ def build_angle_equilibrium_restraint(
         weight: The weight of the restraint in the loss.
     """
     config = parameter_configs.get(_ANGLE_POTENTIAL_TYPE)
-    if weight == 0.0 or config is None:
+    if (
+        weight == 0.0
+        or config is None
+        or _ANGLE_POTENTIAL_TYPE not in trainable._param_types
+    ):
         return None
 
     with torch.no_grad():
-        force_field = trainable.to_force_field(initial_parameters.detach())
-        if _ANGLE_POTENTIAL_TYPE not in force_field.potentials_by_type:
-            return None
-        potential = force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE]
-        # Clone, as to_force_field updates the force field in place on later calls
-        k1, k2, a1, a2 = potential.parameters.detach().clone().T
+        k1, k2, a1, a2 = _potential_parameters(
+            trainable, initial_parameters, _ANGLE_POTENTIAL_TYPE
+        ).T
 
+    potential = trainable._force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE]
     keys = [
         descent.train._PotentialKey(**key.model_dump())
         for key in potential.parameter_keys
@@ -441,9 +472,9 @@ def compute_angle_equilibrium_loss(
     ``weight * mean(((k / k0) (T - theta0)) ** 2)`` over the trained angles, in
     radians squared.
     """
-    # Called after any other use of the force field, as it updates it in place
-    force_field = trainable.to_force_field(trainable_parameters)
-    parameters = force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE].parameters
+    parameters = _potential_parameters(
+        trainable, trainable_parameters, _ANGLE_POTENTIAL_TYPE
+    )
     k1, k2, a1, a2 = parameters[restraint.rows].T
     target = restraint.target[restraint.rows]
     residuals = (k1 * (target - a1) + k2 * (target - a2)) / restraint.k0[restraint.rows]
