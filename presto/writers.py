@@ -15,6 +15,7 @@ import tensorboardX
 import torch
 
 from .loss import (
+    AngleEquilibriumRestraint,
     DatasetLoss,
     LossRecord,
     compute_overall_loss_and_grad,
@@ -115,6 +116,7 @@ def report(
     experiment_dir: pathlib.Path,
     molecule_weights: list[list[float] | None] | None = None,
     molecule_weights_test: list[list[float] | None] | None = None,
+    angle_equilibrium_restraint: AngleEquilibriumRestraint | None = None,
 ) -> None:
     """Report training progress for Levenberg-Marquardt optimizer.
 
@@ -145,6 +147,8 @@ def report(
             None, for all datasets or one, weights the molecules equally.
         molecule_weights_test: For each test dataset, the weight of each molecule.
             None, for all datasets or one, weights the molecules equally.
+        angle_equilibrium_restraint: The restraint on the angle equilibrium values,
+            added to the regularisation loss, or None for none.
     """
     with torch.enable_grad():  # type: ignore[no-untyped-call]
         # Compute training loss using the same function as train_adam
@@ -159,6 +163,7 @@ def report(
             x.device,
             compute_grad=False,
             molecule_weights=molecule_weights,
+            angle_equilibrium_restraint=angle_equilibrium_restraint,
         )
 
         # Compute test loss using the same function as train_adam
@@ -173,6 +178,7 @@ def report(
             x.device,
             compute_grad=False,
             molecule_weights=molecule_weights_test,
+            angle_equilibrium_restraint=angle_equilibrium_restraint,
         )
 
         with open_writer(experiment_dir) as writer:

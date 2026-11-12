@@ -60,6 +60,27 @@ $$
 
 where the sum runs over the regularised parameters, \(\lambda_p\) is the parameter's `regularize` weight, \(\theta_p^0\) its target and \(N_+\) the number of parameters with \(\lambda_p > 0\). The loss rises linearly with each weight, and a weight of 0 is the same as not regularising the parameter. The gradient and, for the Levenberg-Marquardt optimiser, the Hessian use the same weights. The test loss is computed in the same way, with the testing protocols' weights.
 
+## Angle equilibrium restraint
+
+Linearised angles (`LinearAngles`) are trained through two force constants, \(k_1\) and \(k_2\), on harmonic terms with fixed minima \(a_1\) and \(a_2\). The angle's force constant is \(k = k_1 + k_2\) and its equilibrium value is \(\theta = (k_1 a_1 + k_2 a_2) / k\), so training the force constants also moves the equilibrium value. Unrestrained, the equilibrium angles can end up far from the angles observed in minimised structures. For example, the angles around a carbonyl often add up to far more than 360 degrees, likely to penalise out-of-plane bending. Mutually overestimated angles can work well, but if these are used in combination with e.g. standard Sage parameters, this can produce incorrect geometries.
+
+`angle_equilibrium_regularisation` (in the training settings) restrains each trained angle's equilibrium value to its initial value \(T\), using the restraint from [AMBER ff15ipq](https://doi.org/10.1021/acs.jctc.6b00567):
+
+$$
+L_\mathrm{angle} = \frac{w}{N} \sum_i \left( \frac{k_{1,i} (T_i - a_{1,i}) + k_{2,i} (T_i - a_{2,i})}{k^0_i} \right)^2
+= \frac{w}{N} \sum_i \left( \frac{k_i}{k^0_i} (T_i - \theta_i) \right)^2
+$$
+
+where the sum runs over the \(N\) trained angle parameters, \(w\) is the weight and \(k^0_i\) is the initial force constant, with a floor of 1 kcal/mol/rad². \(L_\mathrm{angle}\) is added to the regularisation loss, so it is part of the gradient and the Levenberg-Marquardt Hessian. A weight of 0 turns it off. A positive weight requires `linearise_harmonics: true`, and the settings are rejected otherwise.
+
+The default weight is 1000. Without the restraint, fits of acetone, acetic acid and toluene left the angles around the carbonyl carbon, the carboxyl carbon and the ring carbons adding up to as much as 424°, 407° and 370°. A weight of 1000 kept every sum within 2° of 360°. The test errors rose by about 11% for acetic acid and by under 2% for acetone and toluene. Weights around 300 give a looser restraint (sums within about 7°) for under 4% in test error. Much larger weights (10000) made the fits clearly worse.
+
+The initial values come from the modified Seminario method by default, which takes them from the MLP-minimised geometry, so they are consistent with each other. Keep in mind:
+
+- With `msm_settings: null`, the targets are the initial force field's generic values, which need not be consistent.
+- An angle type shared by several molecules starts from the average of their MSM values, which need not add up to 360° at every centre.
+- The residual scales with \(k / k^0\), so an angle that the fit softens is restrained less.
+
 ## Comparison with earlier versions
 
 Before this version the per-molecule loss was \(\sum_i w_i d_i / \mathrm{ESS}(w)\), pooled over all of a molecule's entries, with \(\mathrm{ESS}(w) = (\sum_i w_i)^2 / \sum_i w_i^2\). With equal weights and entries of equal size, the two are identical, so fits with default settings are unchanged. Results change when:

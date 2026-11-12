@@ -33,7 +33,6 @@ from presto.outputs import DatasetSplit, OutputStage, OutputType, StageKind
 from presto.settings import WorkflowSettings
 from presto.writers import SCATTER_KEYS, combined_metrics_columns, metrics_columns
 
-
 # Use non-interactive backend for tests
 matplotlib.use("Agg")
 
