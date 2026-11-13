@@ -9,9 +9,9 @@ from pydantic_settings import CliApp, CliPositionalArg, CliSubCommand
 from rich.logging import RichHandler
 
 from . import __version__
+from ._exceptions import InvalidSettingsError
 from .analyse import analyse_workflow
 from .outputs import OutputStage, OutputType, StageKind, WorkflowPathManager
-from ._exceptions import InvalidSettingsError
 from .settings import (
     _DEFAULT_INPUT_PLACEHOLDER,
     ParamSettings,

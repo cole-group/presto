@@ -22,6 +22,7 @@ from rich.progress import (
 
 # from .sample import get_data_MLMD, get_data_MMMD
 from .loss import (
+    build_angle_equilibrium_restraint,
     compute_overall_loss_and_grad,
     get_loss_closure_fn,
 )
@@ -147,6 +148,13 @@ def train_levenberg_marquardt(
         mode="adaptive", n_convergence_criteria=2, max_steps=settings.n_epochs
     )
 
+    angle_equilibrium_restraint = build_angle_equilibrium_restraint(
+        trainable,
+        initial_parameters,
+        settings.parameter_configs,
+        settings.linear_angle_equilibrium_regularisation,
+    )
+
     closure_fn = get_loss_closure_fn(
         datasets,
         dataset_weights,
@@ -156,6 +164,7 @@ def train_levenberg_marquardt(
         topologies,
         settings.regularisation_target,
         molecule_weights=molecule_weights,
+        angle_equilibrium_restraint=angle_equilibrium_restraint,
     )
 
     correct_fn = trainable.clamp
@@ -173,6 +182,7 @@ def train_levenberg_marquardt(
         molecule_weights_test=molecule_weights_test,
         initial_parameters=initial_parameters,
         regularisation_target=settings.regularisation_target,
+        angle_equilibrium_restraint=angle_equilibrium_restraint,
         metrics_file=output_paths[OutputType.TRAINING_METRICS],
         experiment_dir=Path(output_paths[OutputType.TENSORBOARD]),
     )
@@ -250,6 +260,13 @@ def train_adam(
             f"Output paths must contain exactly the keys {settings.output_types}"
         )
 
+    angle_equilibrium_restraint = build_angle_equilibrium_restraint(
+        trainable,
+        initial_parameters,
+        settings.parameter_configs,
+        settings.linear_angle_equilibrium_regularisation,
+    )
+
     # run the ML training
 
     with open(output_paths[OutputType.TRAINING_METRICS], "w") as metrics_file:
@@ -289,6 +306,7 @@ def train_adam(
                             settings.regularisation_target,
                             device,
                             molecule_weights=molecule_weights,
+                            angle_equilibrium_restraint=angle_equilibrium_restraint,
                         )
                     )
 
@@ -311,6 +329,7 @@ def train_adam(
                                 device,
                                 compute_grad=False,
                                 molecule_weights=molecule_weights_test,
+                                angle_equilibrium_restraint=angle_equilibrium_restraint,
                             )
                         )
 
@@ -327,7 +346,14 @@ def train_adam(
                     trainable_parameters.grad = gradient
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
-                    trainable.clamp(trainable_parameters)
+                    # trainable.clamp returns a new, clamped tensor rather than
+                    # clamping in place, so calling it alone does nothing. Copy
+                    # the result back in place rather than reassigning, as the
+                    # optimiser holds (and keeps its state for) this tensor
+                    with torch.no_grad():
+                        trainable_parameters.copy_(
+                            trainable.clamp(trainable_parameters)
+                        )
 
                     if i % settings.learning_rate_decay_step == 0:
                         scheduler.step()
@@ -348,6 +374,7 @@ def train_adam(
             device,
             compute_grad=False,
             molecule_weights=molecule_weights,
+            angle_equilibrium_restraint=angle_equilibrium_restraint,
         )
         losses_test, dataset_losses_test, _ = compute_overall_loss_and_grad(
             datasets_test,
@@ -360,6 +387,7 @@ def train_adam(
             device,
             compute_grad=False,
             molecule_weights=molecule_weights_test,
+            angle_equilibrium_restraint=angle_equilibrium_restraint,
         )
 
         write_metrics(
