@@ -370,6 +370,9 @@ def _potential_parameters(
     leaves the trainable's force field untouched (``to_force_field`` overwrites its
     parameters in place). Gradients flow back to ``values_flat``.
 
+    This relies on private attributes of descent's ``Trainable``, so it belongs in
+    descent, and we plan to move it there in future.
+
     Args:
         trainable: The trainable object containing the force field.
         values_flat: The flat trainable parameters, as given by ``to_values``.
