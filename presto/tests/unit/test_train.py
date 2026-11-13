@@ -1003,7 +1003,7 @@ def _angle_equilibria(trainable, parameters):
 @pytest.mark.parametrize(
     "train_fn", [train_adam, train_levenberg_marquardt], ids=["adam", "lm"]
 )
-def test_angle_equilibrium_regularisation_limits_drift(train_fn, tmp_path):
+def test_linear_angle_equilibrium_regularisation_limits_drift(train_fn, tmp_path):
     """A large angle equilibrium weight keeps the equilibria near their initial values."""
     angle_config = ParameterConfig(
         cols=["k1", "k2"],
@@ -1024,7 +1024,7 @@ def test_angle_equilibrium_regularisation_limits_drift(train_fn, tmp_path):
             optimiser="adam" if train_fn is train_adam else "lm",
             n_epochs=20,
             learning_rate=0.01,
-            angle_equilibrium_regularisation=weight,
+            linear_angle_equilibrium_regularisation=weight,
         )
         output_dir = tmp_path / f"weight_{weight}"
         (output_dir / "tensorboard").mkdir(parents=True)

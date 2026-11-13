@@ -892,7 +892,7 @@ class TrainingSettings(_DefaultSettings):
         description="Target value to regularise parameters towards. 'initial' is the initial parameter value, "
         "'zero' is zero.",
     )
-    angle_equilibrium_regularisation: float = Field(
+    linear_angle_equilibrium_regularisation: float = Field(
         1000.0,
         ge=0.0,
         description="Weight of the restraint holding the equilibrium value of each trained "
@@ -1288,18 +1288,18 @@ class WorkflowSettings(_DefaultSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_angle_equilibrium_regularisation(self) -> Self:
+    def validate_linear_angle_equilibrium_regularisation(self) -> Self:
         """Check the angle equilibrium restraint is only used with linearised harmonics.
 
         The restraint acts on LinearAngles parameters, so it would silently do nothing
         if the harmonics are not linearised.
         """
-        weight = self.training_settings.angle_equilibrium_regularisation
+        weight = self.training_settings.linear_angle_equilibrium_regularisation
         if weight > 0.0 and not self.param_settings.linearise_harmonics:
             raise InvalidSettingsError(
-                f"TrainingSettings.angle_equilibrium_regularisation is {weight}, but "
+                f"TrainingSettings.linear_angle_equilibrium_regularisation is {weight}, but "
                 "ParamSettings.linearise_harmonics is False. The restraint acts only on "
-                "linearised angles, so set angle_equilibrium_regularisation to 0 or "
+                "linearised angles, so set linear_angle_equilibrium_regularisation to 0 or "
                 "linearise the harmonics."
             )
 

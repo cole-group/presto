@@ -592,16 +592,18 @@ class TestTrainingSettings:
         assert settings.learning_rate_decay == 1.0
         # loss_energy_weight and loss_force_weight are now in sampling settings
 
-    def test_angle_equilibrium_regularisation(self, tmp_path):
+    def test_linear_angle_equilibrium_regularisation(self, tmp_path):
         """The weight defaults to 1000, must not be negative and survives YAML."""
-        assert TrainingSettings().angle_equilibrium_regularisation == 1000.0
+        assert TrainingSettings().linear_angle_equilibrium_regularisation == 1000.0
         with pytest.raises(ValidationError):
-            TrainingSettings(angle_equilibrium_regularisation=-1.0)
+            TrainingSettings(linear_angle_equilibrium_regularisation=-1.0)
 
         yaml_path = tmp_path / "training.yaml"
-        TrainingSettings(angle_equilibrium_regularisation=10.0).to_yaml(yaml_path)
+        TrainingSettings(linear_angle_equilibrium_regularisation=10.0).to_yaml(
+            yaml_path
+        )
         loaded = TrainingSettings.from_yaml(yaml_path)
-        assert loaded.angle_equilibrium_regularisation == 10.0
+        assert loaded.linear_angle_equilibrium_regularisation == 10.0
 
     def test_optimiser_validation(self):
         """Test that only valid optimisers are accepted."""
@@ -977,7 +979,9 @@ class TestWorkflowSettings:
             "ProperTorsions": TrainingSettings().parameter_configs["ProperTorsions"]
         }
 
-        with pytest.raises(ValidationError, match="angle_equilibrium_regularisation"):
+        with pytest.raises(
+            ValidationError, match="linear_angle_equilibrium_regularisation"
+        ):
             WorkflowSettings(
                 param_settings=param_settings,
                 training_settings=TrainingSettings(parameter_configs=parameter_configs),
@@ -987,10 +991,10 @@ class TestWorkflowSettings:
             param_settings=param_settings,
             training_settings=TrainingSettings(
                 parameter_configs=parameter_configs,
-                angle_equilibrium_regularisation=0.0,
+                linear_angle_equilibrium_regularisation=0.0,
             ),
         )
-        assert settings.training_settings.angle_equilibrium_regularisation == 0.0
+        assert settings.training_settings.linear_angle_equilibrium_regularisation == 0.0
 
     def test_device_property(self, valid_workflow_settings):
         """Test that device property returns torch.device."""

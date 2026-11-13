@@ -64,7 +64,7 @@ where the sum runs over the regularised parameters, \(\lambda_p\) is the paramet
 
 Linearised angles (`LinearAngles`) are trained through two force constants, \(k_1\) and \(k_2\), on harmonic terms with fixed minima \(a_1\) and \(a_2\). The angle's force constant is \(k = k_1 + k_2\) and its equilibrium value is \(\theta = (k_1 a_1 + k_2 a_2) / k\), so training the force constants also moves the equilibrium value. Unrestrained, the equilibrium angles can end up far from the angles observed in minimised structures. For example, the angles around a carbonyl often add up to far more than 360 degrees, likely to penalise out-of-plane bending. Mutually overestimated angles can work well, but if these are used in combination with e.g. standard Sage parameters, this can produce incorrect geometries.
 
-`angle_equilibrium_regularisation` (in the training settings) restrains each trained angle's equilibrium value to its initial value \(T\), using the restraint from [AMBER ff15ipq](https://doi.org/10.1021/acs.jctc.6b00567):
+`linear_angle_equilibrium_regularisation` (in the training settings) restrains each trained angle's equilibrium value to its initial value \(T\), using the restraint from [AMBER ff15ipq](https://doi.org/10.1021/acs.jctc.6b00567):
 
 $$
 L_\mathrm{angle} = \frac{w}{N} \sum_i \left( \frac{k_{1,i} (T_i - a_{1,i}) + k_{2,i} (T_i - a_{2,i})}{k^0_i} \right)^2

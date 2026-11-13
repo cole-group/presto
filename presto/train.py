@@ -152,7 +152,7 @@ def train_levenberg_marquardt(
         trainable,
         initial_parameters,
         settings.parameter_configs,
-        settings.angle_equilibrium_regularisation,
+        settings.linear_angle_equilibrium_regularisation,
     )
 
     closure_fn = get_loss_closure_fn(
@@ -264,7 +264,7 @@ def train_adam(
         trainable,
         initial_parameters,
         settings.parameter_configs,
-        settings.angle_equilibrium_regularisation,
+        settings.linear_angle_equilibrium_regularisation,
     )
 
     # run the ML training
