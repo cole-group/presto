@@ -355,7 +355,7 @@ def _molecule_weights_for_dataset(
     return molecule_weights[dataset_idx]
 
 
-_ANGLE_POTENTIAL_TYPE: ValenceType = "LinearAngles"
+_LINEAR_ANGLE_POTENTIAL_TYPE: ValenceType = "LinearAngles"
 _MIN_INITIAL_ANGLE_K = 1.0
 """Floor on the initial angle force constant (kcal/mol/rad**2) that normalises the
 angle equilibrium residual, so a near-zero force constant cannot inflate it."""
@@ -423,20 +423,20 @@ def build_angle_equilibrium_restraint(
             which angle parameters are trained.
         weight: The weight of the restraint in the loss.
     """
-    config = parameter_configs.get(_ANGLE_POTENTIAL_TYPE)
+    config = parameter_configs.get(_LINEAR_ANGLE_POTENTIAL_TYPE)
     if (
         weight == 0.0
         or config is None
-        or _ANGLE_POTENTIAL_TYPE not in trainable._param_types
+        or _LINEAR_ANGLE_POTENTIAL_TYPE not in trainable._param_types
     ):
         return None
 
     with torch.no_grad():
         k1, k2, a1, a2 = _potential_parameters(
-            trainable, initial_parameters, _ANGLE_POTENTIAL_TYPE
+            trainable, initial_parameters, _LINEAR_ANGLE_POTENTIAL_TYPE
         ).T
 
-    potential = trainable._force_field.potentials_by_type[_ANGLE_POTENTIAL_TYPE]
+    potential = trainable._force_field.potentials_by_type[_LINEAR_ANGLE_POTENTIAL_TYPE]
     keys = [
         descent.train._PotentialKey(**key.model_dump())
         for key in potential.parameter_keys
@@ -473,7 +473,7 @@ def compute_angle_equilibrium_loss(
     radians squared.
     """
     parameters = _potential_parameters(
-        trainable, trainable_parameters, _ANGLE_POTENTIAL_TYPE
+        trainable, trainable_parameters, _LINEAR_ANGLE_POTENTIAL_TYPE
     )
     k1, k2, a1, a2 = parameters[restraint.rows].T
     target = restraint.target[restraint.rows]
