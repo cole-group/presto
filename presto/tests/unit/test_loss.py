@@ -2106,11 +2106,16 @@ class TestAngleEquilibriumRestraint:
         setup = linear_angles_setup
         force_field = setup.trainable.to_force_field(setup.params)
         before = force_field.potentials_by_type["LinearAngles"].parameters
+        before_values = before.detach().clone()
 
         restraint = self._build(setup)
         self._loss(setup, setup.initial, restraint)
 
-        assert force_field.potentials_by_type["LinearAngles"].parameters is before
+        after = force_field.potentials_by_type["LinearAngles"].parameters
+        # Identity catches reassignment (as to_force_field does), even with equal
+        # values; the value check catches in-place modification
+        assert after is before
+        assert torch.equal(after, before_values)
 
     def test_mean_is_over_trained_rows_only(self):
         """Angles excluded from training are left out of the target rows and mean."""
